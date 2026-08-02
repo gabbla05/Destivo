@@ -1,0 +1,184 @@
+// a file that contains translations of all texts in the application (Polish-English)
+export type Language = 'en' | 'pl';
+
+export const translations = {
+  pl: {
+    //common texts and buttons
+    common: {
+      button_nextStep: 'Dalej',
+      button_goBack: 'Wróć',
+      button_save: 'Zapisz',
+      button_cancel: 'Anuluj',
+      button_delete: 'Usuń',
+      button_edit: 'Edytuj',
+      button_add: 'Dodaj',
+      button_close: 'Zamknij',
+      button_confirm: 'Zatwierdź',
+      button_continue: 'Kontynuuj',
+      button_skip: 'Pomiń ten krok',
+      label_loading: 'Ładowanie...',
+      label_noData: 'Brak danych',
+      label_error: 'Wystąpił błąd',
+    },
+
+    welcomeScreen: {
+      header_titleText: 'Destivo',
+      header_subtitleTopLine: 'Inteligentny asystent dla',
+      header_subtitleOrangeAccentLine: 'Twoich podróży.',
+      button_registerNewAccount: 'Zarejestruj się ➔',
+      button_loginToExistingAccount: 'Zaloguj się',
+      button_continueAsGuest: 'KONTYNUUJ JAKO GOŚĆ',
+      button_languageSwitchLabel: 'EN',
+    },
+
+    homeScreen: {
+      header_greetingUser: 'Cześć',
+      header_greetingGuest: 'Witaj, Podróżniku!',
+      section_exploreTitle: 'Gotowe podróże',
+      section_myTripsTitle: 'Twoje podróże',
+      button_planNewTrip: 'Zaplanuj podróż',
+      button_goToMyTrips: 'Przejdź do swoich podróży',
+    },
+
+    //dates and route
+    tripCreatorStep1: {
+      header_title: 'Kiedy i dokąd jedziesz?',
+      header_subtitle: 'Podaj podstawowe informacje o swoim wyjeździe.',
+      input_tripNameLabel: 'Nazwa podróży',
+      input_tripNamePlaceholder: 'np. Wakacje we Włoszech',
+      input_originLabel: 'Skąd wyruszasz?',
+      input_originPlaceholder: 'np. Warszawa',
+      input_destinationLabel: 'Dokąd jedziesz?',
+      input_destinationPlaceholder: 'np. Rzym',
+      input_startDateLabel: 'Data wyjazdu',
+      input_endDateLabel: 'Data powrotu',
+    },
+
+    //transport
+    tripCreatorStep2: {
+      header_title: 'Wybierz środek transportu',
+      header_subtitle: 'Porównaj opcje lub wpisz własny transport.',
+      section_recommendationsTitle: 'Najkorzystniejsze propozycje',
+      option_cheapest: 'Najtańsza opcja',
+      option_fastest: 'Najszybsza opcja',
+      input_customTransportLabel: 'Finalny środek transportu',
+      input_customTransportPlaceholder: 'np. Lot WizzAir W6 1234',
+      button_goToCarrierWebsite: 'Kup bilet na stronie przewoźnika ➔',
+    },
+
+    //accomodation
+    tripCreatorStep3: {
+      header_title: 'Wybierz zakwaterowanie',
+      header_subtitle: 'Zarezerwuj nocleg lub wpisz własny adres.',
+      input_accommodationAddressLabel: 'Adres noclegu',
+      input_accommodationAddressPlaceholder: 'np. Via del Corso 12, Rzym',
+      button_openBooking: 'Szukaj noclegu w Booking.com ➔',
+      question_wantToSelectAttractionsNow: 'Czy chcesz wybrać atrakcje w okolicy?',
+      button_selectAttractionsYes: 'Tak, wybieram teraz',
+      button_selectAttractionsNo: 'Nie teraz, przejdź do osi czasu',
+    },
+
+    //attractions
+    tripCreatorStep4: {
+      header_title: 'Wybierz atrakcje w okolicy',
+      header_subtitle: 'Wyszukaj ciekawe miejsca i dodaj je do planu.',
+      input_searchRadiusLabel: 'Promień wyszukiwania (km)',
+      input_searchRadiusPlaceholder: 'np. 10',
+      button_addToTimeline: 'Dodaj do osi czasu',
+      button_removeFromTimeline: 'Usuń z osi czasu',
+      label_cost: 'Koszt wstępu:',
+      label_free: 'Darmowe',
+    },
+  },
+
+  en: {
+    //common texts and buttons
+    common: {
+      button_nextStep: 'Next',
+      button_goBack: 'Back',
+      button_save: 'Save',
+      button_cancel: 'Cancel',
+      button_delete: 'Delete',
+      button_edit: 'Edit',
+      button_add: 'Add',
+      button_close: 'Close',
+      button_confirm: 'Confirm',
+      button_continue: 'Continue',
+      button_skip: 'Skip this step',
+      label_loading: 'Loading...',
+      label_noData: 'No data available',
+      label_error: 'An error occurred',
+    },
+
+    
+    welcomeScreen: {
+      header_titleText: 'Destivo',
+      header_subtitleTopLine: 'Precision engineering for',
+      header_subtitleOrangeAccentLine: 'your journeys.',
+      button_registerNewAccount: 'Get Started ➔',
+      button_loginToExistingAccount: 'Log In',
+      button_continueAsGuest: 'CONTINUE AS GUEST',
+      button_languageSwitchLabel: 'PL',
+    },
+
+    
+    homeScreen: {
+      header_greetingUser: 'Hello',
+      header_greetingGuest: 'Welcome, Explorer!',
+      section_exploreTitle: 'Featured trips',
+      section_myTripsTitle: 'Your trips',
+      button_planNewTrip: 'Plan a trip',
+      button_goToMyTrips: 'Go to your trips',
+    },
+
+    // dates and route
+    tripCreatorStep1: {
+      header_title: 'When and where are you going?',
+      header_subtitle: 'Enter the basic details of your journey.',
+      input_tripNameLabel: 'Trip name',
+      input_tripNamePlaceholder: 'e.g. Italian Holiday',
+      input_originLabel: 'Departure from',
+      input_originPlaceholder: 'e.g. Warsaw',
+      input_destinationLabel: 'Destination',
+      input_destinationPlaceholder: 'e.g. Rome',
+      input_startDateLabel: 'Departure date',
+      input_endDateLabel: 'Return date',
+    },
+
+    // transport
+    tripCreatorStep2: {
+      header_title: 'Select your transport',
+      header_subtitle: 'Compare options or enter your own transport.',
+      section_recommendationsTitle: 'Best recommendations',
+      option_cheapest: 'Cheapest option',
+      option_fastest: 'Fastest option',
+      input_customTransportLabel: 'Final transport details',
+      input_customTransportPlaceholder: 'e.g. WizzAir flight W6 1234',
+      button_goToCarrierWebsite: 'Buy ticket on carrier website ➔',
+    },
+
+    // accomodation
+    tripCreatorStep3: {
+      header_title: 'Select accommodation',
+      header_subtitle: 'Book a place to stay or enter your own address.',
+      input_accommodationAddressLabel: 'Accommodation address',
+      input_accommodationAddressPlaceholder: 'e.g. Via del Corso 12, Rome',
+      button_openBooking: 'Search accommodation on Booking.com ➔',
+      question_wantToSelectAttractionsNow: 'Would you like to select nearby attractions?',
+      button_selectAttractionsYes: 'Yes, choose now',
+      button_selectAttractionsNo: 'Not now, go to timeline',
+    },
+
+    // attractions
+    tripCreatorStep4: {
+      header_title: 'Select nearby attractions',
+      header_subtitle: 'Discover places of interest and add them to your plan.',
+      input_searchRadiusLabel: 'Search radius (km)',
+      input_searchRadiusPlaceholder: 'e.g. 10',
+      button_addToTimeline: 'Add to timeline',
+      button_removeFromTimeline: 'Remove from timeline',
+      label_cost: 'Entry fee:',
+      label_free: 'Free',
+    },
+  },
+};
