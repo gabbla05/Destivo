@@ -11,7 +11,11 @@ import {
 import { translations, Language } from '../../i18n/translations';
 import { useAuthStore } from '../../store/authStore';
 
-export const WelcomeScreen = () => {
+interface WelcomeScreenProps {
+  onNavigateToAuth?: () => void;
+}
+
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }) => {
   const { continueAsGuest } = useAuthStore();
   const [lang, setLang] = useState<Language>('pl');
 
@@ -56,7 +60,7 @@ export const WelcomeScreen = () => {
           {/* Przycisk 1: Zarejestruj się (Główny akcent) */}
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => console.log('Przejdź do rejestracji')}
+            onPress={onNavigateToAuth}
             activeOpacity={0.8}
           >
             <Text style={styles.primaryButtonText}>
@@ -66,7 +70,7 @@ export const WelcomeScreen = () => {
 
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => console.log('Przejdź do logowania')}
+            onPress={onNavigateToAuth}
             activeOpacity={0.8}
           >
             <Text style={styles.secondaryButtonText}>
@@ -186,7 +190,7 @@ const styles = StyleSheet.create({
   guestButton: {
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 4,
   },
   guestButtonText: {
     color: '#94A3B8',

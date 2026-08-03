@@ -31,6 +31,32 @@ export const translations = {
       button_languageSwitchLabel: 'EN',
     },
 
+    loginRegisterScreen: {
+        title: 'Nowa era organizacji podróży',
+      subtitle: 'Twoje plany, bilety i rezerwacje w jednym, bezpiecznym Sejfie Offline.',
+      guestButton: 'Kontynuuj jako gość',
+      loginButton: 'Zaloguj się',
+      registerButton: 'Utwórz konto',
+      createAccount: 'Utwórz konto',
+      joinNetwork: 'DOŁĄCZ DO SIECI ODKRYWCÓW',
+      fullName: 'IMIĘ I NAZWISKO',
+      fullNamePlaceholder: 'np. Jan Kowalski',
+      email: 'ADRES E-MAIL',
+      emailPlaceholder: 'odkrywca@example.com',
+      password: 'HASŁO',
+      passwordPlaceholder: '••••••••••••',
+      required: 'WYMAGANE',
+      secureData: 'DANE SZYFROWANE',
+      agreeTerms: 'Akceptuję Politykę Prywatności oraz Warunki Usługi.',
+      createAccountBtn: 'Utwórz konto',
+      alreadyDeployed: 'MASZ JUŻ KONTO?',
+      loginToAccount: 'ZALOGUJ SIĘ',
+      errors: {
+        fieldsRequired: 'Wypełnij wszystkie pola i zaakceptuj regulamin.',
+        signUpFailed: 'Błąd podczas rejestracji. Spróbuj ponownie.',
+      },
+    },
+
     homeScreen: {
       header_greetingUser: 'Cześć',
       header_greetingGuest: 'Witaj, Podróżniku!',
@@ -121,7 +147,32 @@ export const translations = {
       button_languageSwitchLabel: 'PL',
     },
 
-    
+    loginRegisterScreen: {
+        title: 'Next-generation travel orchestration.',
+      subtitle: 'Your itineraries, tickets, and bookings in one secure Offline Safe.',
+      guestButton: 'Continue as Guest',
+      loginButton: 'Login',
+      registerButton: 'Create Account',
+      createAccount: 'Create your account',
+      joinNetwork: 'JOIN THE EXPLORER NETWORK',
+      fullName: 'FULL NAME',
+      fullNamePlaceholder: 'e.g. Alex Sterling',
+      email: 'EMAIL ADDRESS',
+      emailPlaceholder: 'explorer@example.com',
+      password: 'PASSPHRASE',
+      passwordPlaceholder: '••••••••••••',
+      required: 'REQUIRED',
+      secureData: 'SECURE DATA',
+      agreeTerms: 'I agree to the Privacy Policy and Service Terms.',
+      createAccountBtn: 'Create Account',
+      alreadyDeployed: 'ALREADY DEPLOYED?',
+      loginToAccount: 'LOGIN TO ACCOUNT',
+      errors: {
+        fieldsRequired: 'Please fill in all fields and accept the terms.',
+        signUpFailed: 'Registration failed. Please try again.',
+      },
+    },
+
     homeScreen: {
       header_greetingUser: 'Hello',
       header_greetingGuest: 'Welcome, Explorer!',
