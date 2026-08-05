@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -20,14 +20,19 @@ import { supabase } from '../../lib/supabase';
 
 interface LoginRegisterScreenProps {
   onSuccess?: () => void;
+  initialMode?: 'login' | 'register';
 }
 
-export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess }) => {
+export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, initialMode = 'register' }) => {
   const { setUser, continueAsGuest } = useAuthStore();
   
   // Lokalny stan języka (możesz też przenieść do store, jeśli chcesz spójności w całej apce)
   const [lang, setLang] = useState<Language>('pl');
-  const [isLoginMode, setIsLoginMode] = useState(false); // false = Rejestracja, true = Logowanie
+  const [isLoginMode, setIsLoginMode] = useState(initialMode === 'login');
+
+  useEffect(() => {
+    setIsLoginMode(initialMode === 'login');
+  }, [initialMode]);
 
   const t = translations[lang].loginRegisterScreen;
   const commonT = translations[lang].common;
@@ -82,13 +87,9 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
         if (error) throw error;
 
         if (data.user) {
-          setUser({
-            id: data.user.id,
-            email: data.user.email || email,
-            isGuest: false,
-          });
-          Alert.alert('DESTIVO', 'Konto zostało utworzone!');
-          if (onSuccess) onSuccess();
+          Alert.alert('DESTIVO', 'Konto zostało utworzone! Teraz możesz się zalogować.');
+          setIsLoginMode(true);
+          setPassword('');
         }
       }
     } catch (error: any) {

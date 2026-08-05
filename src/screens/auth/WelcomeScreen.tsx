@@ -12,7 +12,7 @@ import { translations, Language } from '../../i18n/translations';
 import { useAuthStore } from '../../store/authStore';
 
 interface WelcomeScreenProps {
-  onNavigateToAuth?: () => void;
+  onNavigateToAuth?: (mode: 'login' | 'register') => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }) => {
@@ -60,7 +60,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }
           {/* Przycisk 1: Zarejestruj się (Główny akcent) */}
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={onNavigateToAuth}
+            onPress={() => onNavigateToAuth?.('register')}
             activeOpacity={0.8}
           >
             <Text style={styles.primaryButtonText}>
@@ -70,7 +70,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }
 
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={onNavigateToAuth}
+            onPress={() => onNavigateToAuth?.('login')}
             activeOpacity={0.8}
           >
             <Text style={styles.secondaryButtonText}>

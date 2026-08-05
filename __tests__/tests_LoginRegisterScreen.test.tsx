@@ -100,7 +100,8 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
           data: { full_name: 'Nowy Użytkownik' },
         },
       });
-      expect(mockSetUser).toHaveBeenCalledWith({ id: 'new-user-id', email: 'nowy@destivo.pl', isGuest: false });
+      expect(mockSetUser).not.toHaveBeenCalled();
+      expect(screen.getByText('Zaloguj się ➔')).toBeTruthy();
     });
   });
 

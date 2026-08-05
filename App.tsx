@@ -9,6 +9,7 @@ import { useAuthStore } from './src/store/authStore';
 export default function App() {
   const { user, isGuest, logout } = useAuthStore();
   const [currentScreen, setCurrentScreen] = useState<'welcome' | 'auth'>('welcome');
+  const [authScreenMode, setAuthScreenMode] = useState<'login' | 'register'>('register');
 
   // 1. Jeśli użytkownik jest zalogowany lub wszedł jako gość -> pokaż ekran główny / Home
   if (user || isGuest) {
@@ -34,6 +35,7 @@ export default function App() {
   if (currentScreen === 'auth') {
     return (
       <LoginRegisterScreen
+        initialMode={authScreenMode}
         onSuccess={() => {
           // Po sukcesie Zustand automatycznie przełączy widok na punkt 1
         }}
@@ -44,7 +46,10 @@ export default function App() {
   // 3. Domyślny ekran startowy
   return (
     <WelcomeScreen
-      onNavigateToAuth={() => setCurrentScreen('auth')}
+      onNavigateToAuth={(mode) => {
+        setAuthScreenMode(mode);
+        setCurrentScreen('auth');
+      }}
     />
   );
 }
