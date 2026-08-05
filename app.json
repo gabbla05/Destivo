@@ -20,6 +20,9 @@
     "platforms": [
       "ios",
       "android"
+    ],
+    "plugins": [
+      "@react-native-community/datetimepicker"
     ]
   }
 }

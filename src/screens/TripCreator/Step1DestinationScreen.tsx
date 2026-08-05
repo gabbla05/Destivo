@@ -12,6 +12,7 @@ import {
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
@@ -38,6 +39,14 @@ const parseDDMMYYYY = (dateStr: string): Date | null => {
     return null;
   }
   return date;
+};
+
+// --- POMOCNICZA FUNKCJA DO FORMATOWANIA DATY DD-MM-YYYY ---
+const formatDDMMYYYY = (date: Date): string => {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}-${month}-${year}`;
 };
 
 // --- POMOCNICZA FUNKCJA DO WERYFIKACJI MIASTA (OPENSTREETMAP NOMINATIM) ---
@@ -83,6 +92,27 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
   // Stan ładowania podczas sprawdzania miejscowości w API
   const [isValidating, setIsValidating] = useState(false);
+
+  // --- OBSŁUGA KALENDARZA SYSTEMOWEGO ---
+  const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(
+    null
+  );
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    const currentTarget = activePicker;
+    if (Platform.OS === 'android') {
+      setActivePicker(null);
+    }
+
+    if (event.type === 'set' && selectedDate && currentTarget) {
+      const formatted = formatDDMMYYYY(selectedDate);
+      if (currentTarget === 'start') {
+        setStartDate(formatted);
+      } else {
+        setEndDate(formatted);
+      }
+    }
+  };
 
 const handleNext = async () => {
     // 1. Sprawdzenie czy wpisano cel (wymagane)
@@ -153,7 +183,7 @@ const handleNext = async () => {
       navigation.navigate('Step2Transport');
     }
   };
-  
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
@@ -254,7 +284,10 @@ const handleNext = async () => {
                   {t.input_startDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputIcon}>📅</Text>
+                  {/* Kliknięcie otworzy kalendarz wyjazdu */}
+                  <TouchableOpacity onPress={() => setActivePicker('start')}>
+                    <Text style={styles.inputIcon}>📅</Text>
+                  </TouchableOpacity>
                   <TextInput
                     style={styles.input}
                     placeholder={t.date_placeholder}
@@ -271,7 +304,10 @@ const handleNext = async () => {
                   {t.input_endDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputIcon}>📅</Text>
+                  {/* Kliknięcie otworzy kalendarz powrotu */}
+                  <TouchableOpacity onPress={() => setActivePicker('end')}>
+                    <Text style={styles.inputIcon}>📅</Text>
+                  </TouchableOpacity>
                   <TextInput
                     style={styles.input}
                     placeholder={t.date_placeholder}
@@ -313,6 +349,21 @@ const handleNext = async () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* SYSTEMOWY KALENDARZ */}
+      {activePicker !== null && (
+        <DateTimePicker
+          value={
+            (activePicker === 'start'
+              ? parseDDMMYYYY(startDate)
+              : parseDDMMYYYY(endDate)) || new Date()
+          }
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+        />
+      )}
+      
     </SafeAreaView>
   );
 };
