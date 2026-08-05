@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView, Sta
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 
-export const HomeScreen: React.FC = () => {
+export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { isGuest, user, language, toggleLanguage } = useAuthStore();
   
   const t = translations[language].homeScreen;
@@ -52,7 +52,11 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.primaryButton} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.primaryButton} 
+            activeOpacity={0.8}
+            onPress={() => navigation?.navigate('TripCreator')}
+          >
             <Text style={styles.primaryButtonText}>{t.button_planNewTrip}</Text>
           </TouchableOpacity>
 

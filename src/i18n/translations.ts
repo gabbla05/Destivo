@@ -87,8 +87,14 @@ export const translations = {
       tab_profile: 'Profil',
     },
 
-    //dates and route
     tripCreatorStep1: {
+      button_languageSwitchLabel: 'EN',
+      step_indicator: 'KROK 1 Z 4',
+      step_title: 'Cel i daty',
+      badge_required: '* WYMAGANE',
+      error_destinationRequired: 'Pole celu podróży (Dokąd jedziesz?) jest wymagane w Kroku 1.',
+      default_tripNamePrefix: 'Podróż: ',
+      date_placeholder: 'DD-MM-YYYY',
       header_title: 'Kiedy i dokąd jedziesz?',
       header_subtitle: 'Podaj podstawowe informacje o swoim wyjeździe.',
       input_tripNameLabel: 'Nazwa podróży',
@@ -99,6 +105,10 @@ export const translations = {
       input_destinationPlaceholder: 'np. Rzym',
       input_startDateLabel: 'Data wyjazdu',
       input_endDateLabel: 'Data powrotu',
+      error_placeNotFound: 'Nie znaleźliśmy takiej miejscowości. Sprawdź pisownię.',
+      error_invalidDateFormat: 'Niepoprawny format daty. Użyj DD-MM-YYYY (np. 15-08-2026).',
+      error_pastDate: 'Data wyjazdu nie może być z przeszłości.',
+      error_dateOrder: 'Data powrotu musi być późniejsza lub równa dacie wyjazdu.',
     },
 
     //transport
@@ -224,20 +234,29 @@ export const translations = {
       tab_profile: 'Profile',
     },
 
-    // dates and route
     tripCreatorStep1: {
+      button_languageSwitchLabel: 'PL',
+      step_indicator: 'STEP 1 OF 4',
+      step_title: 'Destination & Dates',
+      badge_required: '* REQUIRED',
+      error_destinationRequired: 'Destination field (Where to next?) is required in Step 1.',
+      default_tripNamePrefix: 'Trip: ',
+      date_placeholder: 'DD-MM-YYYY',
       header_title: 'When and where are you going?',
       header_subtitle: 'Enter the basic details of your journey.',
       input_tripNameLabel: 'Trip name',
       input_tripNamePlaceholder: 'e.g. Italian Holiday',
-      input_originLabel: 'Departure from',
+      input_originLabel: 'Departure from',       
       input_originPlaceholder: 'e.g. Warsaw',
       input_destinationLabel: 'Destination',
       input_destinationPlaceholder: 'e.g. Rome',
       input_startDateLabel: 'Departure date',
       input_endDateLabel: 'Return date',
+      error_placeNotFound: 'We could not find this place. Please check the spelling.',
+      error_invalidDateFormat: 'Invalid date format. Use DD-MM-YYYY (e.g. 15-08-2026).',
+      error_pastDate: 'Departure date cannot be in the past.',
+      error_dateOrder: 'Return date must be on or after the departure date.',
     },
-
     // transport
     tripCreatorStep2: {
       header_title: 'Select your transport',

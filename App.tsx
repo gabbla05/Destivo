@@ -1,22 +1,30 @@
 import React, { useState } from 'react';
-import { View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native'; // <-- DODANO: Wymagane dla BottomTabNavigator
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack'; // <-- 1. Importujemy Stack Navigator
 
 import { WelcomeScreen } from './src/screens/auth/WelcomeScreen';
-import { LoginRegisterScreen } from './src/screens/auth/LoginRegisterScreen'; // <-- ZOSTAWIONE: Poprawny import bez klamer
+import { LoginRegisterScreen } from './src/screens/auth/LoginRegisterScreen';
 import { useAuthStore } from './src/store/authStore';
 import { BottomTabNavigator } from './src/navigation/BottomTabNavigator';
+import { TripCreatorNavigator } from './src/navigation/TripCreatorNavigator';
+
+const RootStack = createNativeStackNavigator();
 
 export default function App() {
   const { user, isGuest } = useAuthStore();
   const [currentScreen, setCurrentScreen] = useState<'welcome' | 'auth'>('welcome');
   const [authScreenMode, setAuthScreenMode] = useState<'login' | 'register'>('register');
 
-  // 1. Jeśli użytkownik jest zalogowany LUB wszedł jako gość -> uruchamiamy Dolne Menu (Dashboard, Podróże, Sejf, Profil)
+  // 1. Jeśli użytkownik jest zalogowany LUB wszedł jako gość -> uruchamiamy Root Stack (Dolne menu + Kreator)
   if (user || isGuest) {
     return (
       <NavigationContainer>
-        <BottomTabNavigator />
+        <RootStack.Navigator screenOptions={{ headerShown: false }}>
+          {/* Główny ekran z dolnymi zakładkami */}
+          <RootStack.Screen name="MainTabs" component={BottomTabNavigator} />
+          {/* Ekran Kreatora Podróży otwierany na wierzchu zakładek */}
+          <RootStack.Screen name="TripCreator" component={TripCreatorNavigator} />
+        </RootStack.Navigator>
       </NavigationContainer>
     );
   }
@@ -27,8 +35,7 @@ export default function App() {
       <LoginRegisterScreen
         initialMode={authScreenMode}
         onSuccess={() => {
-          // Po udanym zalogowaniu/rejestracji stan w authStore się zmieni,
-          // co automatycznie przełączy aplikację do warunku nr 1 (BottomTabNavigator)
+          // Po udanym zalogowaniu/rejestracji stan w authStore się zmieni i otworzy RootStack
         }}
       />
     );
