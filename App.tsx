@@ -34,6 +34,7 @@ export default function App() {
     return (
       <LoginRegisterScreen
         initialMode={authScreenMode}
+        onBack={() => setCurrentScreen('welcome')} // <-- DODAJ TE STRZALKE WSTECZ TUTAJ
         onSuccess={() => {
           // Po udanym zalogowaniu/rejestracji stan w authStore się zmieni i otworzy RootStack
         }}

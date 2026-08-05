@@ -20,10 +20,11 @@ import { supabase } from '../../lib/supabase';
 
 interface LoginRegisterScreenProps {
   onSuccess?: () => void;
+  onBack?: () => void;
   initialMode?: 'login' | 'register';
 }
 
-export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, initialMode = 'register' }) => {
+export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, onBack, initialMode = 'register' }) => {
   const { setUser, continueAsGuest, language, toggleLanguage: toggleAppLanguage } = useAuthStore();
   
   const [isLoginMode, setIsLoginMode] = useState(initialMode === 'login');
@@ -107,10 +108,19 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
       >
         <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
           
-          {/* Górny pasek: Przełącznik języka */}
-          <View style={{ width: '100%' }} />
           <View style={styles.topBar}>
-            <TouchableOpacity onPress={toggleLanguage} style={styles.langButton} activeOpacity={0.7}>
+            <TouchableOpacity
+              onPress={onBack}
+              style={styles.backButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.backButtonText}>←</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={toggleLanguage}
+              style={styles.langButton}
+              activeOpacity={0.7}
+            >
               <Text style={styles.langText}>
                 {welcomeT.button_languageSwitchLabel}
               </Text>
@@ -271,9 +281,24 @@ const styles = StyleSheet.create({
   },
   topBar: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between', // <-- Zmień z 'flex-end' na 'space-between'
+    alignItems: 'center',            // <-- Dodaj wyrównanie do środka
     marginTop: 10,
     marginBottom: 5,
+  },
+  // --- DODAJ TE DWA STYLE PONIŻEJ ---
+  backButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  backButtonText: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '700',
   },
   langButton: {
     paddingHorizontal: 14,

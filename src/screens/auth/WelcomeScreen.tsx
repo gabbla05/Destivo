@@ -40,10 +40,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }
         <View style={styles.heroSection}>
           <Image
             source={require('../../../assets/logo/logoBezTla.png')}
+            style={[styles.logoImage, styles.logoImageTight]}
+            resizeMode="contain"
+          />
+
+          {/*<Text style={styles.title}>{t.header_titleText}</Text>*/}
+
+          <Image
+            source={require('../../../assets/logo/NapisBezKropkiBialy.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />
-          <Text style={styles.title}>{t.header_titleText}</Text>
 
           <Text style={styles.subtitleTop}>{t.header_subtitleTopLine}</Text>
           <Text style={styles.subtitleAccent}>
@@ -135,14 +142,17 @@ const styles = StyleSheet.create({
   logoImage: {
     width: 200,
     height: 200,
-    marginBottom:0,
+    marginBottom: 0,
+  },
+  logoImageTight: {
+    marginBottom: -80,
   },
   title: {
     fontSize: 42,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.5,
-    marginBottom: 12,
+    marginBottom: 0,
   },
   subtitleTop: {
     fontSize: 15,
