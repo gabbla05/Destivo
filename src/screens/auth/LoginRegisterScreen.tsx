@@ -15,7 +15,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
-import { translations, Language } from '../../i18n/translations';
+import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
 
 interface LoginRegisterScreenProps {
@@ -24,19 +24,17 @@ interface LoginRegisterScreenProps {
 }
 
 export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, initialMode = 'register' }) => {
-  const { setUser, continueAsGuest } = useAuthStore();
+  const { setUser, continueAsGuest, language, toggleLanguage: toggleAppLanguage } = useAuthStore();
   
-  // Lokalny stan języka (możesz też przenieść do store, jeśli chcesz spójności w całej apce)
-  const [lang, setLang] = useState<Language>('pl');
   const [isLoginMode, setIsLoginMode] = useState(initialMode === 'login');
 
   useEffect(() => {
     setIsLoginMode(initialMode === 'login');
   }, [initialMode]);
 
-  const t = translations[lang].loginRegisterScreen;
-  const commonT = translations[lang].common;
-  const welcomeT = translations[lang].welcomeScreen;
+  const t = translations[language].loginRegisterScreen;
+  const commonT = translations[language].common;
+  const welcomeT = translations[language].welcomeScreen;
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -45,7 +43,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   const [loading, setLoading] = useState(false);
 
   const toggleLanguage = () => {
-    setLang((prev) => (prev === 'pl' ? 'en' : 'pl'));
+    toggleAppLanguage();
   };
 
   const handleSubmit = async () => {
@@ -71,6 +69,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
             id: data.user.id,
             email: data.user.email || email,
             isGuest: false,
+            name: data.user.user_metadata?.full_name || undefined,
           });
           if (onSuccess) onSuccess();
         }
@@ -254,6 +253,13 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   );
 };
 
+
+
+
+
+
+
+//STYLE
 const styles = StyleSheet.create({
   container: {
     flex: 1,

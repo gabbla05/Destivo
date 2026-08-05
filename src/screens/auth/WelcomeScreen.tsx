@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   SafeAreaView,
   StatusBar,
 } from 'react-native';
-import { translations, Language } from '../../i18n/translations';
+import { translations } from '../../i18n/translations';
 import { useAuthStore } from '../../store/authStore';
 
 interface WelcomeScreenProps {
@@ -16,14 +16,9 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }) => {
-  const { continueAsGuest } = useAuthStore();
-  const [lang, setLang] = useState<Language>('pl');
+  const { continueAsGuest, language, toggleLanguage } = useAuthStore();
 
-  const t = translations[lang].welcomeScreen;
-
-  const toggleLanguage = () => {
-    setLang((prev) => (prev === 'pl' ? 'en' : 'pl'));
-  };
+  const t = translations[language].welcomeScreen;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -94,6 +89,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }
     </SafeAreaView>
   );
 };
+
+
+
+
+
+
+
 
 //STYLE
 const styles = StyleSheet.create({
