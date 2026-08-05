@@ -3,24 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-// 1. Importujemy gotowy ekran Kroku 1
+// 1. Importujemy gotowe ekrany Kroku 1 i Kroku 2
 import { Step1DestinationScreen } from '../screens/TripCreator/Step1DestinationScreen';
+import { Step2TransportScreen } from '../screens/TripCreator/Step2TransportScreen';
 
 const Stack = createNativeStackNavigator();
 
-// 2. Tymczasowe placeholdery dla Kroków 2, 3 i 4 (żeby TypeScript nie rzucał błędów):
-const Step2TransportScreen = ({ navigation }: any) => (
-  <SafeAreaView style={styles.placeholderContainer}>
-    <Text style={styles.placeholderTitle}>STEP 2 OF 4 - Transport</Text>
-    <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Step3')}>
-      <Text style={styles.buttonText}>Dalej → Krok 3</Text>
-    </TouchableOpacity>
-    <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-      <Text style={styles.backButtonText}>← Cofnij</Text>
-    </TouchableOpacity>
-  </SafeAreaView>
-);
-
+// 2. Tymczasowe placeholdery dla Kroków 3 i 4 (żeby TypeScript nie rzucał błędów)
 const Step3LodgingScreen = ({ navigation }: any) => (
   <SafeAreaView style={styles.placeholderContainer}>
     <Text style={styles.placeholderTitle}>STEP 3 OF 4 - Lodging (Booking)</Text>
@@ -73,8 +62,7 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
+    paddingHorizontal: 24,     paddingVertical: 14,
     borderRadius: 12,
     marginBottom: 12,
     width: '100%',
