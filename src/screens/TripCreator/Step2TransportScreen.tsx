@@ -2,771 +2,920 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StatusBar,
   ActivityIndicator,
   Linking,
+  Alert,
+  StyleSheet,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+import {
+  useTripCreatorStore,
+  TransportOption,
+} from '../../store/tripCreatorStore';
+
+import {
+  fetchTransportComparisons,
+  getTransportRouteMetadata,
+  TransportDataProvider,
+  TransportRouteMetadata,
+} from '../../lib/transportCalculator';
+
 import { useAuthStore } from '../../store/authStore';
-import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 
-interface RouteInfo {
-  distanceKm: number;
-  durationHours: number;
+/**
+ * Ten ekran NIE tworzy cen ani czasów.
+ *
+ * Wszystkie liczby pochodzą z transportCalculator / providera:
+ * - LIVE      = aktualna cena zwrócona przez źródło,
+ * - ESTIMATE  = obliczenie/orientacyjna wartość,
+ * - UNAVAILABLE = brak wiarygodnych danych.
+ *
+ * Ważne: provider powinien być docelowo wstrzykiwany z warstwy API,
+ * np. transportProviders.ts. Dzięki temu ekran nie zna szczegółów
+ * poszczególnych API przewoźników.
+ */
+interface Step2TransportScreenProps {
+  navigation?: any;
+  transportProvider: TransportDataProvider;
+  departureAt?: string;
 }
 
-export interface SmartRecommendation {
-  id: 'fastest' | 'cheapest';
-  badgeLabel: string;
-  badgeColor: string;
-  title: string;
-  icon: string;
-  carrierName: string;
-  estimatedTime: string;
-  estimatedPriceRange: string;
-  routeText: string;
-  dateText: string;
-  bookingUrl: string;
-}
-
-// --- POLSKIE I EUROPEJSKIE MIASTA Z REALNYM RUCHEM LOTNICZYM ---
-const ACTIVE_AIRPORT_HUBS = [
-  'warszawa', 'krakow', 'gdansk', 'wroclaw', 'poznan', 'katowice', 'rzeszow', 'szczecin',
-  'londyn', 'paryz', 'rzym', 'madryt', 'barcelona', 'ateny', 'amsterdam', 'berlin',
-  'praga', 'wieden', 'mediolan', 'lizbona', 'oslo', 'sztokholm', 'helsinki', 'kopenhaga',
-  'dublin', 'budapeszt', 'bukareszt', 'sofia', 'zagrzeb', 'nowy-jork', 'chicago', 'dubaj',
-];
-
-// --- KONWERSJA MIAST DO ASCII SLUG ---
-const toSlugASCII = (str: string): string => {
-  return str
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ł/g, 'l')
-    .replace(/Ł/g, 'L')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-');
-};
-
-const isAirportHub = (city: string): boolean => {
-  const slug = toSlugASCII(city);
-  return ACTIVE_AIRPORT_HUBS.some((hub) => slug.includes(hub));
-};
-
-// --- PARSOWANIE DATY ZE STEP 1 ---
-const parseDateFormats = (dateStr: string) => {
-  const clean = dateStr.trim();
-  const match = clean.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-
-  if (!match) {
-    const today = new Date();
-    const d = String(today.getDate()).padStart(2, '0');
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const y = today.getFullYear();
-    return {
-      koleoDate: `${d}-${m}-${y}`,
-      isoDate: `${y}-${m}-${d}`,
-    };
-  }
-
-  const [, day, month, year] = match;
-  return {
-    koleoDate: `${day}-${month}-${year}`, // Koleo: DD-MM-YYYY
-    isoDate: `${year}-${month}-${day}`,    // Google Flights: YYYY-MM-DD
-  };
-};
-
-// --- POBIERANIE WSPÓŁRZĘDNYCH ---
-const getCoordinates = async (city: string): Promise<[number, number] | null> => {
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-      city
-    )}&limit=1`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'DestivoApp/1.0' },
-    });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
-
-// --- REALNA TRASA DROGOWA Z OSRM ---
-const calculateRoute = async (origin: string, destination: string): Promise<RouteInfo> => {
-  if (!origin.trim() || !destination.trim()) {
-    return { distanceKm: 300, durationHours: 3.5 };
-  }
-
-  const origCoords = await getCoordinates(origin);
-  const destCoords = await getCoordinates(destination);
-
-  if (!origCoords || !destCoords) {
-    return { distanceKm: 300, durationHours: 3.5 };
-  }
-
-  try {
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origCoords[1]},${origCoords[0]};${destCoords[1]},${destCoords[0]}?overview=false`;
-    const res = await fetch(osrmUrl);
-    const data = await res.json();
-
-    if (data.routes && data.routes.length > 0) {
-      const distanceKm = Math.round(data.routes[0].distance / 1000);
-      const durationHours = parseFloat((data.routes[0].duration / 3600).toFixed(1));
-      return { distanceKm, durationHours };
-    }
-  } catch {
-    // Fallback offline
-  }
-
-  return { distanceKm: 300, durationHours: 3.5 };
-};
-
-// --- GENEROWANIE INTELIGENTNYCH REKOMENDACJI ---
-const generateSmartRecommendations = (
-  origin: string,
-  destination: string,
-  startDate: string,
-  distanceKm: number
-): { fastest: SmartRecommendation; cheapest: SmartRecommendation } => {
-  const fromCity = origin.trim() || 'Warszawa';
-  const toCity = destination.trim() || 'Kraków';
-  const { koleoDate, isoDate } = parseDateFormats(startDate);
-
-  const routeText = `${fromCity} ➔ ${toCity}`;
-  const dateText = startDate.trim() ? `Dzień: ${startDate.trim()}` : 'Rozkład na dziś';
-
-  // 1. DEDYKOWANE BEZPIECZNE URL-E
-  const koleoUrl = `https://koleo.pl/rozklad-pkp/${toSlugASCII(fromCity)}/${toSlugASCII(
-    toCity
-  )}/${koleoDate}_00:00`;
-
-  const googleFlightsUrl = `https://www.google.com/travel/flights?q=Flights%20from%20${encodeURIComponent(
-    fromCity
-  )}%20to%20${encodeURIComponent(toCity)}%20on%20${isoDate}`;
-
-  const rome2RioUrl = `https://www.rome2rio.com/map/${encodeURIComponent(
-    fromCity
-  )}/${encodeURIComponent(toCity)}`;
-
-  // 2. CZY TRASA NADAJE SIĘ NA LOT?
-  // Lot proponujemy tylko, jeśli trasa > 700 km LUB (trasa > 400 km i OBYDWA miasta to duże huby lotnicze)
-  const canFly =
-    distanceKm > 700 ||
-    (distanceKm > 400 && isAirportHub(fromCity) && isAirportHub(toCity));
-
-  if (canFly) {
-    const flightTime = Math.max(1.5, parseFloat((distanceKm / 650 + 1.8).toFixed(1)));
-    const flightMin = Math.max(160, Math.round(distanceKm * 0.25));
-    const flightMax = Math.max(400, Math.round(distanceKm * 0.6));
-
-    const busTime = Math.round(distanceKm / 70);
-    const busMin = Math.max(120, Math.round(distanceKm * 0.17));
-    const busMax = Math.max(320, Math.round(distanceKm * 0.35));
-
-    return {
-      fastest: {
-        id: 'fastest',
-        badgeLabel: '⚡ NAJSZYBSZA OPCJA (LOT)',
-        badgeColor: '#38BDF8',
-        title: 'Połączenie lotnicze',
-        icon: '✈️',
-        carrierName: 'Google Flights (Linie lotnicze)',
-        estimatedTime: `~${flightTime} h (z odprawą)`,
-        estimatedPriceRange: `${flightMin} - ${flightMax} PLN`,
-        routeText,
-        dateText,
-        bookingUrl: googleFlightsUrl,
-      },
-      cheapest: {
-        id: 'cheapest',
-        badgeLabel: '💰 ALTERNATYWA LĄDOWA',
-        badgeColor: '#22C55E',
-        title: 'Autokar międzynarodowy / Pociąg',
-        icon: '🚌',
-        carrierName: 'Rome2Rio (FlixBus / Omio)',
-        estimatedTime: `~${busTime} h`,
-        estimatedPriceRange: `${busMin} - ${busMax} PLN`,
-        routeText,
-        dateText,
-        bookingUrl: rome2RioUrl,
-      },
-    };
-  }
-
-  // 3. TRASY BEZ LOTÓW (np. Radom -> Szczecin, Lublin -> Poznań, trasy krajowe < 400 km)
-  const trainTime = Math.max(1, parseFloat((distanceKm / 105).toFixed(1)));
-  const trainMin = Math.max(35, Math.round(distanceKm * 0.28));
-  const trainMax = Math.max(75, Math.round(distanceKm * 0.58));
-
-  const busTime = Math.max(1.5, parseFloat((distanceKm / 72).toFixed(1)));
-  const busMin = Math.max(25, Math.round(distanceKm * 0.18));
-  const busMax = Math.max(55, Math.round(distanceKm * 0.35));
-
-  return {
-    fastest: {
-      id: 'fastest',
-      badgeLabel: '⚡ NAJSZYBSZA OPCJA (POCIĄG EKSPRESOWY)',
-      badgeColor: '#38BDF8',
-      title: 'Szybkie połączenie kolejowe (IC / EIP)',
-      icon: '🚄',
-      carrierName: 'Koleo / PKP Intercity',
-      estimatedTime: `~${trainTime} h`,
-      estimatedPriceRange: `${trainMin} - ${trainMax} PLN`,
-      routeText,
-      dateText,
-      bookingUrl: koleoUrl,
-    },
-    cheapest: {
-      id: 'cheapest',
-      badgeLabel: '💰 NAJTAŃSZA OPCJA (AUTOKAR / BEZPOŚREDNI)',
-      badgeColor: '#22C55E',
-      title: 'Autokary i linie dalekobieżne',
-      icon: '🚌',
-      carrierName: 'Rome2Rio (FlixBus / Omio)',
-      estimatedTime: `~${busTime} h`,
-      estimatedPriceRange: `${busMin} - ${busMax} PLN`,
-      routeText,
-      dateText,
-      bookingUrl: rome2RioUrl,
-    },
-  };
-};
-
-export const Step2TransportScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const { isGuest, language, toggleLanguage } = useAuthStore();
-  const t = translations[language].tripCreatorStep2;
-  const commonT = translations[language].common;
-
+export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
+  navigation,
+  transportProvider,
+  departureAt,
+}) => {
   const {
     origin,
     destination,
-    startDate,
-    transportType,
-    customTransport,
-    setTransport,
+    transport,
+    setTransportOption,
   } = useTripCreatorStore();
 
-  const [loadingRoute, setLoadingRoute] = useState(true);
-  const [routeInfo, setRouteInfo] = useState<RouteInfo>({ distanceKm: 0, durationHours: 0 });
-  const [recommendations, setRecommendations] = useState<{
-    fastest: SmartRecommendation;
-    cheapest: SmartRecommendation;
-  }>({
-    fastest: {
-      id: 'fastest',
-      badgeLabel: '⚡ NAJSZYBSZA OPCJA',
-      badgeColor: '#38BDF8',
-      title: 'Szybki pociąg / Lot',
-      icon: '🚄',
-      carrierName: 'Koleo / Wyszukiwarka',
-      estimatedTime: '~4 h',
-      estimatedPriceRange: '80 - 200 PLN',
-      routeText: 'Start ➔ Cel',
-      dateText: 'Dzień wyjazdu',
-      bookingUrl: 'https://koleo.pl',
-    },
-    cheapest: {
-      id: 'cheapest',
-      badgeLabel: '💰 NAJTAŃSZA OPCJA',
-      badgeColor: '#22C55E',
-      title: 'Połączenie autokarowe',
-      icon: '🚌',
-      carrierName: 'Rome2Rio',
-      estimatedTime: '~6 h',
-      estimatedPriceRange: '50 - 150 PLN',
-      routeText: 'Start ➔ Cel',
-      dateText: 'Dzień wyjazdu',
-      bookingUrl: 'https://www.rome2rio.com',
-    },
-  });
+  const { language } = useAuthStore();
 
-  const [selectedType, setSelectedType] = useState<'fastest' | 'cheapest' | 'custom' | null>(
-    transportType === 'fastest' || transportType === 'cheapest' ? transportType : null
-  );
-  const [customInput, setCustomInput] = useState(customTransport);
+  const t = translations[language].transport;
+  const badgesT = translations[language].badges;
+  const commonT = translations[language].common;
 
-  // Kalkulator paliwa
-  const [fuelConsumption, setFuelConsumption] = useState('7.5');
-  const [fuelPrice, setFuelPrice] = useState('6.50');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [options, setOptions] = useState<TransportOption[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchRouteData = async () => {
-      setLoadingRoute(true);
-      const info = await calculateRoute(origin, destination);
-      if (isMounted) {
-        setRouteInfo(info);
-        const smartOffers = generateSmartRecommendations(
-          origin,
-          destination,
-          startDate,
-          info.distanceKm
-        );
-        setRecommendations(smartOffers);
-        setLoadingRoute(false);
+
+    async function loadTransportOptions() {
+      if (!origin?.trim() || !destination?.trim() || !transportProvider) {
+        setOptions([]);
+        setLoading(false);
+        return;
       }
-    };
-    fetchRouteData();
+
+      setLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const data = await fetchTransportComparisons(
+          destination,
+          origin,
+          transportProvider,
+          {
+            departureAt,
+          }
+        );
+
+        if (!isMounted) return;
+
+        setOptions(data);
+
+        // Nie wybieramy automatycznie transportu bez ceny jako "Smart Choice".
+        if (!transport.selectedOption && data.length > 0) {
+          const smart = data.find((o) =>
+            o.badges.includes('SMART_CHOICE')
+          );
+
+          const firstPriced = data.find((o) => {
+            const metadata = getTransportRouteMetadata(o.id);
+            return metadata?.price.status !== 'UNAVAILABLE';
+          });
+
+          setTransportOption(smart || firstPriced || data[0]);
+        }
+      } catch (error: unknown) {
+        console.error('Błąd pobierania połączeń:', error);
+
+        if (isMounted) {
+          setErrorMessage(
+            'Nie udało się pobrać aktualnych danych transportowych.'
+          );
+          setOptions([]);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadTransportOptions();
+
     return () => {
       isMounted = false;
     };
-  }, [origin, destination, startDate]);
+  }, [
+    destination,
+    origin,
+    transportProvider,
+    departureAt,
+  ]);
 
-  const calculateCarCost = () => {
-    const cons = parseFloat(fuelConsumption.replace(',', '.')) || 0;
-    const price = parseFloat(fuelPrice.replace(',', '.')) || 0;
-    const cost = (routeInfo.distanceKm / 100) * cons * price;
-    return Math.round(cost);
+  const handleOpenBooking = async (url?: string) => {
+    if (!url) return;
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          'DESTIVO',
+          'Nie można otworzyć linku do zakupu biletu.'
+        );
+      }
+    } catch (error: unknown) {
+      console.error('Błąd otwierania linku:', error);
+    }
   };
 
-  const handleOpenBookingUrl = (url: string) => {
-    Linking.openURL(url).catch(() => {
-      Alert.alert('DESTIVO', 'Nie udało się otworzyć strony z rozkładem jazdy.');
-    });
+  const renderBadgeText = (badge: string): string => {
+    switch (badge) {
+      case 'SMART_CHOICE':
+        return `🏆 ${badgesT.smartChoice}`;
+      case 'FASTEST_D2D':
+        return `⚡ ${badgesT.fastestD2D}`;
+      case 'CHEAPEST_TOTAL':
+        return `💰 ${badgesT.cheapestTotal}`;
+      case 'HIGH_COMFORT':
+        return `🧘 ${badgesT.highComfort}`;
+      default:
+        return badge;
+    }
   };
 
-  const handleSelectOffer = (offer: SmartRecommendation) => {
-    setSelectedType(offer.id);
-    const summary = `${offer.carrierName}: ${origin || 'Start'} → ${destination} (${
-      offer.estimatedTime
-    }, szac. ${offer.estimatedPriceRange})`;
-    setCustomInput(summary);
+  const renderTypeName = (type: string): string => {
+    switch (type) {
+      case 'flight':
+        return t.types.flight;
+      case 'train':
+        return t.types.train;
+      case 'bus':
+        return t.types.bus;
+      case 'car':
+        return t.types.car;
+      default:
+        return type.toUpperCase();
+    }
   };
 
-  const handleNext = () => {
-    if (!selectedType && !customInput.trim()) {
-      Alert.alert('DESTIVO', 'Wybierz jedną z opcji transportu lub wpisz własną relację.');
-      return;
+  const formatDuration = (minutes: number): string => {
+    if (!Number.isFinite(minutes) || minutes < 0) {
+      return '—';
     }
 
-    setTransport(selectedType || 'custom', customInput.trim());
-    if (navigation) {
-      navigation.navigate('Step3');
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+
+    return `${h}h ${m}m`;
+  };
+
+  const formatPrice = (metadata?: TransportRouteMetadata): string => {
+    if (!metadata) return 'Brak danych';
+
+    const { price } = metadata;
+
+    if (price.status === 'UNAVAILABLE') {
+      return 'Brak ceny';
     }
+
+    if (price.min === price.max) {
+      return `${price.min} ${price.currency}`;
+    }
+
+    return `${price.min}–${price.max} ${price.currency}`;
+  };
+
+  const getPriceLabel = (metadata?: TransportRouteMetadata): string => {
+    if (!metadata) return 'brak danych cenowych';
+
+    switch (metadata.price.status) {
+      case 'LIVE':
+        return 'aktualna cena';
+      case 'ESTIMATE':
+        return 'koszt orientacyjny';
+      case 'UNAVAILABLE':
+      default:
+        return 'brak aktualnej ceny';
+    }
+  };
+
+  const getDataStatus = (metadata?: TransportRouteMetadata): string => {
+    if (!metadata) return 'Brak informacji o źródle';
+
+    switch (metadata.price.status) {
+      case 'LIVE':
+        return metadata.price.source
+          ? `● Aktualne dane · ${metadata.price.source}`
+          : '● Aktualne dane';
+
+      case 'ESTIMATE':
+        return metadata.price.source
+          ? `◐ Estymacja · ${metadata.price.source}`
+          : '◐ Estymacja';
+
+      case 'UNAVAILABLE':
+      default:
+        return '○ Brak aktualnej ceny';
+    }
+  };
+
+  const formatCheckedAt = (metadata?: TransportRouteMetadata): string => {
+    const checkedAt = metadata?.price.checkedAt;
+
+    if (!checkedAt) return '';
+
+    const date = new Date(checkedAt);
+
+    if (Number.isNaN(date.getTime())) return '';
+
+    return `Sprawdzono: ${date.toLocaleString(
+      language === 'pl' ? 'pl-PL' : language
+    )}`;
+  };
+
+  const renderPrice = (
+    item: TransportOption,
+    metadata?: TransportRouteMetadata
+  ) => {
+    const status = metadata?.price.status;
+
+    return (
+      <View style={styles.priceContainer}>
+        <Text
+          style={[
+            styles.priceText,
+            status === 'UNAVAILABLE' && styles.priceUnavailable,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {formatPrice(metadata)}
+        </Text>
+
+        <Text style={styles.priceLabel}>
+          {getPriceLabel(metadata)}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderDataInfo = (metadata?: TransportRouteMetadata) => {
+    if (!metadata) return null;
+
+    return (
+      <View style={styles.dataInfoBox}>
+        <Text style={styles.dataInfoText}>
+          {getDataStatus(metadata)}
+        </Text>
+
+        {formatCheckedAt(metadata) ? (
+          <Text style={styles.checkedAtText}>
+            {formatCheckedAt(metadata)}
+          </Text>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderError = () => {
+    if (!errorMessage) return null;
+
+    return (
+      <View style={styles.errorBox}>
+        <Text style={styles.errorTitle}>Brak danych</Text>
+        <Text style={styles.errorText}>{errorMessage}</Text>
+      </View>
+    );
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
-          {/* GÓRNY PASEK JĘZYKA */}
-          <View style={styles.topBar}>
-            <TouchableOpacity
-              style={styles.langButton}
-              onPress={toggleLanguage}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.langButtonText}>{language === 'pl' ? 'EN' : 'PL'}</Text>
-            </TouchableOpacity>
-          </View>
 
-          {/* PASEK POSTĘPU */}
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressText}>KROK 2 Z 4</Text>
-            <Text style={styles.progressStepName}>{t.header_title}</Text>
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: '50%' }]} />
-          </View>
+      <View style={styles.container}>
+        {/* NAGŁÓWEK */}
+        <View style={styles.header}>
+          <Text style={styles.title}>{t.title}</Text>
 
-          {/* GŁÓWNA KARTA */}
-          <View style={styles.card}>
-            <Text style={styles.title}>{t.header_title}</Text>
-            <Text style={styles.subtitle}>
-              Porównanie optymalnych opcji z szacowanym czasem i przedziałem cenowym dla Twojej trasy.
-            </Text>
+          <Text style={styles.routeSubtitle}>
+            {origin ? `${origin.toUpperCase()} → ` : ''}
+            {destination.toUpperCase() || 'CEL PODRÓŻY'}
+          </Text>
 
-            {/* BELKA Z REALNYM DYSTANSEM OSRM */}
-            <View style={styles.distanceBadge}>
-              {loadingRoute ? (
-                <ActivityIndicator size="small" color="#F59E0B" />
-              ) : (
-                <Text style={styles.distanceText}>
-                  📍 {origin ? `${origin} → ` : ''}
-                  {destination}: <Text style={{ color: '#F59E0B' }}>{routeInfo.distanceKm} km</Text> (~{routeInfo.durationHours} h autem)
-                </Text>
-              )}
+          <Text style={styles.desc}>
+            {t.subtitle}
+          </Text>
+
+          <Text style={styles.trustHint}>
+            Ceny oznaczone jako „aktualna cena” pochodzą z dostępnego źródła.
+            Estymacje są wyraźnie oznaczone.
+          </Text>
+        </View>
+
+        {/* LISTA OPCJI */}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          bounces={false}
+        >
+          {loading ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator
+                size="large"
+                color="#F59E0B"
+              />
+
+              <Text style={styles.loaderText}>
+                {t.calculating}
+              </Text>
+
+              <Text style={styles.loaderSubtext}>
+                Pobieramy rozkłady, ceny i dane potrzebne do porównania.
+              </Text>
             </View>
+          ) : (
+            <>
+              {renderError()}
 
-            <Text style={styles.sectionTitle}>REKOMENDOWANE POŁĄCZENIA</Text>
+              {options.length === 0 && !errorMessage ? (
+                <View style={styles.emptyBox}>
+                  <Text style={styles.emptyTitle}>
+                    Brak dostępnych danych
+                  </Text>
 
-            {/* KARTY DWÓCH REKOMENDACJI */}
-            {[recommendations.fastest, recommendations.cheapest].map((offer) => {
-              const isSelected = selectedType === offer.id;
-              return (
-                <View
-                  key={offer.id}
-                  style={[styles.optionCard, isSelected && styles.optionCardSelected]}
-                >
-                  <View style={styles.optionHeaderRow}>
-                    <Text style={[styles.badge, { color: offer.badgeColor }]}>
-                      {offer.badgeLabel}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.selectBadgeBtn}
-                      onPress={() => handleSelectOffer(offer)}
-                    >
-                      <Text style={styles.selectBadgeText}>
-                        {isSelected ? `✓ ${t.button_selected}` : t.button_select_option}
+                  <Text style={styles.emptyText}>
+                    Nie znaleziono wiarygodnych połączeń dla wybranej trasy.
+                  </Text>
+                </View>
+              ) : null}
+
+              {options.map((item: TransportOption) => {
+                const isSelected =
+                  transport.selectedOption?.id === item.id;
+
+                const metadata =
+                  getTransportRouteMetadata(item.id);
+
+                const priceUnavailable =
+                  metadata?.price.status === 'UNAVAILABLE';
+
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.85}
+                    onPress={() => setTransportOption(item)}
+                    style={[
+                      styles.card,
+                      isSelected && styles.cardSelected,
+                    ]}
+                  >
+                    {/* ODZNAKI */}
+                    {item.badges.length > 0 && (
+                      <View style={styles.badgesRow}>
+                        {item.badges.map((badge: string) => (
+                          <View
+                            key={badge}
+                            style={styles.badge}
+                          >
+                            <Text style={styles.badgeText}>
+                              {renderBadgeText(badge)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* ŚRODEK TRANSPORTU / PRZEWOŹNIK / CENA */}
+                    <View style={styles.cardHeaderRow}>
+                      <View style={styles.providerInfo}>
+                        <Text style={styles.typeTitle}>
+                          {renderTypeName(item.type)}
+                        </Text>
+
+                        <Text style={styles.providerSubtitle}>
+                          {item.provider}
+                        </Text>
+                      </View>
+
+                      {renderPrice(item, metadata)}
+                    </View>
+
+                    {/* STATUS ŹRÓDŁA */}
+                    {renderDataInfo(metadata)}
+
+                    {/* CZAS */}
+                    <View style={styles.timeBox}>
+                      <View style={styles.timeRow}>
+                        <Text style={styles.timeLabel}>
+                          {t.rawDuration}
+                        </Text>
+
+                        <Text style={styles.timeValue}>
+                          {formatDuration(
+                            item.rawDurationMinutes
+                          )}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.timeRow,
+                          { marginTop: 4 },
+                        ]}
+                      >
+                        <Text style={styles.d2dLabel}>
+                          {t.doorToDoor}
+                        </Text>
+
+                        <Text style={styles.d2dValue}>
+                          {formatDuration(
+                            item.doorToDoorDurationMinutes
+                          )}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* UWAGI / SKŁADOWE KOSZTU */}
+                    {metadata?.notes?.length ? (
+                      <View style={styles.notesBox}>
+                        {metadata.notes.map((note) => (
+                          <Text
+                            key={note}
+                            style={styles.noteText}
+                          >
+                            • {note}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    {/* STRES + ZAKUP */}
+                    <View style={styles.cardFooter}>
+                      <Text style={styles.stressLabel}>
+                        {t.stressScore}{' '}
+                        <Text
+                          style={[
+                            styles.stressValue,
+                            item.stressScore > 6
+                              ? styles.stressHigh
+                              : item.stressScore > 3
+                              ? styles.stressMedium
+                              : styles.stressLow,
+                          ]}
+                        >
+                          {item.stressScore}/10
+                        </Text>
                       </Text>
-                    </TouchableOpacity>
-                  </View>
 
-                  <View style={styles.mainTitleRow}>
-                    <Text style={styles.optionTitle}>
-                      {offer.icon} {offer.title}
-                    </Text>
-                    <Text style={styles.priceBadge}>{offer.estimatedPriceRange}</Text>
-                  </View>
-
-                  <Text style={styles.carrierText}>Przewoźnik / Baza: {offer.carrierName}</Text>
-
-                  <View style={styles.metaBox}>
-                    <Text style={styles.metaText}>⏱ Szacowany czas: {offer.estimatedTime}</Text>
-                    <Text style={styles.metaText}>🗺 Trasa: {offer.routeText}</Text>
-                    <Text style={styles.metaText}>📅 {offer.dateText}</Text>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.buyTicketBtn}
-                    onPress={() => handleOpenBookingUrl(offer.bookingUrl)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.buyTicketText}>
-                      Sprawdź i kup bilet ({offer.carrierName.split(' ')[0]}) ↗
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-
-            {/* OPCJA SAMOCHODU PRYWATNEGO */}
-            <View
-              style={[
-                styles.optionCard,
-                selectedType === 'custom' &&
-                  customInput.includes('Samochód') &&
-                  styles.optionCardSelected,
-              ]}
-            >
-              <View style={styles.optionHeaderRow}>
-                <Text style={styles.badgeCar}>🚗 ALTERNATYWA (AUTO PRYWATNE)</Text>
-                {isGuest ? (
-                  <Text style={styles.lockBadge}>🔒 GOŚĆ</Text>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.selectBadgeBtn}
-                    onPress={() => {
-                      setSelectedType('custom');
-                      setCustomInput(
-                        `Samochód prywatny (${origin} → ${destination}): paliwo ~${calculateCarCost()} PLN`
-                      );
-                    }}
-                  >
-                    <Text style={styles.selectBadgeText}>
-                      {selectedType === 'custom' && customInput.includes('Samochód')
-                        ? `✓ ${t.button_selected}`
-                        : t.button_select_option}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {isGuest ? (
-                <View style={styles.lockedContainer}>
-                  <Text style={styles.lockedTitle}>{t.car_logged_only_title}</Text>
-                  <Text style={styles.lockedDesc}>{t.car_logged_only_desc}</Text>
-                </View>
-              ) : (
-                <View style={styles.carCalculatorContainer}>
-                  <View style={styles.rowGroup}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={styles.inputLabelSmall}>{t.fuel_consumption_label}</Text>
-                      <TextInput
-                        style={styles.smallInput}
-                        value={fuelConsumption}
-                        onChangeText={setFuelConsumption}
-                        keyboardType="numeric"
-                        placeholder="7.5"
-                        placeholderTextColor="#475569"
-                      />
+                      {item.bookingUrl ? (
+                        <TouchableOpacity
+                          onPress={() =>
+                            handleOpenBooking(
+                              item.bookingUrl
+                            )
+                          }
+                          style={styles.bookButton}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.bookButtonText}>
+                            {priceUnavailable
+                              ? 'Sprawdź ↗'
+                              : `${t.buyTicket} ↗`}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : item.type === 'car' ? (
+                        <Text style={styles.privateVehicleText}>
+                          {t.ownVehicle}
+                        </Text>
+                      ) : (
+                        <Text style={styles.privateVehicleText}>
+                          Brak zakupu online
+                        </Text>
+                      )}
                     </View>
-                    <View style={{ flex: 1, marginLeft: 8 }}>
-                      <Text style={styles.inputLabelSmall}>{t.fuel_price_label}</Text>
-                      <TextInput
-                        style={styles.smallInput}
-                        value={fuelPrice}
-                        onChangeText={setFuelPrice}
-                        keyboardType="numeric"
-                        placeholder="6.50"
-                        placeholderTextColor="#475569"
-                      />
-                    </View>
-                  </View>
-                  <View style={styles.carCostRow}>
-                    <Text style={styles.carCostLabel}>{t.car_total_cost}</Text>
-                    <Text style={styles.carCostValue}>~{calculateCarCost()} PLN</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.buyTicketBtn, { marginTop: 10 }]}
-                    onPress={() =>
-                      handleOpenBookingUrl(
-                        `https://www.google.com/maps/dir/${encodeURIComponent(
-                          origin
-                        )}/${encodeURIComponent(destination)}`
-                      )
-                    }
-                  >
-                    <Text style={styles.buyTicketText}>Otwórz trasę w Google Maps ↗</Text>
                   </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {/* FINALNY WYBÓR */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>{t.input_customTransportLabel.toUpperCase()}</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>✍️</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Wybierz opcję z góry lub wpisz własną relację..."
-                  placeholderTextColor="#475569"
-                  value={customInput}
-                  onChangeText={(text) => {
-                    setCustomInput(text);
-                    setSelectedType('custom');
-                  }}
-                />
-              </View>
-            </View>
-
-            {/* PRZYCISKI NAWIGACJI */}
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleNext}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryButtonText}>{commonT.button_nextStep} →</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => navigation?.goBack()}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.secondaryButtonText}>← {commonT.button_goBack}</Text>
-            </TouchableOpacity>
-          </View>
+                );
+              })}
+            </>
+          )}
         </ScrollView>
-      </KeyboardAvoidingView>
+
+        {/* DOLNY PASEK */}
+        <View style={styles.bottomActions}>
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              !transport.selectedOption && {
+                opacity: 0.5,
+              },
+            ]}
+            disabled={!transport.selectedOption}
+            onPress={() =>
+              navigation?.navigate('Step3')
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.primaryButtonText}>
+              {commonT.button_nextStep}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => navigation?.goBack()}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {commonT.button_goBack}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
-  topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
-  langButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#0B1120',
   },
-  langButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '700' },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
-  progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
-  card: {
+
+  container: {
+    flex: 1,
+    backgroundColor: '#0B1120',
+  },
+
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  routeSubtitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#F59E0B',
+    marginTop: 4,
+    letterSpacing: 0.5,
+  },
+
+  desc: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+
+  trustHint: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 8,
+    lineHeight: 16,
+  },
+
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+
+  loaderContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  loaderText: {
+    color: '#94A3B8',
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  loaderSubtext: {
+    color: '#64748B',
+    marginTop: 6,
+    fontSize: 11,
+    textAlign: 'center',
+    maxWidth: 280,
+    lineHeight: 16,
+  },
+
+  errorBox: {
+    backgroundColor: 'rgba(248, 113, 113, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.35)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+  },
+
+  errorTitle: {
+    color: '#F87171',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+
+  errorText: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+  emptyBox: {
     backgroundColor: '#111827',
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 20,
     borderWidth: 1,
     borderColor: '#1E293B',
   },
-  title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
-  subtitle: { fontSize: 13, color: '#94A3B8', marginBottom: 16, lineHeight: 18 },
-  distanceBadge: {
-    backgroundColor: '#1E293B',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
+
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 6,
   },
-  distanceText: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
-  sectionTitle: {
+
+  emptyText: {
     color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 12,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  optionCard: {
-    backgroundColor: '#0B1120',
-    borderRadius: 14,
-    padding: 14,
+
+  card: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#1E293B',
   },
-  optionCardSelected: {
+
+  cardSelected: {
     borderColor: '#F59E0B',
-    backgroundColor: 'rgba(245, 158, 11, 0.06)',
+    backgroundColor: '#162032',
   },
-  optionHeaderRow: {
+
+  badgesRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
   },
-  badge: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  badgeCar: { color: '#A855F7', fontSize: 11, fontWeight: '800' },
-  mainTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  optionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  priceBadge: {
-    color: '#F59E0B',
-    fontSize: 14,
-    fontWeight: '800',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    paddingHorizontal: 8,
+
+  badge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
-  },
-  carrierText: { color: '#94A3B8', fontSize: 13, fontWeight: '600', marginBottom: 10 },
-  metaBox: {
-    backgroundColor: '#111827',
-    padding: 10,
     borderRadius: 8,
+  },
+
+  badgeText: {
+    color: '#F59E0B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+
+  providerInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+
+  typeTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+  providerSubtitle: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+
+  priceContainer: {
+    alignItems: 'flex-end',
+    maxWidth: '52%',
+  },
+
+  priceText: {
+    color: '#38BDF8',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+
+  priceUnavailable: {
+    color: '#64748B',
+    fontSize: 15,
+  },
+
+  priceLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+
+  dataInfoBox: {
+    backgroundColor: '#0B1120',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+
+  dataInfoText: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  checkedAtText: {
+    color: '#475569',
+    fontSize: 9,
+    marginTop: 2,
+  },
+
+  timeBox: {
+    backgroundColor: '#0B1120',
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#1E293B',
     marginBottom: 12,
   },
-  metaText: { color: '#E2E8F0', fontSize: 12, marginBottom: 4 },
-  selectBadgeBtn: {
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  selectBadgeText: { color: '#F59E0B', fontSize: 11, fontWeight: '700' },
-  buyTicketBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-  },
-  buyTicketText: { color: '#38BDF8', fontSize: 13, fontWeight: '700' },
-  lockBadge: {
-    color: '#EF4444',
-    fontSize: 10,
-    fontWeight: '700',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  lockedContainer: {
-    backgroundColor: '#111827',
-    padding: 12,
-    borderRadius: 10,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  lockedTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  lockedDesc: { color: '#64748B', fontSize: 11, lineHeight: 16 },
-  carCalculatorContainer: { marginTop: 8 },
-  rowGroup: { flexDirection: 'row', justifyContent: 'space-between' },
-  inputLabelSmall: { color: '#94A3B8', fontSize: 11, fontWeight: '600', marginBottom: 4 },
-  smallInput: {
-    backgroundColor: '#111827',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
-    color: '#F8FAFC',
-    paddingHorizontal: 10,
-    height: 38,
-    fontSize: 13,
-  },
-  carCostRow: {
+
+  timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
+  },
+
+  timeLabel: {
+    color: '#64748B',
+    fontSize: 12,
+  },
+
+  timeValue: {
+    color: '#CBD5E1',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  d2dLabel: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  d2dValue: {
+    color: '#F59E0B',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  notesBox: {
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+
+  noteText: {
+    color: '#64748B',
+    fontSize: 10,
+    lineHeight: 15,
+  },
+
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: '#1E293B',
+    paddingTop: 12,
   },
-  carCostLabel: { color: '#94A3B8', fontSize: 12 },
-  carCostValue: { color: '#F59E0B', fontSize: 15, fontWeight: '700' },
-  inputGroup: { marginTop: 10, marginBottom: 16 },
-  label: { color: '#94A3B8', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0B1120',
+
+  stressLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  stressValue: {
+    fontWeight: '800',
+  },
+
+  stressLow: {
+    color: '#4ADE80',
+  },
+
+  stressMedium: {
+    color: '#FACC15',
+  },
+
+  stressHigh: {
+    color: '#F87171',
+  },
+
+  bookButton: {
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#38BDF8',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 48,
   },
-  inputIcon: { fontSize: 15, marginRight: 10 },
-  input: { flex: 1, color: '#F8FAFC', fontSize: 14 },
+
+  bookButtonText: {
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  privateVehicleText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+
+  bottomActions: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+    backgroundColor: '#0B1120',
+  },
+
   primaryButton: {
     backgroundColor: '#F59E0B',
-    height: 50,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  secondaryButton: {
     height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
+    marginBottom: 8,
   },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+
+  primaryButtonText: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  secondaryButton: {
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  secondaryButtonText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
