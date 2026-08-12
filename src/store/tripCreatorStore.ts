@@ -39,77 +39,20 @@ export interface TransportOption {
   id: string;
   type: TransportType;
   provider: string;
-
-  /**
-   * Czas samego przejazdu / lotu z rozkładu albo routingu.
-   */
   rawDurationMinutes: number;
-
-  /**
-   * Szacowany rzeczywisty czas Door-to-Door.
-   * Dla lotu może zawierać dojazd + odprawę + transfer.
-   */
   doorToDoorDurationMinutes: number;
-
-  /**
-   * Zachowane dla kompatybilności z istniejącym UI/budżetem.
-   *
-   * Dla LIVE:
-   *   konkretna cena źródłowa.
-   *
-   * Dla ESTIMATE:
-   *   dolna granica estymacji.
-   *
-   * Dla UNAVAILABLE:
-   *   0 jest wyłącznie wartością techniczną.
-   *   UI MUSI sprawdzić price.status i nie wyświetlać "0 zł".
-   */
   basePrice: number;
-
-  /**
-   * Wartość używana do budżetu i sortowania:
-   * - LIVE: konkretna cena,
-   * - ESTIMATE: środek zakresu,
-   * - UNAVAILABLE: 0 technicznie; nie może być używany jako koszt
-   *   bez sprawdzenia price.status.
-   */
   totalCost: number;
-
-  /**
-   * Zakres rzeczywistej/estymowanej ceny.
-   */
   minTotalCost: number;
   maxTotalCost: number;
-
-  /**
-   * Pełne informacje o cenie i jej wiarygodności.
-   */
   price: TransportPrice;
-
-  /**
-   * Ogólny poziom zaufania do danych trasy.
-   */
   dataConfidence: DataConfidence;
-
-  /**
-   * Odległość wykorzystana do obliczenia trasy/kosztu.
-   * Dla samochodu powinna pochodzić z routingu drogowego.
-   */
   distanceKm: number;
-
   stressScore: number;
-
   bookingUrl?: string;
-
-  /**
-   * Dodatkowe informacje, np.:
-   * - składniki kosztu paliwa,
-   * - opłaty drogowe,
-   * - ograniczenia taryfy,
-   * - ostrzeżenia o estymacji.
-   */
+  // NOWE POLE: Linki akcji (np. Google Maps)
+  actionLinks?: { label: string; url: string }[];
   notes?: string[];
-
   badges: TransportBadge[];
 }
 
@@ -151,6 +94,19 @@ export interface TripCreatorState {
      */
     priceCheckedAt?: string;
   };
+
+  transportDetails: {
+    outboundDepartureLocation: string;
+    outboundArrivalLocation: string;
+    outboundDepartureTime: string;
+    outboundArrivalTime: string;
+    returnDepartureLocation: string;
+    returnArrivalLocation: string;
+    returnDepartureTime: string;
+    returnArrivalTime: string;
+  };
+
+  setTransportDetails: (details: Partial<TripCreatorState['transportDetails']>) => void;
 
   lodging: {
     type: string | null;
@@ -200,6 +156,7 @@ const initialState: Omit<
   | 'setTransportOption'
   | 'setCustomTransportCost'
   | 'clearCustomTransportCost'
+  | 'setTransportDetails'
   | 'setLodging'
   | 'setAttractions'
   | 'reset'
@@ -217,6 +174,17 @@ const initialState: Omit<
     priceStatus: null,
     priceSource: undefined,
     priceCheckedAt: undefined,
+  },
+
+  transportDetails: {
+    outboundDepartureLocation: '',
+    outboundArrivalLocation: '',
+    outboundDepartureTime: '',
+    outboundArrivalTime: '',
+    returnDepartureLocation: '',
+    returnArrivalLocation: '',
+    returnDepartureTime: '',
+    returnArrivalTime: '',
   },
 
   lodging: {
@@ -289,6 +257,11 @@ export const useTripCreatorStore = create<TripCreatorState>((set) => ({
           ? Math.max(0, cost)
           : undefined,
       },
+    })),
+
+  setTransportDetails: (details) =>
+    set((state) => ({
+      transportDetails: { ...state.transportDetails, ...details },
     })),
 
   clearCustomTransportCost: () =>

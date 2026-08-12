@@ -24,13 +24,10 @@ const parseDDMMYYYY = (dateStr: string): Date | null => {
   const regex = /^(\d{2})-(\d{2})-(\d{4})$/;
   const match = dateStr.trim().match(regex);
   if (!match) return null;
-
   const day = parseInt(match[1], 10);
-  const month = parseInt(match[2], 10) - 1; // Miesiące w JS są od 0 do 11
+  const month = parseInt(match[2], 10) - 1; 
   const year = parseInt(match[3], 10);
-
   const date = new Date(year, month, day);
-  // Sprawdzamy, czy JS nie "przekręcił" daty (np. 31-02-2026 -> 03-03-2026)
   if (
     date.getFullYear() !== year ||
     date.getMonth() !== month ||
@@ -57,13 +54,12 @@ const checkDestinationExists = async (query: string): Promise<boolean> => {
     )}&limit=1`;
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'DestivoApp/1.0', // Nominatim wymaga nagłówka User-Agent
+        'User-Agent': 'DestivoApp/1.0',
       },
     });
     const data = await res.json();
     return Array.isArray(data) && data.length > 0;
   } catch (error) {
-    // Jeśli brak internetu (Offline-First), nie blokujemy użytkownika!
     return true;
   }
 };
@@ -90,20 +86,14 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   const [startDate, setStartDate] = useState(storedStart);
   const [endDate, setEndDate] = useState(storedEnd);
 
-  // Stan ładowania podczas sprawdzania miejscowości w API
   const [isValidating, setIsValidating] = useState(false);
-
-  // --- OBSŁUGA KALENDARZA SYSTEMOWEGO ---
-  const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(
-    null
-  );
+  const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     const currentTarget = activePicker;
     if (Platform.OS === 'android') {
       setActivePicker(null);
     }
-
     if (event.type === 'set' && selectedDate && currentTarget) {
       const formatted = formatDDMMYYYY(selectedDate);
       if (currentTarget === 'start') {
@@ -114,14 +104,18 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     }
   };
 
-const handleNext = async () => {
-    // 1. Sprawdzenie czy wpisano cel (wymagane)
+  const handleNext = async () => {
+    // 1. Sprawdzenie czy wpisano miejsca
+    if (!origin.trim()) {
+      Alert.alert('DESTIVO', 'Podaj miejsce wyjazdu (Skąd wyruszasz?).');
+      return;
+    }
     if (!destination.trim()) {
       Alert.alert('DESTIVO', t.error_destinationRequired);
       return;
     }
 
-    // 2. Walidacja dat (jeśli użytkownik je wpisał)
+    // 2. Walidacja dat
     const parsedStart = parseDDMMYYYY(startDate);
     const parsedEnd = parseDDMMYYYY(endDate);
 
@@ -132,7 +126,6 @@ const handleNext = async () => {
       }
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-
       if (parsedStart < today) {
         Alert.alert('DESTIVO', t.error_pastDate);
         return;
@@ -150,29 +143,22 @@ const handleNext = async () => {
       }
     }
 
-    // 3. Weryfikacja czy miejscowości istnieją (API Nominatim - równolegle dla wydajności)
+    // 3. Weryfikacja czy miejscowości istnieją
     setIsValidating(true);
-
-    const hasOrigin = origin.trim().length > 0;
-
-    // Odpytujemy API dla destination, a jeśli podano origin — również dla origin
     const [destExists, originExists] = await Promise.all([
       checkDestinationExists(destination.trim()),
-      hasOrigin ? checkDestinationExists(origin.trim()) : Promise.resolve(true),
+      checkDestinationExists(origin.trim()),
     ]);
-
     setIsValidating(false);
 
-    // Jeśli cel podróży LUB miejsce wyjazdu nie istnieje — pokazujemy ten sam błąd
-    if (!destExists || (hasOrigin && !originExists)) {
+    if (!destExists || !originExists) {
       Alert.alert('DESTIVO', t.error_placeNotFound);
       return;
     }
 
     // 4. Zapisujemy do store'a i przechodzimy dalej
     setStep1Data({
-      tripName:
-        tripName.trim() || `${t.default_tripNamePrefix}${destination.trim()}`,
+      tripName: tripName.trim() || `${t.default_tripNamePrefix}${destination.trim()}`,
       origin: origin.trim(),
       destination: destination.trim(),
       startDate: startDate.trim(),
@@ -219,7 +205,27 @@ const handleNext = async () => {
             <Text style={styles.title}>{t.header_title}</Text>
             <Text style={styles.subtitle}>{t.header_subtitle}</Text>
 
-            {/* CEL PODRÓŻY (WYMAGANY) */}
+            {/* SKĄD WYRUSZASZ (Musi być pierwsze, żeby było intuicyjne!) */}
+            <View style={styles.inputGroup}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>
+                  {t.input_originLabel.toUpperCase()}
+                </Text>
+                <Text style={styles.requiredBadge}>{t.badge_required}</Text>
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputIcon}>📍</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t.input_originPlaceholder}
+                  placeholderTextColor="#475569"
+                  value={origin}
+                  onChangeText={setOrigin}
+                />
+              </View>
+            </View>
+
+            {/* CEL PODRÓŻY */}
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>
@@ -228,32 +234,13 @@ const handleNext = async () => {
                 <Text style={styles.requiredBadge}>{t.badge_required}</Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📍</Text>
+                <Text style={styles.inputIcon}>🎯</Text>
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_destinationPlaceholder}
                   placeholderTextColor="#475569"
                   value={destination}
                   onChangeText={setDestination}
-                />
-              </View>
-            </View>
-
-            {/* SKĄD WYRUSZASZ (OPCJONALNE) */}
-            <View style={styles.inputGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>
-                  {t.input_originLabel.toUpperCase()}
-                </Text>
-              </View>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🏠</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t.input_originPlaceholder}
-                  placeholderTextColor="#475569"
-                  value={origin}
-                  onChangeText={setOrigin}
                 />
               </View>
             </View>
@@ -266,7 +253,7 @@ const handleNext = async () => {
                 </Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>✈️</Text>
+                <Text style={styles.inputIcon}>📝</Text>
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_tripNamePlaceholder}
@@ -284,7 +271,6 @@ const handleNext = async () => {
                   {t.input_startDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  {/* Kliknięcie otworzy kalendarz wyjazdu */}
                   <TouchableOpacity onPress={() => setActivePicker('start')}>
                     <Text style={styles.inputIcon}>📅</Text>
                   </TouchableOpacity>
@@ -298,13 +284,11 @@ const handleNext = async () => {
                   />
                 </View>
               </View>
-
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
                 <Text style={styles.label}>
                   {t.input_endDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  {/* Kliknięcie otworzy kalendarz powrotu */}
                   <TouchableOpacity onPress={() => setActivePicker('end')}>
                     <Text style={styles.inputIcon}>📅</Text>
                   </TouchableOpacity>
@@ -320,7 +304,7 @@ const handleNext = async () => {
               </View>
             </View>
 
-            {/* PRZYCISKI AKCJI (Z OBSŁUGĄ ŁADOWANIA) */}
+            {/* PRZYCISKI AKCJI */}
             <TouchableOpacity
               style={[styles.primaryButton, isValidating && { opacity: 0.7 }]}
               onPress={handleNext}
@@ -331,7 +315,7 @@ const handleNext = async () => {
                 <ActivityIndicator color="#0F172A" />
               ) : (
                 <Text style={styles.primaryButtonText}>
-                  {commonT.button_nextStep} →
+                  {commonT.button_nextStep} ➔
                 </Text>
               )}
             </TouchableOpacity>
@@ -363,157 +347,34 @@ const handleNext = async () => {
           onChange={handleDateChange}
         />
       )}
-      
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#0B1120',
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 8,
-  },
-  langButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  langButtonText: {
-    color: '#E2E8F0',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  progressText: {
-    color: '#F59E0B',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  progressStepName: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  progressBarBg: {
-    height: 4,
-    backgroundColor: '#1E293B',
-    borderRadius: 2,
-    marginBottom: 20,
-  },
-  progressBarFill: {
-    height: 4,
-    backgroundColor: '#F59E0B',
-    borderRadius: 2,
-  },
-  card: {
-    backgroundColor: '#111827',
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,     
-    borderColor: '#1E293B',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#94A3B8',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  rowGroup: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  label: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  requiredBadge: {
-    color: '#F59E0B',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0B1120',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 48,
-  },
-  inputIcon: {
-    fontSize: 15,
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    color: '#F8FAFC',
-    fontSize: 14,
-  },
-  primaryButton: {
-    backgroundColor: '#F59E0B',
-    height: 50,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  primaryButtonText: {
-    color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  secondaryButtonText: {
-    color: '#64748B',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  safeArea: { flex: 1, backgroundColor: '#0B1120' },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20 },
+  topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
+  langButton: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#1E293B', borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
+  langButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '700' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
+  progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
+  card: { backgroundColor: '#111827', borderRadius: 18, padding: 20, borderWidth: 1, borderColor: '#1E293B' },
+  title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
+  subtitle: { fontSize: 14, color: '#94A3B8', marginBottom: 24, lineHeight: 20 },
+  inputGroup: { marginBottom: 16 },
+  rowGroup: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  label: { color: '#94A3B8', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 },
+  requiredBadge: { color: '#F59E0B', fontSize: 10, fontWeight: '700' },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, height: 48 },
+  inputIcon: { fontSize: 15, marginRight: 10 },
+  input: { flex: 1, color: '#F8FAFC', fontSize: 14 },
+  primaryButton: { backgroundColor: '#F59E0B', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 16, shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
+  primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
+  secondaryButton: { height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
 });

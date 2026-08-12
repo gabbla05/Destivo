@@ -1,16 +1,11 @@
-declare const Deno: {
-  serve(handler: (req: Request) => Promise<Response> | Response): void;
-  env: {
-    get(name: string): string | undefined;
-  };
-};
+/// <reference path="./deno-shims.d.ts" />
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+}
 
-// Pomocnicza funkcja przybliżona (Haversine) do wyliczania dystansu w kilometrach
 function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -23,129 +18,122 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// Używamy natywnego Deno.serve (standard w nowym Supabase)
-Deno.serve(async (req: Request): Promise<Response> => {
+async function getCoords(cityName: string) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`, {
+      headers: { 'User-Agent': 'DestivoApp/1.0' }
+    });
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+  } catch (e) {
+    console.warn("Geocoding error:", e);
+  }
+  return null;
+}
+
+serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { origin, destination, departureDate, context } = await req.json();
+    const { origin, destination } = await req.json()
 
     if (!origin || !destination) {
-      return new Response(
-        JSON.stringify({ error: 'Parametry origin i destination są wymagane.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ routes: [] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // 1. Geokodowanie (OpenStreetMap Nominatim / własne API w produkcji)
-    const geocode = async (query: string) => {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
-        { headers: { 'User-Agent': 'DestivoServer/1.0' } }
-      );
-      const data = await res.json();
-      return Array.isArray(data) && data.length > 0
-        ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
-        : null;
-    };
+    // Pobieramy współrzędne tylko po to, żeby znać odległość (km)
+    const [origCoords, destCoords] = await Promise.all([
+      getCoords(origin),
+      getCoords(destination)
+    ]);
 
-    const originCoords = await geocode(origin);
-    const destCoords = await geocode(destination);
-    const distanceKm =
-      originCoords && destCoords
-        ? calculateDistanceKm(originCoords.lat, originCoords.lon, destCoords.lat, destCoords.lon)
-        : 350; // Fallback dystansu
+    const airDistance = (origCoords && destCoords) 
+      ? calculateDistanceKm(origCoords.lat, origCoords.lon, destCoords.lat, destCoords.lon)
+      : 500; // domyślny fallback jakby geokodowanie przymuliło
 
-    const nowIso = new Date().toISOString();
-    const routes = [];
+    let transportPlan: any[] = [];
 
-    // --- OPCJA 1: SAMOCHÓD (ESTIMATE - wyliczane z routingu/paliwa) ---
-    const carDurationMinutes = Math.round((distanceKm / 85) * 60);
-    const consumption = context?.carFuelConsumption ?? 7.0;
-    const fuelPrice = context?.fuelPricePerLiter ?? 6.60;
-    const fuelCost = Math.round((distanceKm / 100) * consumption * fuelPrice);
-    const tolls = context?.tollsAndFees ?? (distanceKm > 200 ? 50 : 0);
-
-    routes.push({
-      type: 'car',
-      provider: 'Routing + kalkulator kosztów',
-      distanceKm: distanceKm,
-      rawDurationMinutes: carDurationMinutes,
-      price: {
-        min: fuelCost + tolls,
-        max: fuelCost + tolls,
-        currency: 'PLN',
-        status: 'ESTIMATE',
-        source: 'ROUTING_AND_USER_INPUT',
-        checkedAt: nowIso,
-        purchasable: false,
-      },
-      dataConfidence: 'MEDIUM',
-      notes: [
-        `Paliwo: ${fuelCost} zł`,
-        `Opłaty drogowe: ${tolls} zł`,
-        `Spalanie: ${consumption} l/100 km`,
-      ],
-    });
-
-    // --- OPCJA 2: POCIĄG (GTFS / API lub UNAVAILABLE przy braku taryfy) ---
-    const trainApiKey = Deno.env.get('TRAIN_API_KEY');
-    if (trainApiKey) {
-      // Miejsce na wywołanie zewnętrznego API PKP / GTFS z użyciem klucza sekretnego
-    } else {
-      routes.push({
+    // SZTUCZNE / TWARDE ZASADY LOGISTYCZNE
+    if (airDistance < 70) {
+      // 1. TRASY LOKALNE (< 70 km) -> Tylko samochód
+      transportPlan.push({
+        type: 'car',
+        provider: 'Własny samochód',
+        bookingUrl: '',
+        actionLinks: [
+          { label: `Nawiguj do: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Trasa lokalna (~${airDistance} km). Najwygodniej udać się bezpośrednio własnym samochodem.`]
+      });
+    } else if (airDistance >= 70 && airDistance <= 600) {
+      // 2. TRASY KRAJOWE (70 - 600 km) -> Pociąg + Autobus (FlixBus) + Samochód
+      transportPlan.push({
         type: 'train',
-        provider: 'PKP Intercity / GTFS',
-        distanceKm: Math.round(distanceKm * 1.15),
-        rawDurationMinutes: Math.round(carDurationMinutes * 0.9),
-        price: {
-          min: 0,
-          max: 0,
-          currency: 'PLN',
-          status: 'UNAVAILABLE', // Brak sztucznego zgadywania ceny!
-          source: 'GTFS_SCHEDULE_ONLY',
-          checkedAt: nowIso,
-          purchasable: false,
-        },
-        dataConfidence: 'LOW',
-        notes: ['Rozkład według GTFS. Cena biletu niedostępna online - sprawdź na stacji.'],
+        provider: 'PKP Intercity / Koleo',
+        bookingUrl: 'https://koleo.pl',
+        actionLinks: [
+          { label: `Pokaż stację w: ${origin}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Kolejowy+${encodeURIComponent(origin)}` },
+          { label: `Pokaż stację w: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Kolejowy+${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Rekomendowane połączenie kolejowe (~${airDistance} km). Sprawdź bilety na Koleo.`]
       });
-    }
 
-    // --- OPCJA 3: SAMOLOT (LIVE - przykładowe zintegrowane źródło ofert) ---
-    const flightApiKey = Deno.env.get('FLIGHT_API_KEY');
-    if (distanceKm > 250) {
-      routes.push({
+      transportPlan.push({
+        type: 'bus',
+        provider: 'FlixBus',
+        bookingUrl: 'https://www.flixbus.pl',
+        actionLinks: [
+          { label: `Dworzec autobusowy: ${origin}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Autobusowy+${encodeURIComponent(origin)}` },
+          { label: `Dworzec autobusowy: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Autobusowy+${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Alternatywne połączenie autokarowe.`]
+      });
+
+      transportPlan.push({
+        type: 'car',
+        provider: 'Własny samochód',
+        bookingUrl: '',
+        actionLinks: [
+          { label: `Nawiguj do: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Podróż własnym samochodem z punktu A do B.`]
+      });
+    } else {
+      // 3. TRASY MIĘDZYNARODOWE / DALEKIE (> 600 km) -> Samolot (Skyscanner) + Samochód
+      transportPlan.push({
         type: 'flight',
-        provider: 'Wizz Air / Skyscanner API',
-        distanceKm: distanceKm,
-        rawDurationMinutes: 95,
-        bookingUrl: 'https://wizzair.com',
-        price: {
-          min: 319,
-          max: 450,
-          currency: 'PLN',
-          status: 'LIVE',
-          source: 'FLIGHT_PROVIDER_API',
-          checkedAt: nowIso,
-          purchasable: true,
-        },
-        dataConfidence: 'HIGH',
-        notes: ['Bagaż podręczny w cenie', 'Cena aktualna z systemów rezerwacyjnych'],
+        provider: 'Połączenie lotnicze (Skyscanner)',
+        bookingUrl: 'https://www.skyscanner.pl',
+        actionLinks: [
+          { label: `Lotnisko w okolicach: ${origin}`, url: `https://www.google.com/maps/search/?api=1&query=Lotnisko+${encodeURIComponent(origin)}` },
+          { label: `Lotnisko w okolicach: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=Lotnisko+${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Trasa daleka/międzynarodowa (~${airDistance} km). Sprawdź loty na Skyscanner.`]
+      });
+
+      transportPlan.push({
+        type: 'car',
+        provider: 'Własny samochód (Roadtrip)',
+        bookingUrl: '',
+        actionLinks: [
+          { label: `Nawiguj do: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}` }
+        ],
+        notes: [`Dla fanów długich tras samochodowych.`]
       });
     }
 
-    return new Response(JSON.stringify({ routes }), {
+    return new Response(JSON.stringify({ routes: transportPlan }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (err: unknown) {
-    // Bezpieczne sprawdzanie typu błędu (TypeScript fix)
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    })
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
-});
+})
