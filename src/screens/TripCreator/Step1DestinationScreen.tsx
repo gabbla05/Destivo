@@ -67,7 +67,7 @@ const checkDestinationExists = async (query: string): Promise<boolean> => {
 export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   navigation,
 }) => {
-  const { language, toggleLanguage } = useAuthStore();
+  const { language } = useAuthStore();
   const t = translations[language].tripCreatorStep1;
   const commonT = translations[language].common;
 
@@ -178,19 +178,6 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
-          {/* GÓRNY PASEK Z PRZEŁĄCZNIKIEM JĘZYKA */}
-          <View style={styles.topBar}>
-            <TouchableOpacity
-              style={styles.langButton}
-              onPress={toggleLanguage}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.langButtonText}>
-                {t.button_languageSwitchLabel}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
           {/* PASEK POSTĘPU KREATORA */}
           <View style={styles.progressHeader}>
             <Text style={styles.progressText}>{t.step_indicator}</Text>

@@ -4,8 +4,8 @@ import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 
 export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const { isGuest, user, language, toggleLanguage } = useAuthStore();
-  
+  const { isGuest, user, language } = useAuthStore();
+
   const t = translations[language].homeScreen;
 
   const userName = isGuest
@@ -37,13 +37,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.topBar}>
-          <TouchableOpacity style={styles.langButton} onPress={toggleLanguage} activeOpacity={0.7}>
-            <Text style={styles.langButtonText}>{t.button_languageSwitchLabel}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 1. SEKCJA GÓRNA: POWITANIE UŻYTKOWNIKA POD PRZYCISKIEM JĘZYKA */}
         <View style={styles.header}>
           <Text style={styles.welcomeText}>
             {isGuest ? t.header_greetingGuest : `${t.header_greetingUser}, ${userName}! 👋`}
@@ -89,26 +82,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 40,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 8,
-  },
-  langButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  langButtonText: {
-    color: '#E2E8F0',
-    fontSize: 12,
-    fontWeight: '700',
   },
   header: {
     paddingHorizontal: 24,

@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type Language = 'en' | 'pl';
 
@@ -7,6 +9,7 @@ export interface User {
   email: string;
   isGuest?: boolean;
   name?: string;
+  language?: Language;
 }
 
 export interface AuthState {
@@ -14,35 +17,48 @@ export interface AuthState {
   isGuest: boolean;
   language: Language;
   toggleLanguage: () => void;
+  setLanguage: (language: Language) => void;
   setUser: (user: User | null) => void;
   continueAsGuest: () => void;
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  isGuest: false,
-  language: 'pl',
-  toggleLanguage: () => set((state) => ({ language: state.language === 'pl' ? 'en' : 'pl' })),
-  
-  // Ustawia zalogowanego lub zarejestrowanego użytkownika
-  setUser: (user) => 
-    set({ 
-      user, 
-      isGuest: user?.isGuest ?? false 
-    }),
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      isGuest: false,
+      language: 'pl',
+      toggleLanguage: () => set((state) => ({ language: state.language === 'pl' ? 'en' : 'pl' })),
+      setLanguage: (language) => set({ language }),
 
-  // Tryb gościa (bez konta w Supabase)
-  continueAsGuest: () => 
-    set({ 
-      user: { id: 'guest-session', email: 'guest@destivo.io', isGuest: true }, 
-      isGuest: true 
-    }),
+      setUser: (user) =>
+        set((state) => ({
+          user,
+          isGuest: user?.isGuest ?? false,
+          language: user?.language ?? state.language,
+        })),
 
-  // Wylogowanie / wyjście z Sejfu
-  logout: () => 
-    set({ 
-      user: null, 
-      isGuest: false 
+      continueAsGuest: () =>
+        set({
+          user: { id: 'guest-session', email: 'guest@destivo.io', isGuest: true },
+          isGuest: true,
+        }),
+
+      logout: () =>
+        set({
+          user: null,
+          isGuest: false,
+        }),
     }),
-}));
+    {
+      name: 'destivo-auth-store',
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        user: state.user,
+        isGuest: state.isGuest,
+        language: state.language,
+      }),
+    }
+  )
+);

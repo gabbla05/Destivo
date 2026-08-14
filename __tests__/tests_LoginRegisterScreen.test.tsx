@@ -5,6 +5,7 @@ import { Alert } from 'react-native';
 import { LoginRegisterScreen } from '../src/screens/auth/LoginRegisterScreen';
 
 const mockSetUser = jest.fn();
+const mockSetLanguage = jest.fn();
 const mockContinueAsGuest = jest.fn();
 const mockLogout = jest.fn();
 const mockSignInWithPassword = jest.fn();
@@ -14,6 +15,8 @@ jest.mock('../src/store/authStore', () => ({
   useAuthStore: () => ({
     user: null,
     isGuest: false,
+    language: 'pl',
+    setLanguage: mockSetLanguage,
     setUser: mockSetUser,
     continueAsGuest: mockContinueAsGuest,
     logout: mockLogout,
@@ -38,15 +41,25 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
     mockSignUp.mockResolvedValue({ data: { user: null }, error: null });
   });
 
-  test('1. powinien poprawnie wyrenderować ekran w domyślnym trybie rejestracji', () => {
+  test('1. powinien poprawnie wyrenderować ekran w domyślnym trybie rejestracji i pokazać wybór języka', () => {
     render(<LoginRegisterScreen />);
 
     expect(screen.getByText('Utwórz konto')).toBeTruthy();
     expect(screen.getByPlaceholderText('odkrywca@example.com')).toBeTruthy();
     expect(screen.getByPlaceholderText('••••••••••••')).toBeTruthy();
+    expect(screen.getByText('PL')).toBeTruthy();
+    expect(screen.getByText('EN')).toBeTruthy();
   });
 
-  test('2. powinien przełączyć ekran w tryb logowania po kliknięciu przycisku zmiany trybu', () => {
+  test('2. powinien wywołać zmianę języka po kliknięciu przycisku EN w formularzu rejestracji', () => {
+    render(<LoginRegisterScreen />);
+
+    fireEvent.press(screen.getByText('EN'));
+
+    expect(mockSetLanguage).toHaveBeenCalledWith('en');
+  });
+
+  test('3. powinien przełączyć ekran w tryb logowania po kliknięciu przycisku zmiany trybu', () => {
     render(<LoginRegisterScreen />);
 
     fireEvent.press(screen.getByText(/ZALOGUJ SIĘ/i));
@@ -55,7 +68,7 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
     expect(screen.queryByText('Utwórz konto ➔')).toBeNull();
   });
 
-  test('3. nie powinien wysyłać zapytania, jeśli pola są puste w formularzu rejestracyjnym', async () => {
+  test('4. nie powinien wysyłać zapytania, jeśli pola są puste w formularzu rejestracyjnym', async () => {
     render(<LoginRegisterScreen />);
 
     fireEvent.press(screen.getByText('Utwórz konto ➔'));
@@ -63,10 +76,11 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
     expect(mockSignUp).not.toHaveBeenCalled();
   });
 
-  test('4. powinien wywołać signIn z poprawnymi danymi po przełączeniu na logowanie', async () => {
-    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: 'user-id', email: 'test@destivo.pl' } }, error: null });
+  test('5. powinien wywołać signIn z poprawnymi danymi po przełączeniu na logowanie i zapisać wybrany język', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: 'user-id', email: 'test@destivo.pl', user_metadata: { language: 'en' } } }, error: null });
 
     render(<LoginRegisterScreen />);
+    fireEvent.press(screen.getByText('EN'));
     fireEvent.press(screen.getByText(/ZALOGUJ SIĘ/i));
 
     fireEvent.changeText(screen.getByPlaceholderText('odkrywca@example.com'), 'test@destivo.pl');
@@ -76,11 +90,12 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
     await waitFor(() => {
       expect(mockSignInWithPassword).toHaveBeenCalledTimes(1);
       expect(mockSignInWithPassword).toHaveBeenCalledWith({ email: 'test@destivo.pl', password: 'TajneHaslo123' });
-      expect(mockSetUser).toHaveBeenCalledWith({ id: 'user-id', email: 'test@destivo.pl', isGuest: false });
+      expect(mockSetLanguage).toHaveBeenCalledWith('en');
+      expect(mockSetUser).toHaveBeenCalledWith({ id: 'user-id', email: 'test@destivo.pl', isGuest: false, language: 'en' });
     });
   });
 
-  test('5. powinien wywołać signUp po wypełnieniu formularza rejestracyjnego', async () => {
+  test('6. powinien wywołać signUp z językiem w metadatach po wypełnieniu formularza rejestracyjnego', async () => {
     mockSignUp.mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'nowy@destivo.pl' } }, error: null });
 
     render(<LoginRegisterScreen />);
@@ -97,15 +112,22 @@ describe('LoginRegisterScreen - Kompletny zestaw testów', () => {
         email: 'nowy@destivo.pl',
         password: 'NoweHaslo123',
         options: {
-          data: { full_name: 'Nowy Użytkownik' },
+          data: { full_name: 'Nowy Użytkownik', language: 'pl' },
         },
       });
-      expect(mockSetUser).not.toHaveBeenCalled();
+      expect(mockSetLanguage).toHaveBeenCalledWith('pl');
+      expect(mockSetUser).toHaveBeenCalledWith({
+        id: 'new-user-id',
+        email: 'nowy@destivo.pl',
+        isGuest: false,
+        name: 'Nowy Użytkownik',
+        language: 'pl',
+      });
       expect(screen.getByText('Zaloguj się ➔')).toBeTruthy();
     });
   });
 
-  test('6. powinien obsłużyć błąd logowania (np. pokazać Alert), gdy API zwróci błąd', async () => {
+  test('7. powinien obsłużyć błąd logowania (np. pokazać Alert), gdy API zwróci błąd', async () => {
     mockSignInWithPassword.mockRejectedValueOnce(new Error('Nieprawidłowe dane logowania'));
 
     render(<LoginRegisterScreen />);

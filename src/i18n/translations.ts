@@ -111,6 +111,14 @@ export const translations = {
       error_dateOrder: 'Data powrotu musi być późniejsza lub równa dacie wyjazdu.',
     },
 
+    tripCreatorStep2: {
+      button_languageSwitchLabel: 'EN',
+      step_indicator: 'KROK 2 Z 4',
+      step_title: 'Środek transportu',
+      header_title: 'Logistyka i transport',
+      header_subtitle: 'Wybierz środek transportu i uzupełnij szczegóły podróży.',
+    },
+
     //transport
     badges: {
         smartChoice: "Smart Choice (Najlepszy wybór)",
@@ -138,6 +146,34 @@ export const translations = {
         departureLocation: "Skąd dokładnie? (np. Lotnisko Balice)",
         arrivalLocation: "Dokąd dokładnie? (np. Lotnisko Bergamo)",
         commuteHint: "📍 Dystans ({{city}}): ~{{dist}} km. Dolicz czas na dojazd!",
+        noDataTitle: "Brak danych",
+        noDataText: "Nie udało się pobrać rekomendacji transportowych.",
+        noRoutesTitle: "Brak połączeń",
+        noRoutesText: "Nie znaleziono odpowiednich połączeń dla tej trasy lub podano błędną lokalizację.",
+        openLinkError: "Nie można otworzyć linku.",
+        checkTickets: "Sprawdź bilety ↗",
+        routeAction: {
+          navigateTo: "Nawiguj do: {{destination}}",
+          stationIn: "Pokaż stację w: {{city}}",
+          busStationIn: "Dworzec autobusowy: {{city}}",
+          airportNear: "Lotnisko w okolicach: {{city}}",
+        },
+        routeNotes: {
+          localRoute: "Trasa lokalna (~{{distance}} km). Najwygodniej udać się bezpośrednio własnym samochodem.",
+          recommendedTrain: "Rekomendowane połączenie kolejowe (~{{distance}} km). Sprawdź bilety na Koleo.",
+          alternativeBus: "Alternatywne połączenie autokarowe.",
+          ownCar: "Podróż własnym samochodem z punktu A do B.",
+          longDistanceFlight: "Trasa daleka/międzynarodowa (~{{distance}} km). Sprawdź loty na Skyscanner.",
+          longRoadTrip: "Dla fanów długich tras samochodowych.",
+        },
+        providers: {
+          flight: "Połączenie lotnicze (Skyscanner)",
+          train: "Połączenie kolejowe (Koleo)",
+          bus: "Połączenie autokarowe (FlixBus)",
+          car: "Własny samochód",
+          roadtrip: "Własny samochód (Roadtrip)",
+          offline: "Kalkulator offline (Szacunek GPS)",
+        },
         types: {
           flight: "Samolot",
           train: "Pociąg",
@@ -280,6 +316,14 @@ export const translations = {
       error_pastDate: 'Departure date cannot be in the past.',
       error_dateOrder: 'Return date must be on or after the departure date.',
     },
+
+    tripCreatorStep2: {
+      button_languageSwitchLabel: 'PL',
+      step_indicator: 'STEP 2 OF 4',
+      step_title: 'Transport Mode',
+      header_title: 'Logistics & Transport',
+      header_subtitle: 'Choose your transport option and fill in the trip details.',
+    },
     // transport
     badges: {
         smartChoice: "Smart Choice",
@@ -307,6 +351,34 @@ export const translations = {
         departureLocation: "Exact departure (e.g. JFK Airport)",
         arrivalLocation: "Exact arrival (e.g. LHR Airport)",
         commuteHint: "📍 Distance ({{city}}): ~{{dist}} km. Plan your commute!",
+        noDataTitle: "No data",
+        noDataText: "The transport recommendations could not be loaded.",
+        noRoutesTitle: "No routes found",
+        noRoutesText: "No suitable routes were found for this trip or the location may be incorrect.",
+        openLinkError: "The link could not be opened.",
+        checkTickets: "Check tickets ↗",
+        routeAction: {
+          navigateTo: "Navigate to: {{destination}}",
+          stationIn: "Show station in: {{city}}",
+          busStationIn: "Bus station: {{city}}",
+          airportNear: "Airport nearby: {{city}}",
+        },
+        routeNotes: {
+          localRoute: "Local route (~{{distance}} km). It is most convenient to go directly by car.",
+          recommendedTrain: "Recommended rail connection (~{{distance}} km). Check train tickets on Koleo.",
+          alternativeBus: "Alternative coach connection.",
+          ownCar: "Driving from point A to point B.",
+          longDistanceFlight: "Long-distance/international route (~{{distance}} km). Check flights on Skyscanner.",
+          longRoadTrip: "For fans of long road trips.",
+        },
+        providers: {
+          flight: "Flight connection (Skyscanner)",
+          train: "Rail connection (Koleo)",
+          bus: "Coach connection (FlixBus)",
+          car: "Own car",
+          roadtrip: "Own car (Roadtrip)",
+          offline: "Offline calculator (GPS estimate)",
+        },
         types: {
           flight: "Flight",
           train: "Train",

@@ -16,7 +16,7 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }) => {
-  const { continueAsGuest, language, toggleLanguage } = useAuthStore();
+  const { continueAsGuest, language } = useAuthStore();
 
   const t = translations[language].welcomeScreen;
 
@@ -24,19 +24,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigateToAuth }
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.container}>
-        
-        <View style={styles.topBar}>
-          <TouchableOpacity 
-            style={styles.langButton} 
-            onPress={toggleLanguage}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.langButtonText}>
-              {t.button_languageSwitchLabel}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.heroSection}>
           <Image
             source={require('../../../assets/logo/logoBezTla.png')}
@@ -115,24 +102,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     justifyContent: 'space-between',
     paddingBottom: 24,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingTop: 12,
-  },
-  langButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  langButtonText: {
-    color: '#E2E8F0',
-    fontSize: 13,
-    fontWeight: '700',
   },
   heroSection: {
     alignItems: 'center',

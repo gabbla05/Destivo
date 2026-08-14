@@ -27,12 +27,39 @@ export function clearTransportRouteMetadata(): void {
   routeMetadata.clear();
 }
 
+export interface UserTravelContext {
+  departureAt?: string;
+  passengers?: number;
+  [key: string]: unknown;
+}
+
 export interface TransportDataProvider {
   getRoutes(args: {
     origin: string;
     destination: string;
     departureAt?: string;
+    context?: UserTravelContext;
   }): Promise<RawRouteInput[]>;
+}
+
+export function buildCarRouteFromRoutingData(data: {
+  distanceKm: number;
+  durationMinutes: number;
+  provider: string;
+  context?: UserTravelContext;
+}): RawRouteInput {
+  return {
+    type: 'car',
+    provider: data.provider,
+    bookingUrl: '',
+    notes: [`Approximate route (~${data.distanceKm} km).`],
+    actionLinks: [
+      {
+        label: `Navigate to: ${data.provider}`,
+        url: 'https://www.google.com/maps',
+      },
+    ],
+  };
 }
 
 export function calculateSmartMetrics(raw: RawRouteInput): TransportOption {
@@ -84,6 +111,7 @@ export async function fetchTransportComparisons(
     origin: origin.trim(),
     destination: destination.trim(),
     departureAt: context.departureAt,
+    context,
   });
 
   return rawRoutes.map((item) => calculateSmartMetrics(item));

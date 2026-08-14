@@ -14,7 +14,7 @@ import {
   ScrollView,
   StatusBar,
 } from 'react-native';
-import { useAuthStore } from '../../store/authStore';
+import { useAuthStore, type Language } from '../../store/authStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
 
@@ -25,13 +25,18 @@ interface LoginRegisterScreenProps {
 }
 
 export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, onBack, initialMode = 'register' }) => {
-  const { setUser, continueAsGuest, language, toggleLanguage: toggleAppLanguage } = useAuthStore();
-  
+  const { setUser, setLanguage, continueAsGuest, language } = useAuthStore();
+
   const [isLoginMode, setIsLoginMode] = useState(initialMode === 'login');
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>(language);
 
   useEffect(() => {
     setIsLoginMode(initialMode === 'login');
   }, [initialMode]);
+
+  useEffect(() => {
+    setSelectedLanguage(language);
+  }, [language]);
 
   const t = translations[language].loginRegisterScreen;
   const commonT = translations[language].common;
@@ -43,8 +48,9 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const toggleLanguage = () => {
-    toggleAppLanguage();
+  const handleLanguageChange = (nextLanguage: Language) => {
+    setSelectedLanguage(nextLanguage);
+    setLanguage(nextLanguage);
   };
 
   const handleSubmit = async () => {
@@ -57,7 +63,6 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
       setLoading(true);
 
       if (isLoginMode) {
-        // Logowanie przez Supabase
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password: password,
@@ -66,27 +71,37 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
         if (error) throw error;
 
         if (data.user) {
+          const resolvedLanguage = (data.user.user_metadata?.language as Language | undefined) ?? selectedLanguage;
+          setLanguage(resolvedLanguage);
           setUser({
             id: data.user.id,
             email: data.user.email || email,
             isGuest: false,
             name: data.user.user_metadata?.full_name || undefined,
+            language: resolvedLanguage,
           });
           if (onSuccess) onSuccess();
         }
       } else {
-        // Rejestracja przez Supabase
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
           options: {
-            data: { full_name: fullName },
+            data: { full_name: fullName, language: selectedLanguage },
           },
         });
 
         if (error) throw error;
 
         if (data.user) {
+          setLanguage(selectedLanguage);
+          setUser({
+            id: data.user.id,
+            email: data.user.email || email,
+            isGuest: false,
+            name: fullName,
+            language: selectedLanguage,
+          });
           Alert.alert('DESTIVO', 'Konto zostało utworzone! Teraz możesz się zalogować.');
           setIsLoginMode(true);
           setPassword('');
@@ -116,14 +131,22 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
             >
               <Text style={styles.backButtonText}>←</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.languageSelector}>
             <TouchableOpacity
-              onPress={toggleLanguage}
-              style={styles.langButton}
-              activeOpacity={0.7}
+              onPress={() => handleLanguageChange('pl')}
+              style={[styles.languageOption, selectedLanguage === 'pl' && styles.languageOptionActive]}
+              activeOpacity={0.8}
             >
-              <Text style={styles.langText}>
-                {welcomeT.button_languageSwitchLabel}
-              </Text>
+              <Text style={[styles.languageOptionText, selectedLanguage === 'pl' && styles.languageOptionTextActive]}>PL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => handleLanguageChange('en')}
+              style={[styles.languageOption, selectedLanguage === 'en' && styles.languageOptionActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.languageOptionText, selectedLanguage === 'en' && styles.languageOptionTextActive]}>EN</Text>
             </TouchableOpacity>
           </View>
 
@@ -281,12 +304,11 @@ const styles = StyleSheet.create({
   },
   topBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between', // <-- Zmień z 'flex-end' na 'space-between'
-    alignItems: 'center',            // <-- Dodaj wyrównanie do środka
+    justifyContent: 'flex-start',
+    alignItems: 'center',
     marginTop: 10,
     marginBottom: 5,
   },
-  // --- DODAJ TE DWA STYLE PONIŻEJ ---
   backButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -300,18 +322,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  langButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
+  languageSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#111827',
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: '#334155',
+    padding: 4,
+    marginBottom: 10,
+    width: 120,
   },
-  langText: {
-    color: '#F8FAFC',
-    fontWeight: 'bold',
+  languageOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    paddingVertical: 8,
+  },
+  languageOptionActive: {
+    backgroundColor: '#F59E0B',
+  },
+  languageOptionText: {
+    color: '#94A3B8',
+    fontWeight: '700',
     fontSize: 12,
+  },
+  languageOptionTextActive: {
+    color: '#0B1120',
   },
   header: {
     alignItems: 'center',

@@ -8,7 +8,6 @@ import {
   Linking,
   Alert,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TextInput,
 } from 'react-native';
@@ -23,6 +22,7 @@ import {
 } from '../../lib/transportCalculator';
 import { useAuthStore } from '../../store/authStore';
 import { translations } from '../../i18n/translations';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // --- NARZĘDZIE DO SZYBKIEGO LICZENIA DYSTANSU (GEOKODOWANIE) ---
 const getCoords = async (query: string) => {
@@ -63,6 +63,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
   } = useTripCreatorStore();
   const { language } = useAuthStore();
   const t = translations[language].transport;
+  const step2T = translations[language].tripCreatorStep2;
   const commonT = translations[language].common;
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -110,12 +111,86 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     return () => { isMounted = false; };
   }, [destination, origin, transportProvider, departureAt]);
 
+  const localizeActionLinkLabel = (label: string): string => {
+    if (!label) return label;
+
+    const normalized = label.trim();
+    if (normalized.toLowerCase().startsWith('nawiguj do:') || normalized.toLowerCase().startsWith('navigate to:')) {
+      const destination = normalized.split(':').slice(1).join(':').trim();
+      return t.routeAction.navigateTo.replace('{{destination}}', destination || destination || 'destination');
+    }
+    if (normalized.toLowerCase().startsWith('pokaż stację w:') || normalized.toLowerCase().startsWith('show station in:')) {
+      const city = normalized.split(':').slice(1).join(':').trim();
+      return t.routeAction.stationIn.replace('{{city}}', city || 'city');
+    }
+    if (normalized.toLowerCase().startsWith('dworzec autobusowy:') || normalized.toLowerCase().startsWith('bus station:')) {
+      const city = normalized.split(':').slice(1).join(':').trim();
+      return t.routeAction.busStationIn.replace('{{city}}', city || 'city');
+    }
+    if (normalized.toLowerCase().startsWith('lotnisko w okolicach:') || normalized.toLowerCase().startsWith('airport nearby:')) {
+      const city = normalized.split(':').slice(1).join(':').trim();
+      return t.routeAction.airportNear.replace('{{city}}', city || 'city');
+    }
+
+    return normalized;
+  };
+
+  const localizeRouteNote = (note: string): string => {
+    if (!note) return note;
+
+    const distanceMatch = note.match(/~([0-9]+)\s*km/i);
+    const distance = distanceMatch ? distanceMatch[1] : '{{distance}}';
+
+    if (/Trasa lokalna|Local route/i.test(note)) {
+      return t.routeNotes.localRoute.replace('{{distance}}', distance);
+    }
+    if (/Rekomendowane połączenie kolejowe|Recommended rail connection/i.test(note)) {
+      return t.routeNotes.recommendedTrain.replace('{{distance}}', distance);
+    }
+    if (/Alternatywne połączenie autokarowe|Alternative coach connection/i.test(note)) {
+      return t.routeNotes.alternativeBus;
+    }
+    if (/Podróż własnym samochodem|Driving from point A to point B/i.test(note)) {
+      return t.routeNotes.ownCar;
+    }
+    if (/Trasa daleka|Long-distance\/international route/i.test(note)) {
+      return t.routeNotes.longDistanceFlight.replace('{{distance}}', distance);
+    }
+    if (/Dla fanów długich tras samochodowych|For fans of long road trips/i.test(note)) {
+      return t.routeNotes.longRoadTrip;
+    }
+
+    return note;
+  };
+
+  const localizeProviderName = (provider: string, type: string): string => {
+    const normalizedType = type?.toLowerCase();
+    const lowerProvider = provider?.toLowerCase() ?? '';
+
+    if (normalizedType === 'flight' || lowerProvider.includes('skyscanner') || lowerProvider.includes('lotnicze')) {
+      return t.providers.flight;
+    }
+    if (normalizedType === 'train' || lowerProvider.includes('koleo') || lowerProvider.includes('pociąg') || lowerProvider.includes('rail')) {
+      return t.providers.train;
+    }
+    if (normalizedType === 'bus' || lowerProvider.includes('flixbus') || lowerProvider.includes('autokar') || lowerProvider.includes('coach')) {
+      return t.providers.bus;
+    }
+    if (normalizedType === 'car' || lowerProvider.includes('samochód') || lowerProvider.includes('car') || lowerProvider.includes('roadtrip')) {
+      return t.providers.car;
+    }
+    if (lowerProvider.includes('offline') || lowerProvider.includes('gps')) {
+      return t.providers.offline;
+    }
+    return provider || '';
+  };
+
   const handleOpenBooking = async (url?: string) => {
     if (!url) return;
     try {
       const supported = await Linking.canOpenURL(url);
       if (supported) await Linking.openURL(url);
-      else Alert.alert('DESTIVO', 'Nie można otworzyć linku.');
+      else Alert.alert('DESTIVO', t.openLinkError);
     } catch (error: unknown) {
       console.error('Błąd otwierania linku:', error);
     }
@@ -158,16 +233,24 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t.title}</Text>
-          <Text style={styles.routeSubtitle}>
-            {origin ? `${origin.toUpperCase()} ➔ ` : ''}
-            {destination.toUpperCase() || 'CEL PODRÓŻY'}
-          </Text>
-          <Text style={styles.desc}>{t.subtitle}</Text>
-        </View>
-
         <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
+          {/* PASEK POSTĘPU KREATORA */}
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressText}>{step2T.step_indicator}</Text>
+            <Text style={styles.progressStepName}>{step2T.step_title}</Text>
+          </View>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: '50%' }]} />
+          </View>
+
+          <View style={styles.header}>
+            <Text style={styles.title}>{t.title}</Text>
+            <Text style={styles.routeSubtitle}>
+              {origin ? `${origin.toUpperCase()} ➔ ` : ''}
+              {destination.toUpperCase() || 'CEL PODRÓŻY'}
+            </Text>
+            <Text style={styles.desc}>{t.subtitle}</Text>
+          </View>
           {loading ? (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#F59E0B" />
@@ -177,14 +260,14 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             <>
               {errorMessage && (
                 <View style={styles.errorBox}>
-                  <Text style={styles.errorTitle}>Brak danych</Text>
+                  <Text style={styles.errorTitle}>{t.noDataTitle}</Text>
                   <Text style={styles.errorText}>{errorMessage}</Text>
                 </View>
               )}
               {options.length === 0 && !errorMessage && (
                 <View style={styles.emptyBox}>
-                  <Text style={styles.emptyTitle}>Brak połączeń</Text>
-                  <Text style={styles.emptyText}>Nie znaleziono odpowiednich połączeń dla tej trasy lub podano błędną lokalizację.</Text>
+                  <Text style={styles.emptyTitle}>{t.noRoutesTitle}</Text>
+                  <Text style={styles.emptyText}>{t.noRoutesText}</Text>
                 </View>
               )}
               {options.map((item: TransportOption) => {
@@ -201,14 +284,14 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                     <View style={styles.cardHeaderRow}>
                       <View style={styles.providerInfo}>
                         <Text style={styles.typeTitle}>{renderTypeName(item.type)}</Text>
-                        <Text style={styles.providerSubtitle}>{item.provider}</Text>
+                        <Text style={styles.providerSubtitle}>{localizeProviderName(item.provider, item.type)}</Text>
                       </View>
                     </View>
 
                     {metadata?.notes && metadata.notes.length > 0 && (
                       <View style={styles.notesBox}>
                         {metadata.notes.map((note, idx) => (
-                          <Text key={idx} style={styles.noteText}>{note}</Text>
+                          <Text key={idx} style={styles.noteText}>{localizeRouteNote(note)}</Text>
                         ))}
                       </View>
                     )}
@@ -222,7 +305,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                             onPress={() => handleOpenBooking(link.url)}
                             activeOpacity={0.8}
                           >
-                            <Text style={styles.mapButtonText}>📍 {link.label}</Text>
+                            <Text style={styles.mapButtonText}>📍 {localizeActionLinkLabel(link.label)}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -236,7 +319,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                           style={styles.bookButton}
                           activeOpacity={0.8}
                         >
-                          <Text style={styles.bookButtonText}>Sprawdź bilety ↗</Text>
+                          <Text style={styles.bookButtonText}>{t.checkTickets}</Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>
@@ -407,9 +490,14 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
           >
             <Text style={styles.primaryButtonText}>{commonT.button_nextStep}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.8}>
-            <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
-          </TouchableOpacity>
+          <View style={styles.actionButtonsRow}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.8}>
+              <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.tertiaryButton} onPress={() => navigation?.navigate('Step3')} activeOpacity={0.8}>
+              <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -419,11 +507,16 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
+  progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 },
   title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF' },
   routeSubtitle: { fontSize: 14, fontWeight: '700', color: '#F59E0B', marginTop: 4, letterSpacing: 0.5 },
   desc: { fontSize: 13, color: '#94A3B8', marginTop: 4, lineHeight: 18 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
   loaderContainer: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
   loaderText: { color: '#94A3B8', marginTop: 12, fontSize: 14, fontWeight: '500' },
   errorBox: { backgroundColor: 'rgba(248, 113, 113, 0.08)', borderWidth: 1, borderColor: 'rgba(248, 113, 113, 0.35)', borderRadius: 12, padding: 12, marginBottom: 14 },
@@ -448,8 +541,11 @@ const styles = StyleSheet.create({
   bottomActions: { paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B1120' },
   primaryButton: { backgroundColor: '#F59E0B', height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  secondaryButton: { height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  actionButtonsRow: { flexDirection: 'row', gap: 8 },
+  secondaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+  tertiaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#475569' },
+  tertiaryButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '500' },
   
   detailsContainer: { marginTop: 16 },
   detailsTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
