@@ -1,3 +1,4 @@
+// src/navigation/TripCreatorNavigator.tsx
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,22 +7,12 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 // Import ekranów i stworzonego providera
 import { Step1DestinationScreen } from '../screens/TripCreator/Step1DestinationScreen';
 import { Step2TransportScreen } from '../screens/TripCreator/Step2TransportScreen';
+import { Step3LodgingScreen } from '../screens/TripCreator/Step3LodgingScreen'; // DODANY IMPORT
 import { supabaseTransportProvider } from '../lib/transportProvider';
 
 const Stack = createNativeStackNavigator();
 
-const Step3LodgingScreen = ({ navigation }: any) => (
-  <SafeAreaView style={styles.placeholderContainer}>
-    <Text style={styles.placeholderTitle}>STEP 3 OF 4 - Lodging (Booking)</Text>
-    <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Step4')}>
-      <Text style={styles.buttonText}>Dalej – Krok 4</Text>
-    </TouchableOpacity>
-    <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-      <Text style={styles.backButtonText}>← Cofnij</Text>
-    </TouchableOpacity>
-  </SafeAreaView>
-);
-
+// Zostawiamy tymczasowo tylko placeholder dla Kroku 4
 const Step4AttractionsScreen = ({ navigation }: any) => (
   <SafeAreaView style={styles.placeholderContainer}>
     <Text style={styles.placeholderTitle}>STEP 4 OF 4 - Attractions</Text>
@@ -48,9 +39,12 @@ export const TripCreatorNavigator = () => {
           />
         )}
       </Stack.Screen>
-
+      
+      {/* Zmieniono na zaimportowany, prawdziwy komponent */}
       <Stack.Screen name="Step3" component={Step3LodgingScreen} />
-      <Stack.Screen name="Step4" component={Step4AttractionsScreen} />
+      
+      {/* Zmieniono nazwę na "Step4Attractions" żeby pasowało do przycisku z Kroku 3 */}
+      <Stack.Screen name="Step4Attractions" component={Step4AttractionsScreen} />
     </Stack.Navigator>
   );
 };

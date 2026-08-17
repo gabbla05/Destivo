@@ -184,11 +184,16 @@ export const translations = {
 
     //accomodation
     tripCreatorStep3: {
+      step_indicator: 'KROK 3 Z 4',
+      step_title: 'Nocleg',
       header_title: 'Wybierz zakwaterowanie',
       header_subtitle: 'Zarezerwuj nocleg lub wpisz własny adres.',
+      booking_prompt_title: 'Nie masz jeszcze noclegu?',
+      booking_prompt_desc: 'Przejdź do Booking.com, aby wyszukać najlepsze oferty dla Twojej podróży.',
       input_accommodationAddressLabel: 'Adres noclegu',
       input_accommodationAddressPlaceholder: 'np. Via del Corso 12, Rzym',
-      button_openBooking: 'Szukaj noclegu w Booking.com ➔',
+      input_accommodationAddressHelp: 'Wklej dokładny adres z aplikacji Booking (lub innej), abyśmy mogli poszukać atrakcji w Twojej okolicy.',
+      button_openBooking: 'Szukaj na Booking.com',
       question_wantToSelectAttractionsNow: 'Czy chcesz wybrać atrakcje w okolicy?',
       button_selectAttractionsYes: 'Tak, wybieram teraz',
       button_selectAttractionsNo: 'Nie teraz, przejdź do osi czasu',
@@ -389,11 +394,16 @@ export const translations = {
 
     // accomodation
     tripCreatorStep3: {
+      step_indicator: 'STEP 3 OF 4',
+      step_title: 'Lodging',
       header_title: 'Select accommodation',
       header_subtitle: 'Book a place to stay or enter your own address.',
+      booking_prompt_title: 'Don\'t have accommodation yet?',
+      booking_prompt_desc: 'Go to Booking.com to find the best deals for your trip.',
       input_accommodationAddressLabel: 'Accommodation address',
       input_accommodationAddressPlaceholder: 'e.g. Via del Corso 12, Rome',
-      button_openBooking: 'Search accommodation on Booking.com ➔',
+      input_accommodationAddressHelp: 'Paste the exact address from Booking (or another app) so we can look for attractions in your area.',
+      button_openBooking: 'Search on Booking.com',
       question_wantToSelectAttractionsNow: 'Would you like to select nearby attractions?',
       button_selectAttractionsYes: 'Yes, choose now',
       button_selectAttractionsNo: 'Not now, go to timeline',

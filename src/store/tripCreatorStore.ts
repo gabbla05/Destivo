@@ -112,6 +112,9 @@ export interface TripCreatorState {
     type: string | null;
     cost: number;
   };
+  
+  // Zmiana: dodane pole na adres noclegu z Kroku 3
+  lodgingAddress: string;
 
   attractions: {
     selected: string[];
@@ -138,6 +141,9 @@ export interface TripCreatorState {
     type: string | null;
     cost: number;
   }) => void;
+  
+  // Zmiana: setter dla adresu noclegu
+  setLodgingAddress: (address: string) => void;
 
   setAttractions: (attractions: {
     selected: string[];
@@ -158,6 +164,7 @@ const initialState: Omit<
   | 'clearCustomTransportCost'
   | 'setTransportDetails'
   | 'setLodging'
+  | 'setLodgingAddress' // Zmiana: wykluczenie settera
   | 'setAttractions'
   | 'reset'
 > = {
@@ -191,6 +198,9 @@ const initialState: Omit<
     type: null,
     cost: 0,
   },
+  
+  // Zmiana: wartość początkowa
+  lodgingAddress: '',
 
   attractions: {
     selected: [],
@@ -274,6 +284,10 @@ export const useTripCreatorStore = create<TripCreatorState>((set) => ({
 
   setLodging: (lodging) =>
     set({ lodging }),
+
+  // Zmiana: implementacja settera
+  setLodgingAddress: (address) => 
+    set({ lodgingAddress: address }),
 
   setAttractions: (attractions) =>
     set({ attractions }),
