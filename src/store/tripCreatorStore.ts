@@ -1,3 +1,4 @@
+// src/store/tripCreatorStore.ts
 import { create } from 'zustand';
 
 export type TransportType = 'flight' | 'train' | 'bus' | 'car';
@@ -113,7 +114,6 @@ export interface TripCreatorState {
     cost: number;
   };
   
-  // Zmiana: dodane pole na adres noclegu z Kroku 3
   lodgingAddress: string;
 
   attractions: {
@@ -142,13 +142,15 @@ export interface TripCreatorState {
     cost: number;
   }) => void;
   
-  // Zmiana: setter dla adresu noclegu
   setLodgingAddress: (address: string) => void;
 
   setAttractions: (attractions: {
     selected: string[];
     budget: number;
   }) => void;
+  
+  // ZMIANA DO KROKU 4 - Toggle dla wybranej atrakcji
+  toggleAttraction: (attractionName: string) => void;
 
   reset: () => void;
 }
@@ -164,8 +166,9 @@ const initialState: Omit<
   | 'clearCustomTransportCost'
   | 'setTransportDetails'
   | 'setLodging'
-  | 'setLodgingAddress' // Zmiana: wykluczenie settera
+  | 'setLodgingAddress'
   | 'setAttractions'
+  | 'toggleAttraction'
   | 'reset'
 > = {
   tripName: '',
@@ -199,7 +202,6 @@ const initialState: Omit<
     cost: 0,
   },
   
-  // Zmiana: wartość początkowa
   lodgingAddress: '',
 
   attractions: {
@@ -240,10 +242,6 @@ export const useTripCreatorStore = create<TripCreatorState>((set) => ({
 
           selectedOption: option,
 
-          /**
-           * Najważniejsza zmiana:
-           * brak aktualnej ceny NIE staje się 0 zł w budżecie.
-           */
           customCost: isPriceAvailable
             ? option.totalCost
             : undefined,
@@ -285,12 +283,26 @@ export const useTripCreatorStore = create<TripCreatorState>((set) => ({
   setLodging: (lodging) =>
     set({ lodging }),
 
-  // Zmiana: implementacja settera
   setLodgingAddress: (address) => 
     set({ lodgingAddress: address }),
 
   setAttractions: (attractions) =>
     set({ attractions }),
+    
+  // ZMIANA DO KROKU 4 - obsługa zaznaczania atrakcji
+  toggleAttraction: (attractionName) =>
+    set((state) => {
+      const isSelected = state.attractions.selected.includes(attractionName);
+      const newSelected = isSelected
+        ? state.attractions.selected.filter((a) => a !== attractionName)
+        : [...state.attractions.selected, attractionName];
+      return {
+        attractions: {
+          ...state.attractions,
+          selected: newSelected,
+        }
+      };
+    }),
 
   reset: () =>
     set(initialState),

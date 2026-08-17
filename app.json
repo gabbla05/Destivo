@@ -9,7 +9,12 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.gabrynia67.destivo"
+      "package": "com.gabrynia67.destivo",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ"
+        }
+      }
     },
     "extra": {
       "eas": {
