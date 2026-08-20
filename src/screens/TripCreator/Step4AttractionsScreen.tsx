@@ -22,6 +22,9 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 
+import { usePowerSync } from '@powersync/react-native';
+import * as Crypto from 'expo-crypto';
+
 interface GooglePlaceAttraction {
   id: string;
   name: string;
@@ -61,12 +64,62 @@ export const Step4AttractionsScreen = () => {
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
   
-  const { 
-    destination, 
-    lodgingAddress, 
+  const {
+    tripName,
+    origin,
+    destination,
+    startDate,
+    endDate,
+    transport,
+    transportDetails,
+    lodging,
+    lodgingAddress,
     attractions: storeAttractions,
-    toggleAttraction
+    toggleAttraction,
+    reset
   } = useTripCreatorStore();
+
+  const { user } = useAuthStore();
+  const db = usePowerSync();
+
+  const handleFinishPlanning = async () => {
+    try {
+      const tripId = Crypto.randomUUID();
+      const userId = user?.id || 'guest';
+
+      // Serializacja obiektów z Zustand do JSON, by zapisać je w PowerSync
+      const transportJson = JSON.stringify({ transport, transportDetails });
+      const lodgingJson = JSON.stringify({ lodging, lodgingAddress });
+      const attractionsJson = JSON.stringify(storeAttractions);
+
+      // Zapis do lokalnej bazy (PowerSync zsynchronizuje to z Supabase w tle)
+      await db.execute(
+        `INSERT INTO trips 
+        (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          tripId,
+          userId,
+          tripName || `Podróż do ${destination}`,
+          origin,
+          destination,
+          startDate,
+          endDate,
+          transportJson,
+          lodgingJson,
+          attractionsJson
+        ]
+      );
+
+      Alert.alert('DESTIVO', 'Podróż została pomyślnie zapisana!');
+      reset(); // Czyści dane ze store'a, żeby był pusty dla nowej wycieczki
+      navigation.navigate('Explore' as never); // W przyszłości podmienisz to na nawigację do Osi Czasu (Trips)
+      
+    } catch (error) {
+      console.error("Błąd zapisu wycieczki:", error);
+      Alert.alert('Błąd', 'Nie udało się zapisać podróży w Sejfie.');
+    }
+  };
 
   const [radius, setRadius] = useState<number>(5.0); 
   const [loading, setLoading] = useState(false);
@@ -373,7 +426,7 @@ export const Step4AttractionsScreen = () => {
 
       {/* PŁYWAJĄCY PRZYCISK ZAKOŃCZENIA */}
       <View style={styles.floatingFooter}>
-        <TouchableOpacity style={styles.finishButton} onPress={() => navigation.navigate('Explore' as never)} activeOpacity={0.9}>
+        <TouchableOpacity style={styles.finishButton} onPress={handleFinishPlanning} activeOpacity={0.9}>
           <Text style={styles.finishButtonText}>{t.button_finishPlanning}</Text>
         </TouchableOpacity>
       </View>
