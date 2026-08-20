@@ -7,6 +7,8 @@ import { LoginRegisterScreen } from './src/screens/auth/LoginRegisterScreen';
 import { useAuthStore } from './src/store/authStore';
 import { BottomTabNavigator } from './src/navigation/BottomTabNavigator';
 import { TripCreatorNavigator } from './src/navigation/TripCreatorNavigator';
+import { ExploreDetailsScreen } from './src/screens/ExploreDetailsScreen';
+import { QuickSetupScreen } from './src/screens/QuickSetupScreen';
 
 const RootStack = createNativeStackNavigator();
 
@@ -24,6 +26,8 @@ export default function App() {
           <RootStack.Screen name="MainTabs" component={BottomTabNavigator} />
           {/* Ekran Kreatora Podróży otwierany na wierzchu zakładek */}
           <RootStack.Screen name="TripCreator" component={TripCreatorNavigator} />
+          <RootStack.Screen name="ExploreDetails" component={ExploreDetailsScreen} />
+          <RootStack.Screen name="QuickSetup" component={QuickSetupScreen} />
         </RootStack.Navigator>
       </NavigationContainer>
     );

@@ -188,6 +188,8 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
   const handleOpenBooking = async (url?: string) => {
     if (!url) return;
     try {
+      console.log('🔗 Wygenerowany link transportu:', url);
+
       const supported = await Linking.canOpenURL(url);
       if (supported) await Linking.openURL(url);
       else Alert.alert('DESTIVO', t.openLinkError);
