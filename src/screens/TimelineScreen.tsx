@@ -102,11 +102,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const itemLayouts = useRef<{ [key: string]: number }>({});
 
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchTimelineData();
-    }, [user?.id])
-  );
+  
 
   const fetchRealAttractionsFromGoogle = async (locationQuery: string, usedTitles: string[]) => {
     try {
@@ -261,6 +257,12 @@ export const TimelineScreen = ({ navigation, route }: any) => {
     }
   };
 
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchTimelineData();
+    }, [user?.id])
+  );
+
   const processAndSetEvents = (rawEvents: TimelineEvent[]) => {
     const now = new Date();
     let currentFound = false;
@@ -352,9 +354,11 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       subtitle: newSubtitle || (isFromPool ? 'Rekomendowane miejsce' : 'Dodano ręcznie'),
       dateStr: theDate,
       timeStr: theTime,
+      // Konwersja DD-MM-YYYY na obiekt Date uwzględniając godzinę
       parsedDate: parseDate(theDate.split('-').reverse().join('-'), theTime),
     };
 
+    // Poprawka: Dodajemy element do tablicy i od razu sortujemy chronologicznie po dacie i czasie
     const newEvents = [...events, newEvent];
     newEvents.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
     

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
+  ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../store/authStore';
@@ -27,47 +28,44 @@ interface TripRecord {
 
 export const TripsListScreen = ({ navigation }: any) => {
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Zmieniono z true na false
   const [trips, setTrips] = useState<TripRecord[]>([]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchTrips();
-    }, [user?.id])
-  );
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
 
   const fetchTrips = async () => {
     try {
       setLoading(true);
       const isUserGuest = user?.isGuest || !user;
-      
+             
       if (isUserGuest) {
         const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        if (storedTrips) {
-          setTrips(JSON.parse(storedTrips));
-        } else {
-          setTrips([]);
-        }
+        setTrips(storedTrips ? JSON.parse(storedTrips) : []);
       } else {
         const { data, error } = await supabase
           .from('trips')
           .select('id, title, origin, destination, start_date, end_date')
           .eq('user_id', user.id)
-          .order('start_date', { ascending: true }); // sortowanie od najbliższego wyjazdu
-
+          .order('start_date', { ascending: true });
         if (error) throw error;
         setTrips(data || []);
       }
     } catch (e) {
-      console.error('Błąd pobierania listy podróży:', e);
       Alert.alert('Błąd', 'Nie udało się wczytać listy podróży.');
     } finally {
       setLoading(false);
     }
   };
 
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchTrips();
+    }, [user?.id])
+  );
+  
+  // ... reszta kodu ekranu
+
   const handleTripPress = (tripId: string) => {
-    navigation.navigate('Timeline', { tripId }); // Przechodzimy na oś czasu i przekazujemy ID wycieczki!
+    navigation.navigate('Timeline', { tripId });
   };
 
   const formatDisplayDate = (dateStr: string) => {
@@ -77,7 +75,6 @@ export const TripsListScreen = ({ navigation }: any) => {
     return dateStr;
   };
 
-  // Rozdzielamy na archiwalne i nadchodzące
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
@@ -95,11 +92,37 @@ export const TripsListScreen = ({ navigation }: any) => {
     return endDate < now;
   });
 
+  // Obliczanie statystyk dla archiwalnych podróży
+  const uniquePlacesCount = new Set(pastTrips.map(t => t.destination)).size;
+  const totalDaysTraveled = pastTrips.reduce((total, trip) => {
+    if (!trip.start_date || !trip.end_date) return total;
+    const start = new Date(trip.start_date);
+    const end = new Date(trip.end_date);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return total + (diffDays > 0 ? diffDays : 1); // Minimum 1 dzień
+  }, 0);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Twoje podróże</Text>
+      </View>
+
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'upcoming' && styles.tabButtonActive]} 
+          onPress={() => setActiveTab('upcoming')}
+        >
+          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>Nadchodzące</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'past' && styles.tabButtonActive]} 
+          onPress={() => setActiveTab('past')}
+        >
+          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>Archiwalne</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -118,48 +141,90 @@ export const TripsListScreen = ({ navigation }: any) => {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {upcomingTrips.length > 0 && (
+          
+          {/* ZAKŁADKA NADCHODZĄCE */}
+          {activeTab === 'upcoming' && (
             <>
-              <Text style={styles.sectionTitle}>Nadchodzące</Text>
-              {upcomingTrips.map((trip) => (
-                <TouchableOpacity 
-                  key={trip.id} 
-                  style={styles.card}
-                  activeOpacity={0.8}
-                  onPress={() => handleTripPress(trip.id)}
-                >
-                  <Text style={styles.cardTitle}>{trip.title}</Text>
-                  <Text style={styles.cardRoute}>{trip.origin || 'Dom'} ➔ {trip.destination}</Text>
-                  <View style={styles.cardFooter}>
-                    <Text style={styles.cardDate}>
-                      {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
-                    </Text>
-                    <Text style={styles.arrowIcon}>→</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {upcomingTrips.length === 0 ? (
+                <View style={styles.centerBox}>
+                  <Text style={styles.emptyText}>Brak zaplanowanych wyjazdów.</Text>
+                </View>
+              ) : (
+                upcomingTrips.map((trip) => (
+                  <TouchableOpacity 
+                    key={trip.id} 
+                    style={styles.card}
+                    activeOpacity={0.8}
+                    onPress={() => handleTripPress(trip.id)}
+                  >
+                    <Text style={styles.cardTitle}>{trip.title}</Text>
+                    <Text style={styles.cardRoute}>{trip.origin || 'Dom'} ➔ {trip.destination}</Text>
+                    <View style={styles.cardFooter}>
+                      <Text style={styles.cardDate}>
+                        {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
+                      </Text>
+                      <Text style={styles.arrowIcon}>➔</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
             </>
           )}
 
-          {pastTrips.length > 0 && (
+          {/* ZAKŁADKA ARCHIWALNE */}
+          {activeTab === 'past' && (
             <>
-              <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Archiwalne</Text>
-              {pastTrips.map((trip) => (
-                <TouchableOpacity 
-                  key={trip.id} 
-                  style={[styles.card, styles.cardPast]}
-                  activeOpacity={0.8}
-                  onPress={() => handleTripPress(trip.id)}
-                >
-                  <Text style={styles.cardTitle}>{trip.title}</Text>
-                  <Text style={styles.cardRoute}>{trip.origin || 'Dom'} ➔ {trip.destination}</Text>
-                  <Text style={styles.cardDate}>
-                    {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <View style={styles.statsCard}>
+                <Text style={styles.statsTitle}>Archiwalne Wspomnienia</Text>
+                <Text style={styles.statsSubtitle}>
+                  Przeżyj ponownie podróże, które ukształtowały Twój świat.
+                </Text>
+                <View style={styles.statsRow}>
+                  <View style={styles.statCol}>
+                    <Text style={styles.statValue}>{uniquePlacesCount}</Text>
+                    <Text style={styles.statLabel}>ODWIEDZONYCH MIEJSC</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statCol}>
+                    <Text style={styles.statValue}>{totalDaysTraveled}</Text>
+                    <Text style={styles.statLabel}>DNI W PODRÓŻY</Text>
+                  </View>
+                </View>
+              </View>
+
+              {pastTrips.length === 0 ? (
+                <View style={styles.centerBox}>
+                  <Text style={styles.emptyText}>Brak archiwalnych podróży.</Text>
+                </View>
+              ) : (
+                pastTrips.map((trip) => (
+                  <View key={trip.id} style={styles.archivalCard}>
+                    <ImageBackground 
+                      source={{ uri: `https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=800` }} // Fallback image for memory card
+                      style={styles.archivalImage}
+                    >
+                      <View style={styles.archivalImageOverlay} />
+                    </ImageBackground>
+                    
+                    <View style={styles.archivalInfo}>
+                      <Text style={styles.archivalTripTitle}>{trip.title}</Text>
+                      <Text style={styles.archivalTripDate}>
+                        📅 {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
+                      </Text>
+                      <TouchableOpacity 
+                        style={styles.archivalButton}
+                        activeOpacity={0.8}
+                        onPress={() => handleTripPress(trip.id)}
+                      >
+                        <Text style={styles.archivalButtonText}>Zobacz wspomnienia ➔</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
             </>
           )}
+
         </ScrollView>
       )}
     </SafeAreaView>
@@ -168,19 +233,46 @@ export const TripsListScreen = ({ navigation }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1120' },
-  header: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#1E293B', backgroundColor: '#0B1120' },
+  header: { padding: 20, paddingBottom: 10, backgroundColor: '#0B1120' },
   headerTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '800' },
-  centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  emptyText: { color: '#94A3B8', fontSize: 16, marginBottom: 20 },
+  
+  tabContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 12 },
+  tabButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#0B1120' },
+  tabButtonActive: { backgroundColor: '#1E293B', borderColor: '#38BDF8' },
+  tabText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
+  tabTextActive: { color: '#38BDF8' },
+
+  centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: 40 },
+  emptyText: { color: '#94A3B8', fontSize: 15, marginBottom: 20 },
   primaryButton: { backgroundColor: '#F59E0B', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  scrollContent: { padding: 20, paddingBottom: 40 },
-  sectionTitle: { color: '#F59E0B', fontSize: 14, fontWeight: '700', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
+  
+  // Card - Upcoming
   card: { backgroundColor: '#111827', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#1E293B' },
-  cardPast: { opacity: 0.7 },
   cardTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 4 },
   cardRoute: { color: '#94A3B8', fontSize: 14, marginBottom: 12 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardDate: { color: '#38BDF8', fontSize: 13, fontWeight: '600' },
-  arrowIcon: { color: '#F59E0B', fontSize: 18, fontWeight: 'bold' }
+  arrowIcon: { color: '#F59E0B', fontSize: 18, fontWeight: 'bold' },
+
+  // Stats Card
+  statsCard: { backgroundColor: '#111827', borderRadius: 16, padding: 24, marginBottom: 24, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' },
+  statsTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 6 },
+  statsSubtitle: { color: '#94A3B8', fontSize: 13, textAlign: 'center', marginBottom: 20, paddingHorizontal: 10, lineHeight: 18 },
+  statsRow: { flexDirection: 'row', width: '100%', justifyContent: 'center', alignItems: 'center' },
+  statCol: { alignItems: 'center', flex: 1 },
+  statValue: { color: '#F59E0B', fontSize: 24, fontWeight: '900' },
+  statLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
+  statDivider: { width: 1, height: 40, backgroundColor: '#1E293B' },
+
+  // Archival Card
+  archivalCard: { backgroundColor: '#111827', borderRadius: 16, marginBottom: 20, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  archivalImage: { width: '100%', height: 160 },
+  archivalImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(11, 17, 32, 0.3)' },
+  archivalInfo: { padding: 16 },
+  archivalTripTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  archivalTripDate: { color: '#94A3B8', fontSize: 12, marginBottom: 16, fontWeight: '600' },
+  archivalButton: { backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  archivalButtonText: { color: '#0F172A', fontSize: 14, fontWeight: '800' },
 });
