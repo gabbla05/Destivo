@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
-  TextInput, 
   TouchableOpacity, 
   ScrollView, 
   StyleSheet, 
@@ -22,7 +21,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 
-import { usePowerSync } from '@powersync/react-native';
+import { supabase } from '../../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
 interface GooglePlaceAttraction {
@@ -59,8 +59,8 @@ const mapDarkStyle = [
 ];
 
 export const Step4AttractionsScreen = () => {
-  const navigation = useNavigation();
-  const { language } = useAuthStore();
+  const navigation = useNavigation<any>();
+  const { language, isGuest } = useAuthStore();
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
   
@@ -80,51 +80,78 @@ export const Step4AttractionsScreen = () => {
   } = useTripCreatorStore();
 
   const { user } = useAuthStore();
-  const db = usePowerSync();
 
   const handleFinishPlanning = async () => {
     try {
-      const tripId = Crypto.randomUUID();
       const userId = user?.id || 'guest';
+      const isUserGuest = isGuest || user?.isGuest;
 
-      // Serializacja obiektów z Zustand do JSON, by zapisać je w PowerSync
-      const transportJson = JSON.stringify({ transport, transportDetails });
-      const lodgingJson = JSON.stringify({ lodging, lodgingAddress });
+      // Zabezpieczenie dla gościa - maksymalnie 1 podróż
+      if (isUserGuest) {
+        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
+        const trips = storedTrips ? JSON.parse(storedTrips) : [];
+        if (trips.length > 0) {
+          Alert.alert('DESTIVO', t.error_guestTripExists || 'Gość może mieć tylko jedną podróż.');
+          return;
+        }
+      }
+
+      const tripId = Crypto.randomUUID();
+      
+      // Przygotowujemy dane do bazy
       const attractionsJson = JSON.stringify(storeAttractions);
+      const transportType = transport?.selectedOption?.type || null; 
 
-      // Zapis do lokalnej bazy (PowerSync zsynchronizuje to z Supabase w tle)
-      await db.execute(
-        `INSERT INTO trips 
-        (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-        [
-          tripId,
-          userId,
-          tripName || `Podróż do ${destination}`,
-          origin,
-          destination,
-          startDate,
-          endDate,
-          transportJson,
-          lodgingJson,
-          attractionsJson
-        ]
-      );
+      // --- FUNKCJA ZAMIENIAJĄCA DD-MM-YYYY na YYYY-MM-DD ---
+      const formatToDBDate = (dateStr: string) => {
+        if (!dateStr) return null;
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          return `${parts[2]}-${parts[1]}-${parts[0]}`; 
+        }
+        return dateStr;
+      };
+
+      const tripRecord = {
+        id: tripId,
+        user_id: userId,
+        title: tripName || `Podróż do ${destination}`,
+        origin,
+        destination,
+        start_date: formatToDBDate(startDate), // Odwrócona data
+        end_date: formatToDBDate(endDate),     // Odwrócona data
+        transport_type: transportType, 
+        accommodation_address: lodgingAddress || '', 
+        attractions_data: attractionsJson,
+        created_at: new Date().toISOString()
+      };
+
+      if (isUserGuest) {
+        // Gość - zapis w pamięci telefonu
+        await AsyncStorage.setItem('destivo-trips-guest', JSON.stringify([tripRecord]));
+      } else {
+        // Zalogowany użytkownik - zapis bezpośrednio do bazy danych Supabase
+        const { error } = await supabase.from('trips').insert([tripRecord]);
+        if (error) throw error;
+      }
 
       Alert.alert('DESTIVO', 'Podróż została pomyślnie zapisana!');
-      reset(); // Czyści dane ze store'a, żeby był pusty dla nowej wycieczki
-      navigation.navigate('Explore' as never); // W przyszłości podmienisz to na nawigację do Osi Czasu (Trips)
-      
+      reset(); 
+      navigation.navigate('MainTabs' as never, { screen: 'Trips' } as never);
+
     } catch (error) {
       console.error("Błąd zapisu wycieczki:", error);
-      Alert.alert('Błąd', 'Nie udało się zapisać podróży w Sejfie.');
+      Alert.alert('Błąd', 'Nie udało się zapisać podróży w bazie danych.');
     }
+  };
+
+  const handleSkip = () => {
+    handleFinishPlanning();
   };
 
   const [radius, setRadius] = useState<number>(5.0); 
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GooglePlaceAttraction[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   
   // Stan do śledzenia aktualnie wybranej atrakcji (interakcja mapa <-> lista)
   const [selectedAttractionId, setSelectedAttractionId] = useState<string | null>(null);
@@ -241,11 +268,19 @@ export const Step4AttractionsScreen = () => {
     }
   };
 
-  const filteredResults = results.filter(r => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
-
   return (
     <View style={styles.mainContainer}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      <SafeAreaView edges={['top']} style={styles.progressSafeArea}>
+        <View style={styles.progressHeader}>
+          <Text style={styles.progressText}>{t.step_indicator}</Text>
+          <Text style={styles.progressStepName}>{t.step_title}</Text>
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: '100%' }]} />
+        </View>
+      </SafeAreaView>
       
       {/* 1. SEKCJA MAPY */}
       <View style={styles.mapHeader}>
@@ -270,7 +305,7 @@ export const Step4AttractionsScreen = () => {
               strokeColor="#F59E0B" 
               strokeWidth={1} 
             />
-            {filteredResults.map(item => {
+            {results.map(item => {
               const isChosen = selectedAttractionId === item.id;
               return (
                 <Marker 
@@ -325,25 +360,6 @@ export const Step4AttractionsScreen = () => {
             <Text style={styles.sliderLabelText}>20 KM</Text>
           </View>
 
-          <View style={styles.searchRow}>
-            <View style={styles.searchInputContainer}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput 
-                style={styles.searchInput}
-                placeholder={t.search_placeholder}
-                placeholderTextColor="#606D80"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-            </View>
-            <TouchableOpacity 
-              style={[styles.filterButton, loading && {opacity: 0.5}]} 
-              onPress={fetchGooglePlacesAttractions}
-              disabled={loading || !lodgingCoords}
-            >
-              <Text style={styles.filterIcon}>🎯</Text>
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* WYNIKI I KAFELKI */}
@@ -357,7 +373,7 @@ export const Step4AttractionsScreen = () => {
             <View>
               <Text style={styles.resultsTitle}>{t.nearby_spots}</Text>
               <Text style={styles.resultsSubtitle}>
-                {t.showing_x_within_y.replace('{{count}}', String(filteredResults.length)).replace('{{radius}}', String(radius))}
+                {t.showing_x_within_y.replace('{{count}}', String(results.length)).replace('{{radius}}', String(radius))}
               </Text>
             </View>
             <Text style={styles.sortText}>{t.sort_by_distance}</Text>
@@ -366,10 +382,10 @@ export const Step4AttractionsScreen = () => {
           <View style={styles.listContainer}>
             {loading ? (
               <ActivityIndicator size="large" color="#F59E0B" style={{ marginTop: 40 }} />
-            ) : filteredResults.length === 0 ? (
+            ) : results.length === 0 ? (
               <Text style={styles.emptyText}>{t.empty_results}</Text>
             ) : (
-              filteredResults.map((item) => {
+              results.map((item) => {
                 const isSelected = storeAttractions.selected.includes(item.name);
                 const isHighlighted = selectedAttractionId === item.id;
                 
@@ -427,7 +443,10 @@ export const Step4AttractionsScreen = () => {
       {/* PŁYWAJĄCY PRZYCISK ZAKOŃCZENIA */}
       <View style={styles.floatingFooter}>
         <TouchableOpacity style={styles.finishButton} onPress={handleFinishPlanning} activeOpacity={0.9}>
-          <Text style={styles.finishButtonText}>{t.button_finishPlanning}</Text>
+          <Text style={styles.finishButtonText}>{t.button_saveTrip}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.skipButton} onPress={handleSkip} activeOpacity={0.8}>
+          <Text style={styles.skipButtonText}>{commonT.button_skip}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -436,6 +455,13 @@ export const Step4AttractionsScreen = () => {
 
 const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#0B1120' },
+
+  progressSafeArea: { backgroundColor: '#0B1120', paddingHorizontal: 20 },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 12 },
+  progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   
   mapHeader: { width: '100%', height: '45%', zIndex: 1 },
   mapFallback: { backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
@@ -477,13 +503,6 @@ const styles = StyleSheet.create({
   sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -5 },
   sliderLabelText: { color: '#64748B', fontSize: 10, fontWeight: '700' },
 
-  searchRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  searchInputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, paddingHorizontal: 16, height: 50 },
-  searchIcon: { fontSize: 16, color: '#64748B', marginRight: 10 },
-  searchInput: { flex: 1, color: '#FFFFFF', fontSize: 14 },
-  filterButton: { width: 50, height: 50, backgroundColor: '#F59E0B', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  filterIcon: { color: '#0F172A', fontSize: 18 },
-
   resultsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, marginTop: 16, marginBottom: 16 },
   resultsTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 4 },
   resultsSubtitle: { color: '#94A3B8', fontSize: 13, fontWeight: '500' },
@@ -512,7 +531,9 @@ const styles = StyleSheet.create({
   actionButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
   actionButtonTextAdded: { color: '#F59E0B' },
 
-  floatingFooter: { position: 'absolute', bottom: 0, width: '100%', padding: 20, backgroundColor: 'rgba(11, 17, 32, 0.95)', borderTopWidth: 1, borderTopColor: '#1E293B' },
+  floatingFooter: { position: 'absolute', bottom: 0, width: '100%', padding: 20, backgroundColor: 'rgba(11, 17, 32, 0.95)', borderTopWidth: 1, borderTopColor: '#1E293B', zIndex: 20, elevation: 20 },
   finishButton: { backgroundColor: '#F59E0B', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
-  finishButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '800' }
+  finishButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '800' },
+  skipButton: { alignItems: 'center', paddingVertical: 12 },
+  skipButtonText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' }
 });

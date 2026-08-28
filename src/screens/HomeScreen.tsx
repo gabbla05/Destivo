@@ -68,7 +68,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           >
             <Text style={styles.primaryButtonText}>{t.button_planNewTrip}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            activeOpacity={0.8}
+            onPress={() => navigation?.navigate('Trips')}
+          >
             <Text style={styles.secondaryButtonText}>{t.button_goToMyTrips}</Text>
           </TouchableOpacity>
         </View>

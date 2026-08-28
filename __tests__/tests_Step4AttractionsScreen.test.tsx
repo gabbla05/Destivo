@@ -5,11 +5,18 @@ import { Alert } from 'react-native';
 import { Step4AttractionsScreen } from '../src/screens/TripCreator/Step4AttractionsScreen';
 
 // 1. MOCKOWANIE ZUSTAND - AUTH STORE
+const mockAuthState: {
+  user: { id: string; isGuest?: boolean };
+  isGuest: boolean;
+  language: 'pl';
+} = {
+  user: { id: 'test-user-123' },
+  isGuest: false,
+  language: 'pl',
+};
+
 jest.mock('../src/store/authStore', () => ({
-  useAuthStore: () => ({
-    user: { id: 'test-user-123' },
-    language: 'pl',
-  }),
+  useAuthStore: () => mockAuthState,
 }));
 
 // 2. MOCKOWANIE ZUSTAND - TRIP CREATOR STORE
@@ -86,6 +93,9 @@ globalThis.fetch = mockFetch as any;
 describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthState.user = { id: 'test-user-123' };
+    mockAuthState.isGuest = false;
+    mockAuthState.language = 'pl';
 
     // Mockujemy inteligentnie `fetch` w zależności od URL-a
     mockFetch.mockImplementation(async (url: string) => {
@@ -136,22 +146,13 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     });
   });
 
-  test('2. powinien poprawnie filtrować atrakcje na liście przy użyciu wyszukiwarki tekstu', async () => {
+  test('2. powinien wyświetlać wszystkie atrakcje posortowane po odległości', async () => {
     render(<Step4AttractionsScreen />);
 
     await waitFor(() => {
       expect(screen.getByText('Koloseum')).toBeTruthy();
-    });
-
-    // Wpisujemy w szukajkę słowo "Pan" (żeby odfiltrować Panteon)
-    const searchInput = screen.getByPlaceholderText('Szukaj zabytków, muzeów...');
-    fireEvent.changeText(searchInput, 'Pan');
-
-    await waitFor(() => {
-      // Panteon powinien być widoczny
       expect(screen.getByText('Panteon')).toBeTruthy();
-      // Koloseum powinno zniknąć z wyników
-      expect(screen.queryByText('Koloseum')).toBeNull();
+      expect(screen.getByText('Sortuj wg odległości')).toBeTruthy();
     });
   });
 
@@ -179,7 +180,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     });
 
     // Klikamy główny przycisk zapisujący "Zakończ planowanie"
-    const finishButton = screen.getByText('Zakończ planowanie');
+    const finishButton = screen.getByText('Zapisz podróż');
     fireEvent.press(finishButton);
 
     await waitFor(() => {
@@ -210,11 +211,44 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
       // 4. Weryfikacja wyczyszczenia stanu i nawigacji
       expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Podróż została pomyślnie zapisana!');
       expect(mockReset).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith('Explore');
+      expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
     });
   });
 
-  test('5. powinien wyświetlić komunikat o braku atrakcji, gdy API zwróci pustą listę', async () => {
+  test('5. powinien zablokować zapis drugiej podróży dla gościa', async () => {
+    mockAuthState.user = { id: 'guest-session', isGuest: true };
+    mockAuthState.isGuest = true;
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ id: 'existing-trip' }] });
+
+    render(<Step4AttractionsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Koloseum')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText('Zapisz podróż'));
+
+    await waitFor(() => {
+      expect(mockDbExecute).toHaveBeenCalledWith(
+        'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
+        ['guest-session']
+      );
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'DESTIVO',
+        'Gość może mieć tylko jedną podróż.'
+      );
+    });
+
+    expect(mockDbExecute).toHaveBeenCalledTimes(1);
+    expect(mockDbExecute).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO trips'),
+      expect.anything()
+    );
+    expect(mockReset).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  test('6. powinien wyświetlić komunikat o braku atrakcji, gdy API zwróci pustą listę', async () => {
     // Nadpisujemy mocka tylko dla tego testu, aby Google API zwróciło 0 wyników
     mockFetch.mockImplementation(async (url: string) => {
       if (url.includes('nominatim.openstreetmap.org')) {
@@ -234,7 +268,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     });
   });
 
-  test('6. powinien wrócić do poprzedniego ekranu po kliknięciu przycisku Wstecz', () => {
+  test('7. powinien wrócić do poprzedniego ekranu po kliknięciu przycisku Wstecz', () => {
     render(<Step4AttractionsScreen />);
     
     // Szukamy przycisku cofania (ma w środku tekst '←', zakodowany często jako puste miejsce lub ikonka)
@@ -247,7 +281,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     expect(jest.requireMock('@react-navigation/native').useNavigation().goBack).toHaveBeenCalledTimes(1);
   });
 
-  test('7. powinien wyświetlić Alert i przerwać pobieranie, gdy brakuje klucza Google API', async () => {
+  test('8. powinien wyświetlić Alert i przerwać pobieranie, gdy brakuje klucza Google API', async () => {
     // Symulujemy brak klucza API
     jest.requireMock('expo-constants').expoConfig.android.config.googleMaps.apiKey = '';
 
@@ -261,7 +295,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     jest.requireMock('expo-constants').expoConfig.android.config.googleMaps.apiKey = 'TEST_API_KEY';
   });
 
-  test('8. powinien ponownie odpytać Google API przy zmianie wartości suwaka (promienia)', async () => {
+  test('9. powinien ponownie odpytać Google API przy zmianie wartości suwaka (promienia)', async () => {
     render(<Step4AttractionsScreen />);
 
     await waitFor(() => {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { usePowerSync } from '@powersync/react-native';
 import * as Crypto from 'expo-crypto';
 import { useAuthStore } from '../store/authStore';
 import { LiveDestination } from '../lib/liveExplore';
@@ -9,8 +9,9 @@ import { translations } from '../i18n/translations';
 
 export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ route, navigation }) => {
   const { destData } = route.params as { destData: LiveDestination };
-  const { user, language } = useAuthStore();
+  const { user, isGuest, language } = useAuthStore();
   const t = translations[language].quickSetup;
+  const db = usePowerSync();
 
   const [origin, setOrigin] = useState('');
   const [startDate, setStartDate] = useState(destData.proposedTrip?.startDate || '');
@@ -18,32 +19,45 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
   const [lodging, setLodging] = useState('');
   const handleSaveTrip = async () => {
     try {
-      const tripId = Crypto.randomUUID();
       const userId = user?.id || 'guest';
+
+      if (isGuest || user?.isGuest) {
+        const existingTrips = await db.execute(
+          'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
+          [userId]
+        );
+
+        if ((existingTrips.rows?.length ?? 0) > 0) {
+          Alert.alert('DESTIVO', t.error_guestTripExists);
+          return;
+        }
+      }
+
+      const tripId = Crypto.randomUUID();
 
       const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
       const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
       const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || []; 
-      const trip = {
-        id: tripId,
-        user_id: userId,
-        trip_name: `${t.tripNamePrefix}${destData.city}`,
-        origin: origin || t.noValue,
-        destination: destData.city,
-        start_date: startDate || t.noDate,
-        end_date: endDate || t.noDate,
-        transport_data: transportJson,
-        lodging_data: lodgingJson,
-        attractions_data: JSON.stringify({ selected: flatAttractions }),
-        created_at: new Date().toISOString(),
-      };
-      const storageKey = `destivo-trips-${userId}`;
-      const storedTrips = await AsyncStorage.getItem(storageKey);
-      const trips = storedTrips ? JSON.parse(storedTrips) : [];
-      await AsyncStorage.setItem(storageKey, JSON.stringify([...trips, trip]));
+      await db.execute(
+        `INSERT INTO trips
+        (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          tripId,
+          userId,
+          `${t.tripNamePrefix}${destData.city}`,
+          origin || t.noValue,
+          destData.city,
+          startDate || t.noDate,
+          endDate || t.noDate,
+          transportJson,
+          lodgingJson,
+          JSON.stringify({ selected: flatAttractions }),
+        ]
+      );
 
       Alert.alert('DESTIVO', t.saveSuccess);
-      navigation.navigate('MainTabs', { screen: 'Explore' });
+      navigation.navigate('MainTabs', { screen: 'Trips' });
     } catch (error) {
       console.error('Błąd zapisu podróży w QuickSetupScreen:', error);
       Alert.alert('DESTIVO', t.saveError);

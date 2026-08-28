@@ -1,14 +1,27 @@
 import React from 'react';
-import { View, Text, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, Alert } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack'; // DODANE
 import { HomeScreen } from '../screens/HomeScreen';
+import { TripsListScreen } from '../screens/TripsListScreen'; // DODANE
+import { TimelineScreen } from '../screens/TimelineScreen';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 
 const Tab = createBottomTabNavigator();
+const TripsStack = createNativeStackNavigator(); // STOS DLA ZAKŁADKI TRIPS
 
-// Tymczasowe ekrany-zaślepki pod kolejne etapy:
-const TripsPlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Lista Podróży (CRUD)</Text></View>;
+// Tworzymy Stos, który zawiera Listę Podróży i Oś Czasu
+const TripsStackNavigator = () => {
+  return (
+    <TripsStack.Navigator screenOptions={{ headerShown: false }}>
+      <TripsStack.Screen name="TripsList" component={TripsListScreen} />
+      <TripsStack.Screen name="Timeline" component={TimelineScreen} />
+    </TripsStack.Navigator>
+  );
+};
+
+// Zaślepki...
 const VaultPlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Sejf Offline (PIN)</Text></View>;
 const ProfilePlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Twój Profil</Text></View>;
 
@@ -56,10 +69,10 @@ export const BottomTabNavigator = () => {
         options={{ tabBarIcon: () => <Text>🏠</Text>, tabBarLabel: t.tab_explore }} 
       />
       <Tab.Screen 
-        name="Trips" 
-        component={TripsPlaceholder} 
-        options={{ tabBarIcon: () => <Text>✈️</Text>, tabBarLabel: t.tab_trips }} 
-      />
+         name="Trips" 
+         component={TripsStackNavigator} // ZAMIANA
+         options={{ tabBarIcon: () => <Text>⏱️</Text>, tabBarLabel: t.tab_trips }} 
+       />
       <Tab.Screen 
         name="Vault" 
         component={VaultPlaceholder} 
