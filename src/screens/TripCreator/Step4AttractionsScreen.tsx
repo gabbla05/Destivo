@@ -98,11 +98,20 @@ export const Step4AttractionsScreen = () => {
 
       const tripId = Crypto.randomUUID();
       
-      // Przygotowujemy dane do bazy
-      const attractionsJson = JSON.stringify(storeAttractions);
+      // --- ZAPIS PRAWDZIWEJ PULI ATRAKCJI ---
+      // Tworzymy rozszerzony obiekt JSON dla attractions_data
+      const extendedAttractions = {
+        selected: storeAttractions.selected, // To, co wybrałaś w kreatorze
+        pool: results.map(r => ({            // To, co znalazło Google (Rezerwa)
+          id: r.id,
+          name: r.name,
+          imageUrl: r.imageUrl
+        }))
+      };
+
+      const attractionsJson = JSON.stringify(extendedAttractions);
       const transportType = transport?.selectedOption?.type || null; 
 
-      // --- FUNKCJA ZAMIENIAJĄCA DD-MM-YYYY na YYYY-MM-DD ---
       const formatToDBDate = (dateStr: string) => {
         if (!dateStr) return null;
         const parts = dateStr.split('-');
@@ -118,19 +127,17 @@ export const Step4AttractionsScreen = () => {
         title: tripName || `Podróż do ${destination}`,
         origin,
         destination,
-        start_date: formatToDBDate(startDate), // Odwrócona data
-        end_date: formatToDBDate(endDate),     // Odwrócona data
+        start_date: formatToDBDate(startDate),
+        end_date: formatToDBDate(endDate),
         transport_type: transportType, 
         accommodation_address: lodgingAddress || '', 
-        attractions_data: attractionsJson,
+        attractions_data: attractionsJson, // Tutaj leci nasza pełna pula
         created_at: new Date().toISOString()
       };
 
       if (isUserGuest) {
-        // Gość - zapis w pamięci telefonu
         await AsyncStorage.setItem('destivo-trips-guest', JSON.stringify([tripRecord]));
       } else {
-        // Zalogowany użytkownik - zapis bezpośrednio do bazy danych Supabase
         const { error } = await supabase.from('trips').insert([tripRecord]);
         if (error) throw error;
       }

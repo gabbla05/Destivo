@@ -34,35 +34,50 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
       }
 
       const tripId = Crypto.randomUUID();
+    const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
+    const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
+    
+    // Pobranie płaskiej listy atrakcji z proponowanego planu
+    const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || [];
+    
+    // TWORZENIE PULI DLA TIMELINE SCREEN
+    const generatedPool = flatAttractions.map((attr, index) => ({
+      id: `qs_pool_${index}`,
+      name: attr,
+      imageUrl: destData.coverImage // Fallback na zdjęcie miasta
+    }));
 
-      const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
-      const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
-      const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || []; 
-      await db.execute(
-        `INSERT INTO trips
-        (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-        [
-          tripId,
-          userId,
-          `${t.tripNamePrefix}${destData.city}`,
-          origin || t.noValue,
-          destData.city,
-          startDate || t.noDate,
-          endDate || t.noDate,
-          transportJson,
-          lodgingJson,
-          JSON.stringify({ selected: flatAttractions }),
-        ]
-      );
+    // Zmodyfikowany obiekt JSON zapisujący 'selected' oraz 'pool'
+    const attractionsJson = JSON.stringify({ 
+      selected: flatAttractions,
+      pool: generatedPool 
+    });
 
-      Alert.alert('DESTIVO', t.saveSuccess);
-      navigation.navigate('MainTabs', { screen: 'Trips' });
-    } catch (error) {
-      console.error('Błąd zapisu podróży w QuickSetupScreen:', error);
-      Alert.alert('DESTIVO', t.saveError);
-    }
-  };
+    await db.execute(
+      `INSERT INTO trips 
+      (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        tripId,
+        userId,
+        `${t.tripNamePrefix}${destData.city}`,
+        origin || t.noValue,
+        destData.city,
+        startDate || t.noDate,
+        endDate || t.noDate,
+        transportJson,
+        lodgingJson,
+        attractionsJson, // Zastąpiono surowy flatAttractions gotowym obiektem
+      ]
+    );
+    
+    Alert.alert('DESTIVO', t.saveSuccess);
+    navigation.navigate('MainTabs', { screen: 'Trips' });
+  } catch (error) {
+    console.error('Błąd zapisu podróży w QuickSetupScreen:', error);
+    Alert.alert('DESTIVO', t.saveError);
+  }
+};
 
   return (
     <SafeAreaView style={styles.container}>
