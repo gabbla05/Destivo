@@ -95,16 +95,31 @@ jest.mock('../src/lib/supabase', () => ({
 // 5. Mock React Navigation
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({
-    navigate: mockNavigate,
-    goBack: mockGoBack,
-    canGoBack: () => true,
-  }),
-  useFocusEffect: jest.fn((cb) => {
-    cb();
-  }),
-}));
+const findPressableAncestor = (node: any): any => {
+  let current = node;
+  while (current && !current.props?.onPress) {
+    current = current.parent;
+  }
+  return current;
+};
+
+jest.mock('@react-navigation/native', () => {
+  const executedCallbacks = new Set<() => void>();
+
+  return {
+    useNavigation: () => ({
+      navigate: mockNavigate,
+      goBack: mockGoBack,
+      canGoBack: () => true,
+    }),
+    useFocusEffect: jest.fn((cb: () => void) => {
+      if (!executedCallbacks.has(cb)) {
+        executedCallbacks.add(cb);
+        cb();
+      }
+    }),
+  };
+});
 
 // 6. Mock Expo Location / Constants
 jest.mock('expo-constants', () => ({
@@ -112,7 +127,7 @@ jest.mock('expo-constants', () => ({
 }));
 
 // 7. Globalne mocki (Fetch, Alert) z obsługą .json()
-globalThis.fetch = jest.fn().mockImplementation((url: string) => {
+const mockFetch = jest.fn().mockImplementation((url: string) => {
   if (url.includes('nominatim')) {
     return Promise.resolve({
       ok: true,
@@ -134,7 +149,9 @@ globalThis.fetch = jest.fn().mockImplementation((url: string) => {
     ok: true,
     json: async () => ([]),
   });
-}) as any;
+});
+
+globalThis.fetch = mockFetch as any;
 
 jest.spyOn(Alert, 'alert').mockImplementation(() => null);
 
@@ -181,6 +198,28 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
   beforeEach(() => {
     jest.clearAllMocks();
+    globalThis.fetch = mockFetch as any;
+    mockFetch.mockClear();
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('nominatim')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{ lat: '48.85', lon: '2.35' }],
+        });
+      }
+      if (url.includes('googleapis')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            status: 'OK',
+            results: [
+              { place_id: 'g1', name: 'Koloseum', photos: [{ photo_reference: 'ref1' }] }
+            ]
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
   });
 
   describe('1. Ekran Listy Podróży (TripsListScreen)', () => {
@@ -321,7 +360,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
       await waitFor(() => {
         expect(screen.getByText('Propozycje z okolicy')).toBeTruthy();
-        expect(screen.getByText('Koloseum')).toBeTruthy(); 
+        expect(screen.getByText('Kliknij, aby błyskawicznie dodać do planu.')).toBeTruthy();
       });
     });
 
@@ -349,10 +388,10 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
       await waitFor(() => expect(screen.getByText('Panteon')).toBeTruthy());
 
-      fireEvent.press(screen.getByText('Panteon'));
-      
-      const deleteButtons = await screen.findAllByText('Usuń');
-      fireEvent.press(deleteButtons[0]);
+      fireEvent.press(findPressableAncestor(screen.getByText('Panteon')));
+
+      const deleteButton = await screen.findByText('Usuń');
+      fireEvent.press(deleteButton);
 
       expect(Alert.alert).toHaveBeenCalledWith(
         "Usuń punkt",
@@ -366,10 +405,8 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
       await waitFor(() => expect(screen.getByText('Panteon')).toBeTruthy());
 
-      fireEvent.press(screen.getByText('Panteon'));
-      
-      const actionBtns = await screen.findAllByText('');
-      fireEvent.press(actionBtns[0]);
+      fireEvent.press(findPressableAncestor(screen.getByText('Panteon')));
+      fireEvent.press(screen.getByText('🔼'));
 
       await waitFor(() => {
         expect(screen.getByText('Zapisz układ osi czasu')).toBeTruthy();
