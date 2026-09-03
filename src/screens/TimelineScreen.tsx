@@ -15,6 +15,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/authStore';
@@ -77,8 +78,15 @@ const formatForDisplay = (dateStr: string | null): string => {
   return dateStr;
 };
 
+const normalizeDateForTimeline = (dateStr: string | null): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  return parts[0]?.length === 4 ? dateStr : `${parts[2]}-${parts[1]}-${parts[0]}`;
+};
+
 export const TimelineScreen = ({ navigation, route }: any) => {
   const { user } = useAuthStore();
+  const db = usePowerSync();
   const [loading, setLoading] = useState(true);
   
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -154,16 +162,38 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           trip = tripIdToFetch ? trips.find(t => t.id === tripIdToFetch) || null : trips[trips.length - 1] || null;
         }
       } else {
-        let query = supabase.from('trips').select('*').eq('user_id', user.id);
-        if (tripIdToFetch) {
-          query = query.eq('id', tripIdToFetch);
+        const localRows = await db.execute(
+          `SELECT id, user_id, trip_name, origin, destination, start_date, end_date,
+                  transport_data, lodging_data, attractions_data, created_at
+           FROM trips WHERE user_id = ?${tripIdToFetch ? ' AND id = ?' : ''}
+           ORDER BY created_at DESC LIMIT 1`,
+          tripIdToFetch ? [user.id, tripIdToFetch] : [user.id]
+        );
+        const rows = (((localRows as any).array || (localRows.rows as any)?._array || (localRows.rows as any) || [])) as any[];
+        if (rows.length > 0) {
+          const localTrip = rows[0];
+          const transportData = JSON.parse(localTrip.transport_data || '{}');
+          const lodgingData = JSON.parse(localTrip.lodging_data || '{}');
+          trip = {
+            ...localTrip,
+            title: localTrip.trip_name,
+            start_date: normalizeDateForTimeline(localTrip.start_date),
+            end_date: normalizeDateForTimeline(localTrip.end_date),
+            transport_type: transportData.selectedOption?.type || '',
+            accommodation_address: lodgingData.lodgingAddress || '',
+          } as TripRecord;
         } else {
-          query = query.order('created_at', { ascending: false }).limit(1);
-        }
-        const { data, error } = await query;
-        if (error) throw error;
-        if (data && data.length > 0) {
-          trip = data[0] as TripRecord;
+          let query = supabase.from('trips').select('*').eq('user_id', user.id);
+          if (tripIdToFetch) {
+            query = query.eq('id', tripIdToFetch);
+          } else {
+            query = query.order('created_at', { ascending: false }).limit(1);
+          }
+          const { data, error } = await query;
+          if (error) throw error;
+          if (data && data.length > 0) {
+            trip = data[0] as TripRecord;
+          }
         }
       }
 

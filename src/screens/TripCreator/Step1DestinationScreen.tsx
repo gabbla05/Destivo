@@ -106,10 +106,6 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
   const handleNext = async () => {
     // 1. Sprawdzenie czy wpisano miejsca
-    if (!origin.trim()) {
-      Alert.alert('DESTIVO', 'Podaj miejsce wyjazdu (Skąd wyruszasz?).');
-      return;
-    }
     if (!destination.trim()) {
       Alert.alert('DESTIVO', t.error_destinationRequired);
       return;
@@ -147,7 +143,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     setIsValidating(true);
     const [destExists, originExists] = await Promise.all([
       checkDestinationExists(destination.trim()),
-      checkDestinationExists(origin.trim()),
+      origin.trim() ? checkDestinationExists(origin.trim()) : Promise.resolve(true),
     ]);
     setIsValidating(false);
 

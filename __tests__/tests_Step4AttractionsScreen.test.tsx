@@ -200,8 +200,8 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
       expect(sqlParams[2]).toBe('Wakacje w Rzymie'); // tripName
       expect(sqlParams[3]).toBe('Warszawa'); // origin
       expect(sqlParams[4]).toBe('Rzym'); // destination
-      expect(sqlParams[5]).toBe('10-08-2027'); // startDate
-      expect(sqlParams[6]).toBe('20-08-2027'); // endDate
+      expect(sqlParams[5]).toBe('2027-08-10'); // startDate w formacie PostgreSQL
+      expect(sqlParams[6]).toBe('2027-08-20'); // endDate w formacie PostgreSQL
       
       // 3. Weryfikacja czy JSON zagnieżdżony w bazie jest poprawnie zbudowany
       expect(sqlParams[7]).toContain('"selectedOption":{"id":"flight-1"}'); // transport_data

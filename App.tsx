@@ -9,6 +9,8 @@ import { BottomTabNavigator } from './src/navigation/BottomTabNavigator';
 import { TripCreatorNavigator } from './src/navigation/TripCreatorNavigator';
 import { ExploreDetailsScreen } from './src/screens/ExploreDetailsScreen';
 import { QuickSetupScreen } from './src/screens/QuickSetupScreen';
+import { PowerSyncContext } from '@powersync/react-native';
+import { powerSync } from './src/lib/powersync';
 
 const RootStack = createNativeStackNavigator();
 
@@ -20,16 +22,18 @@ export default function App() {
   // 1. Jeśli użytkownik jest zalogowany LUB wszedł jako gość -> uruchamiamy Root Stack (Dolne menu + Kreator)
   if (user || isGuest) {
     return (
-      <NavigationContainer>
-        <RootStack.Navigator screenOptions={{ headerShown: false }}>
-          {/* Główny ekran z dolnymi zakładkami */}
-          <RootStack.Screen name="MainTabs" component={BottomTabNavigator} />
-          {/* Ekran Kreatora Podróży otwierany na wierzchu zakładek */}
-          <RootStack.Screen name="TripCreator" component={TripCreatorNavigator} />
-          <RootStack.Screen name="ExploreDetails" component={ExploreDetailsScreen} />
-          <RootStack.Screen name="QuickSetup" component={QuickSetupScreen} />
-        </RootStack.Navigator>
-      </NavigationContainer>
+      <PowerSyncContext.Provider value={powerSync}>
+        <NavigationContainer>
+          <RootStack.Navigator screenOptions={{ headerShown: false }}>
+            {/* Główny ekran z dolnymi zakładkami */}
+            <RootStack.Screen name="MainTabs" component={BottomTabNavigator} />
+            {/* Ekran Kreatora Podróży otwierany na wierzchu zakładek */}
+            <RootStack.Screen name="TripCreator" component={TripCreatorNavigator} />
+            <RootStack.Screen name="ExploreDetails" component={ExploreDetailsScreen} />
+            <RootStack.Screen name="QuickSetup" component={QuickSetupScreen} />
+          </RootStack.Navigator>
+        </NavigationContainer>
+      </PowerSyncContext.Provider>
     );
   }
 

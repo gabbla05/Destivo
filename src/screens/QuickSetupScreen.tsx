@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvo
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePowerSync } from '@powersync/react-native';
 import * as Crypto from 'expo-crypto';
+import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { LiveDestination } from '../lib/liveExplore';
 import { translations } from '../i18n/translations';
@@ -12,72 +13,103 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
   const { user, isGuest, language } = useAuthStore();
   const t = translations[language].quickSetup;
   const db = usePowerSync();
+  const tripTitle = destData.city.trim();
 
   const [origin, setOrigin] = useState('');
   const [startDate, setStartDate] = useState(destData.proposedTrip?.startDate || '');
   const [endDate, setEndDate] = useState(destData.proposedTrip?.endDate || '');
   const [lodging, setLodging] = useState('');
+
+  const formatToDBDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const normalized = dateStr.replace(/\./g, '-');
+    const parts = normalized.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return normalized;
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return normalized;
+  };
+
   const handleSaveTrip = async () => {
     try {
       const userId = user?.id || 'guest';
-
       if (isGuest || user?.isGuest) {
         const existingTrips = await db.execute(
           'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
           [userId]
         );
-
         if ((existingTrips.rows?.length ?? 0) > 0) {
           Alert.alert('DESTIVO', t.error_guestTripExists);
           return;
         }
       }
-
+      
       const tripId = Crypto.randomUUID();
-    const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
-    const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
-    
-    // Pobranie płaskiej listy atrakcji z proponowanego planu
-    const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || [];
-    
-    // TWORZENIE PULI DLA TIMELINE SCREEN
-    const generatedPool = flatAttractions.map((attr, index) => ({
-      id: `qs_pool_${index}`,
-      name: attr,
-      imageUrl: destData.coverImage // Fallback na zdjęcie miasta
-    }));
+      const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
+      const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
+      
+      const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || [];
+      
+      const generatedPool = flatAttractions.map((attr, index) => ({
+        id: `qs_pool_${index}`,
+        name: attr,
+        imageUrl: destData.coverImage 
+      }));
 
-    // Zmodyfikowany obiekt JSON zapisujący 'selected' oraz 'pool'
-    const attractionsJson = JSON.stringify({ 
-      selected: flatAttractions,
-      pool: generatedPool 
-    });
+      const attractionsJson = JSON.stringify({ 
+        selected: flatAttractions,
+        pool: generatedPool 
+      });
+      const dbStartDate = formatToDBDate(startDate);
+      const dbEndDate = formatToDBDate(endDate);
 
-    await db.execute(
-      `INSERT INTO trips 
-      (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [
-        tripId,
-        userId,
-        `${t.tripNamePrefix}${destData.city}`,
-        origin || t.noValue,
-        destData.city,
-        startDate || t.noDate,
-        endDate || t.noDate,
-        transportJson,
-        lodgingJson,
-        attractionsJson, // Zastąpiono surowy flatAttractions gotowym obiektem
-      ]
-    );
-    
-    Alert.alert('DESTIVO', t.saveSuccess);
-    navigation.navigate('MainTabs', { screen: 'Trips' });
-  } catch (error) {
-    console.error('Błąd zapisu podróży w QuickSetupScreen:', error);
-    Alert.alert('DESTIVO', t.saveError);
-  }
-};
+      await db.execute(
+        `INSERT INTO trips
+         (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          tripId,
+          userId,
+          tripTitle,
+          origin || '',
+          destData.city,
+          dbStartDate,
+          dbEndDate,
+          transportJson,
+          lodgingJson,
+          attractionsJson,
+        ]
+      );
+
+      if (user && !isGuest && !user.isGuest) {
+        const { error: supabaseError } = await supabase
+          .from('trips')
+          .insert([{
+            id: tripId,
+            user_id: userId,
+            trip_name: tripTitle,
+            origin: origin || '',
+            destination: destData.city,
+            start_date: dbStartDate,
+            end_date: dbEndDate,
+            transport_data: transportJson,
+            lodging_data: lodgingJson,
+            attractions_data: attractionsJson,
+          }]);
+
+        if (supabaseError) {
+          console.warn('Błąd bezpośredniego zapisu do Supabase:', supabaseError);
+        }
+      }
+      
+      Alert.alert('DESTIVO', t.saveSuccess);
+      navigation.navigate('MainTabs', { screen: 'Trips' });
+    } catch (error) {
+      console.error('Błąd zapisu podróży w QuickSetupScreen:', error);
+      Alert.alert('DESTIVO', t.saveError);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -85,6 +117,13 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
         <View style={styles.content}>
           <Text style={styles.title}>{t.title}</Text>
           <Text style={styles.subtitle}>{t.subtitle.replace('{{city}}', destData.city)}</Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>NAZWA PODRÓŻY</Text>
+            <View style={styles.readOnlyInput}>
+              <Text style={styles.readOnlyInputText}>{tripTitle}</Text>
+            </View>
+          </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>{t.originLabel}</Text>
@@ -128,6 +167,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   label: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold', marginBottom: 8 },
   input: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, color: '#FFF', paddingHorizontal: 16, height: 50 },
+  readOnlyInput: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingHorizontal: 16, height: 50, justifyContent: 'center' },
+  readOnlyInputText: { color: '#F8FAFC', fontSize: 15, fontWeight: '600' },
   primaryButton: { backgroundColor: '#F59E0B', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: 'bold' },
   secondaryButton: { height: 50, alignItems: 'center', justifyContent: 'center', marginTop: 10 },

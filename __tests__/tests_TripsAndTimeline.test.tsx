@@ -224,6 +224,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
   describe('1. Ekran Listy Podróży (TripsListScreen)', () => {
     test('powinien poprawnie podzielić wycieczki na Nadchodzące i Archiwalne oraz wyliczyć statystyki', async () => {
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
       mockSupabaseSelect.mockImplementationOnce(() => ({
         eq: jest.fn().mockImplementationOnce(() => ({
           order: jest.fn().mockResolvedValueOnce({ data: mockTripsData, error: null }),
@@ -294,7 +295,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       fireEvent.press(screen.getByText('Zapisz podróż'));
 
       await waitFor(() => {
-        expect(mockSupabaseInsert).toHaveBeenCalled();
+        expect(mockDbExecute).toHaveBeenCalled();
         expect(mockResetTrip).toHaveBeenCalled();
         expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
       });

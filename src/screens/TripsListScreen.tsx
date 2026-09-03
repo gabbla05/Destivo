@@ -12,6 +12,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePowerSync } from '@powersync/react-native';
 import { useAuthStore } from '../store/authStore';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -28,27 +29,75 @@ interface TripRecord {
 
 export const TripsListScreen = ({ navigation }: any) => {
   const { user } = useAuthStore();
+  const db = usePowerSync();
   const [loading, setLoading] = useState(false); // Zmieniono z true na false
   const [trips, setTrips] = useState<TripRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
 
+  
+
   const fetchTrips = async () => {
     try {
       setLoading(true);
-      const isUserGuest = user?.isGuest || !user;
-             
-      if (isUserGuest) {
-        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        setTrips(storedTrips ? JSON.parse(storedTrips) : []);
-      } else {
-        const { data, error } = await supabase
+      const userId = user?.id || 'guest';
+      const result = await db.execute(
+        `SELECT id, trip_name, origin, destination, start_date, end_date
+         FROM trips WHERE user_id = ? ORDER BY start_date ASC`,
+        [userId]
+      );
+      const localRows = ((result as any).array?.length > 0
+        ? (result as any).array
+        : (result.rows as any)?._array || (result.rows as any) || []) as any[];
+      const localTrips = localRows.map((trip: any) => ({
+        id: trip.id,
+        title: trip.trip_name || trip.title || 'Bez nazwy',
+        origin: trip.origin || '',
+        destination: trip.destination || '',
+        start_date: trip.start_date || '',
+        end_date: trip.end_date || '',
+      }));
+
+      const tripsById = new Map(localTrips.map((trip) => [trip.id, trip]));
+
+      try {
+        const { data } = await supabase
           .from('trips')
-          .select('id, title, origin, destination, start_date, end_date')
-          .eq('user_id', user.id)
+          .select('id, title, trip_name, origin, destination, start_date, end_date')
+          .eq('user_id', userId)
           .order('start_date', { ascending: true });
-        if (error) throw error;
-        setTrips(data || []);
+        (data || []).forEach((trip: any) => {
+          if (!tripsById.has(trip.id)) {
+            tripsById.set(trip.id, {
+              id: trip.id,
+              title: trip.title || trip.trip_name || 'Bez nazwy',
+              origin: trip.origin || '',
+              destination: trip.destination || '',
+              start_date: trip.start_date || '',
+              end_date: trip.end_date || '',
+            });
+          }
+        });
+      } catch {
+        // Local PowerSync data remains available when the network is offline.
       }
+
+      if (user?.isGuest || !user) {
+        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
+        (storedTrips ? JSON.parse(storedTrips) : []).forEach((trip: any) => {
+          if (!tripsById.has(trip.id)) {
+            tripsById.set(trip.id, {
+              id: trip.id,
+              title: trip.title || trip.trip_name || 'Bez nazwy',
+              origin: trip.origin || '',
+              destination: trip.destination || '',
+              start_date: trip.start_date || '',
+              end_date: trip.end_date || '',
+            });
+          }
+        });
+      }
+
+      setTrips(Array.from(tripsById.values()));
     } catch (e) {
       Alert.alert('Błąd', 'Nie udało się wczytać listy podróży.');
     } finally {
@@ -70,8 +119,11 @@ export const TripsListScreen = ({ navigation }: any) => {
 
   const formatDisplayDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    const parts = dateStr.replace(/\./g, '-').split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+      return `${parts[0]}.${parts[1]}.${parts[2]}`;
+    }
     return dateStr;
   };
 
@@ -80,14 +132,16 @@ export const TripsListScreen = ({ navigation }: any) => {
 
   const upcomingTrips = trips.filter((t) => {
     if (!t.end_date) return true;
-    const [y, m, d] = t.end_date.split('-');
+    const [first, second, third] = t.end_date.replace(/\./g, '-').split('-');
+    const [y, m, d] = first.length === 4 ? [first, second, third] : [third, second, first];
     const endDate = new Date(Number(y), Number(m) - 1, Number(d));
     return endDate >= now;
   });
 
   const pastTrips = trips.filter((t) => {
     if (!t.end_date) return false;
-    const [y, m, d] = t.end_date.split('-');
+    const [first, second, third] = t.end_date.replace(/\./g, '-').split('-');
+    const [y, m, d] = first.length === 4 ? [first, second, third] : [third, second, first];
     const endDate = new Date(Number(y), Number(m) - 1, Number(d));
     return endDate < now;
   });
@@ -96,8 +150,14 @@ export const TripsListScreen = ({ navigation }: any) => {
   const uniquePlacesCount = new Set(pastTrips.map(t => t.destination)).size;
   const totalDaysTraveled = pastTrips.reduce((total, trip) => {
     if (!trip.start_date || !trip.end_date) return total;
-    const start = new Date(trip.start_date);
-    const end = new Date(trip.end_date);
+    const startParts = trip.start_date.split('-');
+    const endParts = trip.end_date.split('-');
+    const start = startParts[0].length === 4
+      ? new Date(Number(startParts[0]), Number(startParts[1]) - 1, Number(startParts[2]))
+      : new Date(Number(startParts[2]), Number(startParts[1]) - 1, Number(startParts[0]));
+    const end = endParts[0].length === 4
+      ? new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]))
+      : new Date(Number(endParts[2]), Number(endParts[1]) - 1, Number(endParts[0]));
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return total + (diffDays > 0 ? diffDays : 1); // Minimum 1 dzień

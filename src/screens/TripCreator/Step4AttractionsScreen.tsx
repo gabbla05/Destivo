@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { usePowerSync } from '@powersync/react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
 import Constants from 'expo-constants';
@@ -20,9 +21,8 @@ import Constants from 'expo-constants';
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
-
 import { supabase } from '../../lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import * as Crypto from 'expo-crypto';
 
 interface GooglePlaceAttraction {
@@ -60,6 +60,7 @@ const mapDarkStyle = [
 
 export const Step4AttractionsScreen = () => {
   const navigation = useNavigation<any>();
+  const db = usePowerSync();
   const { language, isGuest } = useAuthStore();
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
@@ -88,9 +89,11 @@ export const Step4AttractionsScreen = () => {
 
       // Zabezpieczenie dla gościa - maksymalnie 1 podróż
       if (isUserGuest) {
-        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        const trips = storedTrips ? JSON.parse(storedTrips) : [];
-        if (trips.length > 0) {
+        const existingTrips = await db.execute(
+          'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
+          [userId]
+        );
+        if ((existingTrips?.rows?.length ?? 0) > 0) {
           Alert.alert('DESTIVO', t.error_guestTripExists || 'Gość może mieć tylko jedną podróż.');
           return;
         }
@@ -113,33 +116,59 @@ export const Step4AttractionsScreen = () => {
       const transportType = transport?.selectedOption?.type || null; 
 
       const formatToDBDate = (dateStr: string) => {
-        if (!dateStr) return null;
-        const parts = dateStr.split('-');
+        if (!dateStr) return '';
+        const normalized = dateStr.replace(/\./g, '-');
+        const parts = normalized.split('-');
         if (parts.length === 3) {
+          if (parts[0].length === 4) return normalized;
           return `${parts[2]}-${parts[1]}-${parts[0]}`; 
         }
-        return dateStr;
+        return normalized;
       };
 
-      const tripRecord = {
-        id: tripId,
-        user_id: userId,
-        title: tripName || `Podróż do ${destination}`,
-        origin,
-        destination,
-        start_date: formatToDBDate(startDate),
-        end_date: formatToDBDate(endDate),
-        transport_type: transportType, 
-        accommodation_address: lodgingAddress || '', 
-        attractions_data: attractionsJson, // Tutaj leci nasza pełna pula
-        created_at: new Date().toISOString()
-      };
+      const transportJson = JSON.stringify(transport || {});
+      const lodgingJson = JSON.stringify({
+        ...lodging,
+        lodgingAddress: lodgingAddress || '',
+      });
 
-      if (isUserGuest) {
-        await AsyncStorage.setItem('destivo-trips-guest', JSON.stringify([tripRecord]));
-      } else {
-        const { error } = await supabase.from('trips').insert([tripRecord]);
-        if (error) throw error;
+      await db.execute(
+        `INSERT INTO trips
+        (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          tripId,
+          userId,
+          tripName || `Podróż do ${destination}`,
+          origin,
+          destination,
+          formatToDBDate(startDate),
+          formatToDBDate(endDate),
+          transportJson,
+          lodgingJson,
+          attractionsJson,
+        ]
+      );
+
+      if (user && !isGuest && !user.isGuest) {
+        const { error: supabaseError } = await supabase
+          .from('trips')
+          .insert([{
+            id: tripId,
+            user_id: userId,
+            trip_name: tripName || `Podróż do ${destination}`,
+            origin: origin || '',
+            destination,
+            start_date: formatToDBDate(startDate),
+            end_date: formatToDBDate(endDate),
+            transport_data: transportJson,
+            lodging_data: lodgingJson,
+            attractions_data: attractionsJson,
+          }]);
+
+        if (supabaseError) {
+          console.warn('Błąd bezpośredniego zapisu do Supabase w Step4:', supabaseError);
+        }
       }
 
       Alert.alert('DESTIVO', 'Podróż została pomyślnie zapisana!');
