@@ -8,6 +8,8 @@ import { TimelineScreen } from '../screens/TimelineScreen';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import { VaultScreen } from '../screens/Vault/VaultScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
+import { AccountSecurityScreen } from '../screens/AccountSecurityScreen';
 
 const Tab = createBottomTabNavigator();
 const TripsStack = createNativeStackNavigator(); // STOS DLA ZAKŁADKI TRIPS
@@ -22,8 +24,17 @@ const TripsStackNavigator = () => {
   );
 };
 
-// Zaślepki...
-const ProfilePlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Twój Profil</Text></View>;
+const ProfileStack = createNativeStackNavigator();
+
+const ProfileStackNavigator = () => {
+  return (
+    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStack.Screen name="AccountSecurity" component={AccountSecurityScreen} />
+    </ProfileStack.Navigator>
+  );
+};
+
 
 export const BottomTabNavigator = () => {
   const { isGuest, logout, language } = useAuthStore();
@@ -80,9 +91,9 @@ export const BottomTabNavigator = () => {
       />
       <Tab.Screen 
         name="Profile" 
-        component={ProfilePlaceholder} 
-        options={{ 
-          tabBarIcon: () => <Text>👤</Text>, 
+        component={ProfileStackNavigator} // <-- ZMIANA TUTAJ
+        options={{
+          tabBarIcon: () => <Text>👤</Text>,
           tabBarLabel: t.tab_profile,
         }}
         listeners={({ navigation }) => ({
