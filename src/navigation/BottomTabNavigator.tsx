@@ -7,6 +7,7 @@ import { TripsListScreen } from '../screens/TripsListScreen'; // DODANE
 import { TimelineScreen } from '../screens/TimelineScreen';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
+import { VaultScreen } from '../screens/Vault/VaultScreen';
 
 const Tab = createBottomTabNavigator();
 const TripsStack = createNativeStackNavigator(); // STOS DLA ZAKŁADKI TRIPS
@@ -22,7 +23,6 @@ const TripsStackNavigator = () => {
 };
 
 // Zaślepki...
-const VaultPlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Sejf Offline (PIN)</Text></View>;
 const ProfilePlaceholder = () => <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><Text>Twój Profil</Text></View>;
 
 export const BottomTabNavigator = () => {
@@ -75,8 +75,8 @@ export const BottomTabNavigator = () => {
        />
       <Tab.Screen 
         name="Vault" 
-        component={VaultPlaceholder} 
-        options={{ tabBarIcon: () => <Text>🔒</Text>, tabBarLabel: t.tab_vault }} 
+        component={VaultScreen} 
+        options={{ tabBarIcon: () => <Text>🗄️</Text>, tabBarLabel: t.tab_vault }} 
       />
       <Tab.Screen 
         name="Profile" 

@@ -16,12 +16,14 @@ import { Step4AttractionsScreen } from '../src/screens/TripCreator/Step4Attracti
 const MOCK_CURRENT_DATE = new Date('2026-09-02T10:00:00Z');
 
 // 1. Mock Auth Store
+const mockAuthState = {
+  user: { id: 'test-user-id', email: 'test@destivo.io', isGuest: false },
+  isGuest: false,
+  language: 'pl',
+};
+
 jest.mock('../src/store/authStore', () => ({
-  useAuthStore: () => ({
-    user: { id: 'test-user-id', email: 'test@destivo.io', isGuest: false },
-    isGuest: false,
-    language: 'pl',
-  }),
+  useAuthStore: () => mockAuthState,
 }));
 
 // 2. Mock Trip Creator Store (dla Step 4)
@@ -198,6 +200,8 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthState.user = { id: 'test-user-id', email: 'test@destivo.io', isGuest: false };
+    mockAuthState.isGuest = false;
     globalThis.fetch = mockFetch as any;
     mockFetch.mockClear();
     mockFetch.mockImplementation((url: string) => {
@@ -419,6 +423,73 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(mockSupabaseUpdate).toHaveBeenCalled();
         expect(Alert.alert).toHaveBeenCalledWith("Sukces", "Oś czasu została zaktualizowana.");
       });
+    });
+
+    test('archiwalna podróż nie pokazuje oznaczenia TERAZ / NASTĘPNE', async () => {
+      const archivedTrip = [{
+        id: 'trip-archived',
+        title: 'Rzym 2023',
+        origin: 'Warszawa',
+        destination: 'Rzym',
+        start_date: '2023-07-12',
+        end_date: '2023-07-24',
+        user_id: 'test-user-id',
+        accommodation_address: 'Hotel Roma',
+        attractions_data: JSON.stringify({ selected: ['Koloseum'], pool: [] }),
+      }];
+
+      mockSupabaseSelect.mockImplementationOnce(() => ({
+        eq: jest.fn().mockImplementation(() => ({
+          eq: jest.fn().mockResolvedValue({ data: archivedTrip, error: null }),
+          order: jest.fn(),
+          then: (resolve: any) => resolve({ data: archivedTrip, error: null }),
+        })),
+        order: jest.fn(),
+        then: (resolve: any) => resolve({ data: archivedTrip, error: null }),
+      }));
+
+      render(<TimelineScreen route={{ params: { tripId: 'trip-archived' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Rozpoczęcie podróży/i)).toBeTruthy();
+      });
+      expect(screen.queryByText('TERAZ / NASTĘPNE')).toBeNull();
+    });
+
+    test('gość usuwa podróż przez lokalny PowerSync bez użycia Supabase', async () => {
+      mockAuthState.user = { id: 'guest-session', email: 'guest@destivo.io', isGuest: true };
+      mockAuthState.isGuest = true;
+      const guestTrip = [{
+        id: 'guest-trip',
+        user_id: 'guest-session',
+        trip_name: 'Rzym',
+        origin: 'Warszawa',
+        destination: 'Rzym',
+        start_date: '2027-08-10',
+        end_date: '2027-08-20',
+        transport_data: '{}',
+        lodging_data: '{}',
+        attractions_data: JSON.stringify({ selected: [], pool: [] }),
+        created_at: '2026-09-03T10:00:00.000Z',
+      }];
+      mockDbExecute
+        .mockResolvedValueOnce({ rows: { _array: guestTrip } })
+        .mockResolvedValueOnce({ rows: [] });
+
+      render(<TimelineScreen route={{ params: { tripId: 'guest-trip' } }} />);
+
+      await waitFor(() => expect(screen.getByText('Rzym')).toBeTruthy());
+      fireEvent.press(screen.getByText('🗑️'));
+
+      const alertCall = (Alert.alert as jest.Mock).mock.calls.at(-1);
+      const confirmAction = alertCall[2].find((action: any) => action.text === 'Usuń podróż');
+      await confirmAction.onPress();
+
+      expect(mockDbExecute).toHaveBeenCalledWith(
+        'DELETE FROM trips WHERE id = ?',
+        ['guest-trip']
+      );
+      expect(mockSupabaseDelete).not.toHaveBeenCalled();
     });
   });
 });

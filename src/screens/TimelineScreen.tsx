@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/authStore';
 import { useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
@@ -156,10 +155,28 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       let trip: TripRecord | null = null;
 
       if (isUserGuest) {
-        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        if (storedTrips) {
-          const trips: TripRecord[] = JSON.parse(storedTrips);
-          trip = tripIdToFetch ? trips.find(t => t.id === tripIdToFetch) || null : trips[trips.length - 1] || null;
+        const localRows = await db.execute(
+          `SELECT id, user_id, trip_name, origin, destination, start_date, end_date,
+                  transport_data, lodging_data, attractions_data, created_at
+           FROM trips WHERE user_id = ?${tripIdToFetch ? ' AND id = ?' : ''}
+           ORDER BY created_at DESC LIMIT 1`,
+          tripIdToFetch ? [user?.id || 'guest', tripIdToFetch] : [user?.id || 'guest']
+        );
+        const rows = (((localRows as any).array?.length > 0
+          ? (localRows as any).array
+          : (localRows.rows as any)?._array || (localRows.rows as any) || [])) as any[];
+        if (rows.length > 0) {
+          const localTrip = rows[0];
+          const transportData = JSON.parse(localTrip.transport_data || '{}');
+          const lodgingData = JSON.parse(localTrip.lodging_data || '{}');
+          trip = {
+            ...localTrip,
+            title: localTrip.trip_name,
+            start_date: normalizeDateForTimeline(localTrip.start_date),
+            end_date: normalizeDateForTimeline(localTrip.end_date),
+            transport_type: transportData.selectedOption?.type || '',
+            accommodation_address: lodgingData.lodgingAddress || '',
+          } as TripRecord;
         }
       } else {
         const localRows = await db.execute(
@@ -307,9 +324,6 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       return { ...evt, isPast: false, isCurrent: false };
     });
 
-    if (!currentFound && finalizedEvents.length > 0) {
-      finalizedEvents[0].isCurrent = true;
-    }
     setEvents(finalizedEvents);
   };
 
@@ -431,15 +445,12 @@ export const TimelineScreen = ({ navigation, route }: any) => {
         ...currentAttractions,
         customTimeline: events
       };
-      const updatedTrip = { ...tripData, attractions_data: JSON.stringify(updatedAttractions) };
 
       if (isUserGuest) {
-        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        if (storedTrips) {
-          const trips: TripRecord[] = JSON.parse(storedTrips);
-          const newTrips = trips.map(t => t.id === tripData.id ? updatedTrip : t);
-          await AsyncStorage.setItem('destivo-trips-guest', JSON.stringify(newTrips));
-        }
+        await db.execute(
+          'UPDATE trips SET attractions_data = ? WHERE id = ?',
+          [JSON.stringify(updatedAttractions), tripData.id]
+        );
       } else {
         const { error } = await supabase
           .from('trips')
@@ -465,12 +476,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
         try {
           const isUserGuest = user?.isGuest || !user;
           if (isUserGuest) {
-            const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-            if (storedTrips) {
-              const trips: TripRecord[] = JSON.parse(storedTrips);
-              const newTrips = trips.filter(t => t.id !== tripData.id);
-              await AsyncStorage.setItem('destivo-trips-guest', JSON.stringify(newTrips));
-            }
+            await db.execute('DELETE FROM trips WHERE id = ?', [tripData.id]);
           } else {
             await supabase.from('trips').delete().eq('id', tripData.id);
           }

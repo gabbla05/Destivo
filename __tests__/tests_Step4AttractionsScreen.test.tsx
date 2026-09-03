@@ -47,6 +47,15 @@ jest.mock('@powersync/react-native', () => ({
   }),
 }));
 
+const mockSupabaseInsert = jest.fn().mockResolvedValue({ error: null });
+jest.mock('../src/lib/supabase', () => ({
+  supabase: {
+    from: jest.fn(() => ({
+      insert: mockSupabaseInsert,
+    })),
+  },
+}));
+
 // 4. MOCKOWANIE BIBLIOTEK ZEWNĘTRZNYCH (Kryptografia, Nawigacja, Mapy, Slider)
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-1234',
@@ -212,6 +221,25 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
       expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Podróż została pomyślnie zapisana!');
       expect(mockReset).toHaveBeenCalledTimes(1);
       expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
+      expect(mockSupabaseInsert).toHaveBeenCalled();
+    });
+  });
+
+  test('4a. gość zapisuje podróż wyłącznie lokalnie w PowerSync', async () => {
+    mockAuthState.user = { id: 'guest-session', isGuest: true };
+    mockAuthState.isGuest = true;
+
+    render(<Step4AttractionsScreen />);
+    await waitFor(() => expect(screen.getByText('Koloseum')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Zapisz podróż'));
+
+    await waitFor(() => {
+      expect(mockDbExecute).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO trips'),
+        expect.any(Array)
+      );
+      expect(mockSupabaseInsert).not.toHaveBeenCalled();
     });
   });
 
