@@ -17,6 +17,7 @@ import { useAuthStore } from '../store/authStore';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { translations } from '../i18n/translations';
 
 interface TripRecord {
   id: string;
@@ -28,7 +29,9 @@ interface TripRecord {
 }
 
 export const TripsListScreen = ({ navigation }: any) => {
-  const { user } = useAuthStore();
+  const { user, language } = useAuthStore();
+  const t = translations[language].trips;
+  const commonT = translations[language].common;
   const db = usePowerSync();
   const [loading, setLoading] = useState(false); // Zmieniono z true na false
   const [trips, setTrips] = useState<TripRecord[]>([]);
@@ -50,7 +53,7 @@ export const TripsListScreen = ({ navigation }: any) => {
         : (result.rows as any)?._array || (result.rows as any) || []) as any[];
       const localTrips = localRows.map((trip: any) => ({
         id: trip.id,
-        title: trip.trip_name || trip.title || 'Bez nazwy',
+        title: trip.trip_name || trip.title || t.untitled,
         origin: trip.origin || '',
         destination: trip.destination || '',
         start_date: trip.start_date || '',
@@ -69,7 +72,7 @@ export const TripsListScreen = ({ navigation }: any) => {
           if (!tripsById.has(trip.id)) {
             tripsById.set(trip.id, {
               id: trip.id,
-              title: trip.title || trip.trip_name || 'Bez nazwy',
+              title: trip.title || trip.trip_name || t.untitled,
               origin: trip.origin || '',
               destination: trip.destination || '',
               start_date: trip.start_date || '',
@@ -87,7 +90,7 @@ export const TripsListScreen = ({ navigation }: any) => {
           if (!tripsById.has(trip.id)) {
             tripsById.set(trip.id, {
               id: trip.id,
-              title: trip.title || trip.trip_name || 'Bez nazwy',
+              title: trip.title || trip.trip_name || t.untitled,
               origin: trip.origin || '',
               destination: trip.destination || '',
               start_date: trip.start_date || '',
@@ -99,7 +102,7 @@ export const TripsListScreen = ({ navigation }: any) => {
 
       setTrips(Array.from(tripsById.values()));
     } catch (e) {
-      Alert.alert('Błąd', 'Nie udało się wczytać listy podróży.');
+      Alert.alert(commonT.label_error, t.loadError);
     } finally {
       setLoading(false);
     }
@@ -167,7 +170,7 @@ export const TripsListScreen = ({ navigation }: any) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Twoje podróże</Text>
+        <Text style={styles.headerTitle}>{t.title}</Text>
       </View>
 
       <View style={styles.tabContainer}>
@@ -175,13 +178,13 @@ export const TripsListScreen = ({ navigation }: any) => {
           style={[styles.tabButton, activeTab === 'upcoming' && styles.tabButtonActive]} 
           onPress={() => setActiveTab('upcoming')}
         >
-          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>Nadchodzące</Text>
+          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>{t.upcoming}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tabButton, activeTab === 'past' && styles.tabButtonActive]} 
           onPress={() => setActiveTab('past')}
         >
-          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>Archiwalne</Text>
+          <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActive]}>{t.archived}</Text>
         </TouchableOpacity>
       </View>
 
@@ -191,12 +194,12 @@ export const TripsListScreen = ({ navigation }: any) => {
         </View>
       ) : trips.length === 0 ? (
         <View style={styles.centerBox}>
-          <Text style={styles.emptyText}>Nie masz jeszcze żadnych podróży.</Text>
+          <Text style={styles.emptyText}>{t.empty}</Text>
           <TouchableOpacity 
             style={styles.primaryButton}
             onPress={() => navigation.navigate('Explore')}
           >
-            <Text style={styles.primaryButtonText}>Zaplanuj coś!</Text>
+            <Text style={styles.primaryButtonText}>{t.plan}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -207,7 +210,7 @@ export const TripsListScreen = ({ navigation }: any) => {
             <>
               {upcomingTrips.length === 0 ? (
                 <View style={styles.centerBox}>
-                  <Text style={styles.emptyText}>Brak zaplanowanych wyjazdów.</Text>
+                  <Text style={styles.emptyText}>{t.noUpcoming}</Text>
                 </View>
               ) : (
                 upcomingTrips.map((trip) => (
@@ -218,7 +221,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                     onPress={() => handleTripPress(trip.id)}
                   >
                     <Text style={styles.cardTitle}>{trip.title}</Text>
-                    <Text style={styles.cardRoute}>{trip.origin || 'Dom'} ➔ {trip.destination}</Text>
+                    <Text style={styles.cardRoute}>{trip.origin || t.home} ➔ {trip.destination}</Text>
                     <View style={styles.cardFooter}>
                       <Text style={styles.cardDate}>
                         {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
@@ -235,26 +238,26 @@ export const TripsListScreen = ({ navigation }: any) => {
           {activeTab === 'past' && (
             <>
               <View style={styles.statsCard}>
-                <Text style={styles.statsTitle}>Archiwalne Wspomnienia</Text>
+                <Text style={styles.statsTitle}>{t.memories}</Text>
                 <Text style={styles.statsSubtitle}>
-                  Przeżyj ponownie podróże, które ukształtowały Twój świat.
+                  {t.memoriesDesc}
                 </Text>
                 <View style={styles.statsRow}>
                   <View style={styles.statCol}>
                     <Text style={styles.statValue}>{uniquePlacesCount}</Text>
-                    <Text style={styles.statLabel}>ODWIEDZONYCH MIEJSC</Text>
+                    <Text style={styles.statLabel}>{t.visited}</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statCol}>
                     <Text style={styles.statValue}>{totalDaysTraveled}</Text>
-                    <Text style={styles.statLabel}>DNI W PODRÓŻY</Text>
+                    <Text style={styles.statLabel}>{t.days}</Text>
                   </View>
                 </View>
               </View>
 
               {pastTrips.length === 0 ? (
                 <View style={styles.centerBox}>
-                  <Text style={styles.emptyText}>Brak archiwalnych podróży.</Text>
+                  <Text style={styles.emptyText}>{t.noArchived}</Text>
                 </View>
               ) : (
                 pastTrips.map((trip) => (
@@ -276,7 +279,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                         activeOpacity={0.8}
                         onPress={() => handleTripPress(trip.id)}
                       >
-                        <Text style={styles.archivalButtonText}>Zobacz wspomnienia ➔</Text>
+                        <Text style={styles.archivalButtonText}>{t.viewMemories}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>

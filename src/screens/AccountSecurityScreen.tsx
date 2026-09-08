@@ -1,13 +1,15 @@
-// src/screens/AccountSecurityScreen.tsx
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, SafeAreaView, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
 
 export const AccountSecurityScreen = ({ navigation }: any) => {
-  const { user, logout } = useAuthStore();
+  const { user, language, logout } = useAuthStore();
+  const t = translations[language].accountSecurity;
+  const commonT = translations[language].common;
   const db = usePowerSync();
   const [loading, setLoading] = useState(false);
 
@@ -17,9 +19,9 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
       setLoading(true);
       const { error } = await supabase.auth.resetPasswordForEmail(user.email);
       if (error) throw error;
-      Alert.alert('Sukces', 'Na Twój adres e-mail wysłano link do zresetowania hasła.');
+      Alert.alert(t.successTitle, t.resetSuccess);
     } catch (e: any) {
-      Alert.alert('Błąd', e.message || 'Nie udało się wysłać linku.');
+      Alert.alert(t.errorTitle, e.message || t.resetError);
     } finally {
       setLoading(false);
     }
@@ -27,12 +29,12 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
 
   const handleDeleteAccount = () => {
     Alert.alert(
-      'Usunięcie konta',
-      'Czy na pewno chcesz bezpowrotnie usunąć swoje konto oraz wszystkie zapisane podróże z chmury? Tej operacji nie można cofnąć.',
+      t.deleteTitle,
+      t.deleteMessage,
       [
-        { text: 'Anuluj', style: 'cancel' },
+        { text: commonT.cancel, style: 'cancel' },
         { 
-          text: 'Usuń konto', 
+          text: t.deleteConfirm, 
           style: 'destructive',
           onPress: async () => {
              try {
@@ -45,7 +47,7 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
                 // 4. Usuwamy stan w aplikacji i wracamy do ekranu startowego
                 logout();
              } catch (e) {
-                Alert.alert('Błąd', 'Wystąpił problem podczas usuwania konta.');
+                Alert.alert(t.errorTitle, t.deleteError);
              }
           }
         }
@@ -59,50 +61,50 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#F8FAFC" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Konto i prywatność</Text>
+        <Text style={styles.headerTitle}>{t.title}</Text>
       </View>
 
       <ScrollView style={styles.content}>
         
         {/* ZARZĄDZANIE KONTEM */}
-        <Text style={styles.sectionTitle}>ZARZĄDZANIE KONTEM</Text>
+        <Text style={styles.sectionTitle}>{t.accountManagement}</Text>
         <View style={styles.card}>
           <TouchableOpacity style={styles.row} onPress={handlePasswordReset} disabled={loading}>
             <View style={styles.rowLeft}>
               <Ionicons name="key-outline" size={20} color="#38BDF8" style={styles.icon} />
-              <Text style={styles.rowText}>Zresetuj hasło</Text>
+              <Text style={styles.rowText}>{t.resetPassword}</Text>
             </View>
             {loading ? <ActivityIndicator color="#38BDF8" /> : <Ionicons name="chevron-forward" size={20} color="#475569" />}
           </TouchableOpacity>
         </View>
 
         {/* PRYWATNOŚĆ I DANE */}
-        <Text style={styles.sectionTitle}>PRYWATNOŚĆ I DANE</Text>
+        <Text style={styles.sectionTitle}>{t.privacyData}</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={() => Alert.alert('Polityka Prywatności', 'Dane są szyfrowane end-to-end w module Sejfu. Podróże są synchronizowane z zewnętrzną chmurą Supabase.')}>
+          <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={() => Alert.alert(t.privacyPolicy, t.privacyText)}>
             <View style={styles.rowLeft}>
               <Ionicons name="document-text-outline" size={20} color="#10B981" style={styles.icon} />
-              <Text style={styles.rowText}>Polityka prywatności</Text>
+              <Text style={styles.rowText}>{t.privacyPolicy}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#475569" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.row} onPress={() => Alert.alert('Dane', 'Aby wyeksportować dane, skontaktuj się z administratorem.')}>
+          <TouchableOpacity style={styles.row} onPress={() => Alert.alert(t.dataTitle, t.exportText)}>
             <View style={styles.rowLeft}>
               <Ionicons name="download-outline" size={20} color="#F59E0B" style={styles.icon} />
-              <Text style={styles.rowText}>Eksportuj moje dane</Text>
+              <Text style={styles.rowText}>{t.exportData}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#475569" />
           </TouchableOpacity>
         </View>
 
         {/* DANGER ZONE */}
-        <Text style={[styles.sectionTitle, { color: '#EF4444', marginTop: 24 }]}>STREFA NIEBEZPIECZNA</Text>
+        <Text style={[styles.sectionTitle, { color: '#EF4444', marginTop: 24 }]}>{t.danger}</Text>
         <View style={[styles.card, { borderColor: 'rgba(239, 68, 68, 0.3)' }]}>
           <TouchableOpacity style={styles.row} onPress={handleDeleteAccount}>
             <View style={styles.rowLeft}>
               <Ionicons name="trash-outline" size={20} color="#EF4444" style={styles.icon} />
-              <Text style={[styles.rowText, { color: '#EF4444' }]}>Usuń konto bezpowrotnie</Text>
+              <Text style={[styles.rowText, { color: '#EF4444' }]}>{t.deleteAccount}</Text>
             </View>
           </TouchableOpacity>
         </View>

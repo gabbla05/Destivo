@@ -87,7 +87,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
 
         {/* GOTOWY PLAN PO DNIACH */}
         <Text style={styles.sectionTitle}>{t.readyPlanTitle}</Text>
-        {trip?.itinerary.map((dayPlan) => (
+        {trip?.itinerary?.map((dayPlan) => (
           <View key={dayPlan.day} style={styles.dayContainer}>
             <View style={styles.dayHeader}>
               <Text style={styles.dayNumber}>{t.dayTitle.replace('{{day}}', String(dayPlan.day))}</Text>

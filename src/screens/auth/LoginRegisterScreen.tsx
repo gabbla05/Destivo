@@ -102,7 +102,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
             name: fullName,
             language: selectedLanguage,
           });
-          Alert.alert('DESTIVO', 'Konto zostało utworzone! Teraz możesz się zalogować.');
+          Alert.alert('DESTIVO', t.accountCreated);
           setIsLoginMode(true);
           setPassword('');
         }
@@ -263,9 +263,9 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
               onPress={() => setIsLoginMode(!isLoginMode)}
             >
               <Text style={styles.footerText}>
-                {isLoginMode ? 'NIE MASZ KONTA?' : t.alreadyDeployed}{' '}
+                {isLoginMode ? t.noAccountYet : t.alreadyDeployed}{' '}
                 <Text style={styles.footerLink}>
-                  {isLoginMode ? 'UTWÓRZ JE' : t.loginToAccount}
+                  {isLoginMode ? t.createOne : t.loginToAccount}
                 </Text>
               </Text>
             </TouchableOpacity>

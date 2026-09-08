@@ -7,11 +7,13 @@ import { usePowerSync } from '@powersync/react-native';
 import { useAuthStore } from '../../store/authStore';
 import { supabase } from '../../lib/supabase';
 import { VaultManager } from '../../lib/vaultManager';
+import { translations } from '../../i18n/translations';
 import * as Sharing from 'expo-sharing';
 
 export const VaultDashboardScreen = ({ route, navigation }: any) => {
   const { lockVault } = useVaultStore();
-  const { user } = useAuthStore();
+  const { user, language } = useAuthStore();
+  const t = translations[language].vault;
   const db = usePowerSync();
   const initialTripId = route?.params?.tripId;
 
@@ -68,13 +70,13 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
       }
 
-      Alert.alert('Zabezpieczono', 'Plik został pomyślnie dodany do Szufladki Sejfu.');
+      Alert.alert(t.secured, t.addSuccess);
       
       // Aktualizacja widoku
       setSelectedTrip({ ...selectedTrip, lodging_data: newLodgingData });
     } catch (error) {
       console.error(error);
-      Alert.alert('Błąd', 'Nie udało się zapisać pliku w sejfie.');
+      Alert.alert(t.error, t.saveError);
     }
   };
 
@@ -85,10 +87,10 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       if (isAvailable) {
         await Sharing.shareAsync(uri);
       } else {
-        Alert.alert('Błąd', 'Brak aplikacji zdolnej do otwarcia tego pliku na tym urządzeniu.');
+        Alert.alert(t.error, t.unavailable);
       }
     } catch (e) {
-      Alert.alert('Błąd odczytu', 'Nie można otworzyć pliku. Prawdopodobnie został usunięty z pamięci.');
+      Alert.alert(t.readErrorTitle, t.readError);
     }
   };
 
@@ -108,11 +110,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               <Ionicons name="arrow-back" size={24} color="#F8FAFC" />
             </TouchableOpacity>
           )}
-          <Text style={styles.title}>{selectedTrip ? 'Zabezpieczone Pliki' : 'Szufladki Sejfu'}</Text>
+          <Text style={styles.title}>{selectedTrip ? t.files : t.title}</Text>
         </View>
         <TouchableOpacity style={styles.lockBtn} onPress={lockVault}>
           <Ionicons name="lock-closed" size={14} color="#F87171" style={{ marginRight: 6 }} />
-          <Text style={styles.lockBtnText}>ZABLOKUJ</Text>
+          <Text style={styles.lockBtnText}>{t.lock}</Text>
         </TouchableOpacity>
       </View>
 
@@ -125,7 +127,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
           {/* WIDOK FOLDERÓW (WSZYSTKIE PODRÓŻE) */}
           {!selectedTrip ? (
             <View style={styles.grid}>
-              {trips.length === 0 && <Text style={styles.emptyText}>Brak zaplanowanych podróży.</Text>}
+              {trips.length === 0 && <Text style={styles.emptyText}>{t.emptyTrips}</Text>}
               {trips.map(trip => (
                 <TouchableOpacity key={trip.id} style={styles.folderCard} activeOpacity={0.8} onPress={() => setSelectedTrip(trip)}>
                   <Ionicons name="folder" size={48} color="#38BDF8" style={{ marginBottom: 12 }} />
@@ -138,17 +140,17 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
 
           /* WIDOK PLIKÓW DLA KONKRETNEJ PODRÓŻY */
             <View>
-              <Text style={styles.tripTitleLabel}>SZUFLADKA PODRÓŻY:</Text>
+              <Text style={styles.tripTitleLabel}>{t.folderLabel}</Text>
               <Text style={styles.tripTitle}>{selectedTrip.trip_name}</Text>
               
               <View style={styles.actionButtons}>
                 <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => handleAddFile('DOC')}>
                   <Ionicons name="document-text" size={20} color="#0B1120" style={{ marginRight: 8 }} />
-                  <Text style={styles.addBtnText}>Wgraj plik (PDF)</Text>
+                  <Text style={styles.addBtnText}>{t.uploadPdf}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => handleAddFile('IMAGE')}>
                   <Ionicons name="image" size={20} color="#0B1120" style={{ marginRight: 8 }} />
-                  <Text style={styles.addBtnText}>Dodaj ze zdjęć</Text>
+                  <Text style={styles.addBtnText}>{t.addPhoto}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -156,8 +158,8 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                 {getFilesForSelectedTrip().length === 0 && (
                   <View style={styles.emptyBox}>
                     <Ionicons name="shield-checkmark-outline" size={40} color="#334155" style={{ marginBottom: 12 }} />
-                    <Text style={styles.emptyText}>Ten sejf jest pusty.</Text>
-                    <Text style={styles.emptySub}>Wgraj tu bilety i rezerwacje, aby mieć do nich bezpieczny dostęp offline w trakcie podróży.</Text>
+                    <Text style={styles.emptyText}>{t.empty}</Text>
+                    <Text style={styles.emptySub}>{t.emptyDesc}</Text>
                   </View>
                 )}
 
@@ -168,7 +170,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                     </View>
                     <View style={styles.fileInfo}>
                       <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
-                      <Text style={styles.fileType}>{file.type} • Wgrano lokalnie</Text>
+                      <Text style={styles.fileType}>{file.type} • {t.uploaded}</Text>
                     </View>
                     <Ionicons name="open-outline" size={20} color="#64748B" />
                   </TouchableOpacity>

@@ -4,9 +4,14 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Vibration } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useVaultStore } from '../../store/vaultStore';
+import { useAuthStore } from '../../store/authStore';
+import { translations } from '../../i18n/translations';
 
 export const VaultPinScreen = () => {
   const { pin, setPin, verifyPin, isBiometricsEnabled, unlockVault } = useVaultStore();
+  const { language } = useAuthStore();
+  const t = translations[language].vault;
+  const commonT = translations[language].common;
   const isSetupMode = !pin;
   
   const [input, setInput] = useState('');
@@ -26,8 +31,8 @@ export const VaultPinScreen = () => {
     
     if (hasHardware && isEnrolled) {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Odblokuj Sejf Destivo',
-        fallbackLabel: 'Użyj kodu PIN',
+        promptMessage: t.biometricPrompt,
+        fallbackLabel: t.biometricFallback,
       });
       if (result.success) unlockVault();
     }
@@ -55,11 +60,11 @@ export const VaultPinScreen = () => {
         setSetupStep('CONFIRM');
       } else {
         if (enteredPin === firstPin) {
-          Alert.alert('Sukces', 'Kod PIN został ustawiony!');
+          Alert.alert(commonT.success, t.pinSet);
           setPin(enteredPin); // Sukces - PIN utworzony
         } else {
           Vibration.vibrate();
-          Alert.alert('Błąd', 'Kody PIN nie są identyczne. Spróbuj ponownie.');
+          Alert.alert(t.error, t.pinMismatch);
           setInput('');
           setSetupStep('ENTER');
         }
@@ -95,11 +100,11 @@ export const VaultPinScreen = () => {
 
         <Text style={styles.title}>
           {isSetupMode 
-            ? (setupStep === 'ENTER' ? 'Utwórz kod PIN' : 'Potwierdź kod PIN') 
-            : 'Wprowadź PIN Sejfu'}
+            ? (setupStep === 'ENTER' ? t.pinCreate : t.pinConfirm) 
+            : t.enterPinTitle}
         </Text>
         <Text style={styles.subtitle}>
-          Dostęp do szyfrowanych dokumentów i biletów
+          {t.pinSubtitle}
         </Text>
 
         {renderDots()}
@@ -111,7 +116,7 @@ export const VaultPinScreen = () => {
             </TouchableOpacity>
           ))}
           <TouchableOpacity style={styles.keyAction} onPress={handleClear} activeOpacity={0.7}>
-            <Text style={styles.keyActionText}>CLEAR</Text>
+            <Text style={styles.keyActionText}>{t.clear}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.keyButton} onPress={() => handlePress('0')} activeOpacity={0.7}>
             <Text style={styles.keyText}>0</Text>
@@ -123,19 +128,19 @@ export const VaultPinScreen = () => {
 
         {!isSetupMode && isBiometricsEnabled && (
           <TouchableOpacity style={styles.biometricButton} onPress={handleBiometrics}>
-            <Text style={styles.biometricText}>☝️ Użyj biometrii</Text>
+            <Text style={styles.biometricText}>{t.useBiometrics}</Text>
           </TouchableOpacity>
         )}
         
         {!isSetupMode && (
           <TouchableOpacity style={styles.forgotButton}>
-            <Text style={styles.forgotText}>Zapomniałeś PIN-u?</Text>
+            <Text style={styles.forgotText}>{t.forgotPin}</Text>
           </TouchableOpacity>
         )}
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>🛡 END-TO-END ENCRYPTED PROTECTION</Text>
+        <Text style={styles.footerText}>{t.encryptedProtection}</Text>
       </View>
     </SafeAreaView>
   );

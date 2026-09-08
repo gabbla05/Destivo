@@ -139,7 +139,7 @@ export const Step4AttractionsScreen = () => {
         [
           tripId,
           userId,
-          tripName || `Podróż do ${destination}`,
+          tripName || t.defaultTripName.replace('{{destination}}', destination),
           origin,
           destination,
           formatToDBDate(startDate),
@@ -156,7 +156,7 @@ export const Step4AttractionsScreen = () => {
           .insert([{
             id: tripId,
             user_id: userId,
-            trip_name: tripName || `Podróż do ${destination}`,
+            trip_name: tripName || t.defaultTripName.replace('{{destination}}', destination),
             origin: origin || '',
             destination,
             start_date: formatToDBDate(startDate),
@@ -171,13 +171,13 @@ export const Step4AttractionsScreen = () => {
         }
       }
 
-      Alert.alert('DESTIVO', 'Podróż została pomyślnie zapisana!');
+      Alert.alert('DESTIVO', t.saveSuccess);
       reset(); 
       navigation.navigate('MainTabs' as never, { screen: 'Trips' } as never);
 
     } catch (error) {
       console.error("Błąd zapisu wycieczki:", error);
-      Alert.alert('Błąd', 'Nie udało się zapisać podróży w bazie danych.');
+      Alert.alert(commonT.error, t.saveError);
     }
   };
 
@@ -235,7 +235,7 @@ export const Step4AttractionsScreen = () => {
 
     try {
       if (!googleApiKey || googleApiKey.includes('TYMCZASOWY')) {
-        Alert.alert('DESTIVO', 'Brak poprawnego klucza Google API w app.json.');
+        Alert.alert('DESTIVO', t.googleApiKeyMissing);
         setLoading(false);
         return;
       }
@@ -262,7 +262,7 @@ export const Step4AttractionsScreen = () => {
             id: place.place_id,
             name: place.name,
             address: place.vicinity || place.formatted_address || 'Google Maps Location',
-            type: 'ATRAKCJA GOOGLE',
+            type: t.googleAttractionType,
             distance: dist,
             lat: pLat,
             lon: pLon,
@@ -333,7 +333,7 @@ export const Step4AttractionsScreen = () => {
               longitudeDelta: 0.05,
             }}
           >
-            <Marker coordinate={{ latitude: lodgingCoords.lat, longitude: lodgingCoords.lon }} pinColor="#0EA5E9" title="Twój nocleg" />
+            <Marker coordinate={{ latitude: lodgingCoords.lat, longitude: lodgingCoords.lon }} pinColor="#0EA5E9" title={t.yourLodging} />
             <Circle 
               center={{ latitude: lodgingCoords.lat, longitude: lodgingCoords.lon }} 
               radius={radius * 1000} 
@@ -455,7 +455,7 @@ export const Step4AttractionsScreen = () => {
                       </Text>
                       
                       <View style={styles.metaRow}>
-                        <Text style={styles.metaText}>📏 {item.distance.toFixed(1)} km od noclegu</Text>
+                        <Text style={styles.metaText}>📏 {t.distanceFromLodging.replace('{{distance}}', item.distance.toFixed(1))}</Text>
                       </View>
 
                       <TouchableOpacity 

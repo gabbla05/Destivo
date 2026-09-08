@@ -119,7 +119,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           <Text style={styles.subtitle}>{t.subtitle.replace('{{city}}', destData.city)}</Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>NAZWA PODRÓŻY</Text>
+            <Text style={styles.label}>{t.tripNameLabel}</Text>
             <View style={styles.readOnlyInput}>
               <Text style={styles.readOnlyInputText}>{tripTitle}</Text>
             </View>

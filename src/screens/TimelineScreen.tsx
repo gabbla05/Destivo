@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { translations } from '../i18n/translations';
 import { useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
@@ -68,8 +69,8 @@ const parseDate = (dateStr: string | null, timeStr?: string): Date => {
   return date;
 };
 
-const formatForDisplay = (dateStr: string | null): string => {
-  if (!dateStr) return 'Brak daty';
+const formatForDisplay = (dateStr: string | null, noDateText = 'Brak daty'): string => {
+  if (!dateStr) return noDateText;
   const parts = dateStr.split('-');
   if (parts.length === 3) {
     return `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -84,7 +85,9 @@ const normalizeDateForTimeline = (dateStr: string | null): string => {
 };
 
 export const TimelineScreen = ({ navigation, route }: any) => {
-  const { user } = useAuthStore();
+  const { user, language } = useAuthStore();
+  const t = translations[language].timeline;
+  const commonT = translations[language].common;
   const db = usePowerSync();
   const [loading, setLoading] = useState(true);
   
@@ -233,9 +236,9 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           currentEvents.push({
             id: 'evt_dep',
             type: 'DEPARTURE',
-            title: `Wyjazd: ${trip.origin || 'Dom'} ➔ ${trip.destination}`,
-            subtitle: trip.transport_type ? `Transport: ${trip.transport_type.toUpperCase()}` : 'Rozpoczęcie podróży',
-            dateStr: formatForDisplay(trip.start_date),
+            title: t.departurePrefix.replace('{{origin}}', trip.origin || t.home).replace('{{destination}}', trip.destination),
+            subtitle: trip.transport_type ? t.transportLabel.replace('{{type}}', trip.transport_type.toUpperCase()) : t.departure,
+            dateStr: formatForDisplay(trip.start_date, t.noDate),
             timeStr: '08:00',
             parsedDate: parseDate(trip.start_date, '08:00'),
           });
@@ -244,9 +247,9 @@ export const TimelineScreen = ({ navigation, route }: any) => {
             currentEvents.push({
               id: 'evt_lodging',
               type: 'LODGING',
-              title: 'Zakwaterowanie',
+              title: t.lodging,
               subtitle: trip.accommodation_address,
-              dateStr: formatForDisplay(trip.start_date),
+              dateStr: formatForDisplay(trip.start_date, t.noDate),
               timeStr: '14:00',
               parsedDate: parseDate(trip.start_date, '14:00'),
             });
@@ -261,7 +264,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
               id: `evt_attr_${idx}_${Date.now()}`,
               type: 'ATTRACTION',
               title: attr,
-              subtitle: 'Zwiedzanie',
+              subtitle: t.sightseeing,
               dateStr: formattedAttrDate,
               timeStr: `${10 + (idx % 8)}:00`,
               parsedDate: parseDate(trip!.start_date, `${10 + (idx % 8)}:00`),
@@ -271,9 +274,9 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           currentEvents.push({
             id: 'evt_return',
             type: 'RETURN',
-            title: `Powrót: ${trip.destination} ➔ ${trip.origin || 'Dom'}`,
-            subtitle: 'Zakończenie podróży',
-            dateStr: formatForDisplay(trip.end_date),
+            title: t.returnPrefix.replace('{{destination}}', trip.destination).replace('{{origin}}', trip.origin || t.home),
+            subtitle: t.returnTrip,
+            dateStr: formatForDisplay(trip.end_date, t.noDate),
             timeStr: '12:00',
             parsedDate: parseDate(trip.end_date, '12:00'),
           });
@@ -370,9 +373,9 @@ export const TimelineScreen = ({ navigation, route }: any) => {
   };
 
   const deleteEvent = (id: string) => {
-    Alert.alert("Usuń punkt", "Czy na pewno chcesz usunąć ten element z osi czasu?", [
-      { text: "Anuluj", style: "cancel" },
-      { text: "Usuń", style: "destructive", onPress: () => {
+    Alert.alert(t.deletePointTitle, t.deletePointMessage, [
+      { text: t.cancel, style: "cancel" },
+      { text: t.delete, style: "destructive", onPress: () => {
         const newEvents = events.filter(e => e.id !== id);
         setEvents(newEvents);
         setHasUnsavedChanges(true);
@@ -383,19 +386,19 @@ export const TimelineScreen = ({ navigation, route }: any) => {
   // --- DODAWANIE Z PULI PRAWDZIWYCH ATRAKCJI ---
   const handleAddNewEvent = (isFromPool: boolean, poolAttr?: PoolAttraction) => {
     if (!newDateStr && !isFromPool) {
-      Alert.alert('Błąd', 'Data jest wymagana (np. 15-08-2026)');
+      Alert.alert(commonT.error, t.dateRequired);
       return;
     }
     
-    const theDate = newDateStr || formatForDisplay(tripData!.start_date);
-    const theTitle = poolAttr ? poolAttr.name : (newTitle || 'Nowe wydarzenie');
+    const theDate = newDateStr || formatForDisplay(tripData!.start_date, t.noDate);
+    const theTitle = poolAttr ? poolAttr.name : (newTitle || t.newEvent);
     const theTime = newTimeStr || '12:00';
 
     const newEvent: TimelineEvent = {
       id: `evt_custom_${Date.now()}`,
       type: 'ATTRACTION',
       title: theTitle,
-      subtitle: newSubtitle || (isFromPool ? 'Rekomendowane miejsce' : 'Dodano ręcznie'),
+      subtitle: newSubtitle || (isFromPool ? t.recommendedPlace : t.addedManually),
       dateStr: theDate,
       timeStr: theTime,
       // Konwersja DD-MM-YYYY na obiekt Date uwzględniając godzinę
@@ -460,19 +463,19 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       }
       
       setHasUnsavedChanges(false);
-      Alert.alert('Sukces', 'Oś czasu została zaktualizowana.');
+      Alert.alert(commonT.success, t.saveSuccess);
       processAndSetEvents(events); 
     } catch (e) {
       console.error(e);
-      Alert.alert('Błąd', 'Nie udało się zapisać zmian.');
+      Alert.alert(commonT.error, t.saveError);
     }
   };
 
   const deleteEntireTrip = async () => {
     if (!tripData) return;
-    Alert.alert("Usuwanie podróży", "Czy na pewno chcesz bezpowrotnie usunąć tę podróż i wszystkie jej dane?", [
-      { text: "Anuluj", style: "cancel" },
-      { text: "Usuń podróż", style: "destructive", onPress: async () => {
+    Alert.alert(t.deleteTripTitle, t.deleteTripMessage, [
+      { text: t.cancel, style: "cancel" },
+      { text: t.deleteTrip, style: "destructive", onPress: async () => {
         try {
           const isUserGuest = user?.isGuest || !user;
           if (isUserGuest) {
@@ -482,7 +485,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           }
           navigation.goBack();
         } catch (e) {
-          Alert.alert('Błąd', 'Nie udało się usunąć podróży.');
+          Alert.alert(commonT.error, t.deleteTripError);
         }
       }}
     ]);
@@ -515,12 +518,12 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           style={styles.backToListButton}
           activeOpacity={0.7}
         >
-          <Text style={styles.backToListText}>← Wróć</Text>
+          <Text style={styles.backToListText}>{t.back}</Text>
         </TouchableOpacity>
         
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerTitle}>Oś czasu</Text>
-          <Text style={styles.headerSubtitle}>{tripData?.title || 'Brak podróży'}</Text>
+          <Text style={styles.headerTitle}>{t.title}</Text>
+          <Text style={styles.headerSubtitle}>{tripData?.title || t.noTrip}</Text>
         </View>
         
         <TouchableOpacity style={styles.trashButton} onPress={deleteEntireTrip}>
@@ -534,7 +537,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
         </View>
       ) : events.length === 0 ? (
         <View style={styles.centerBox}>
-          <Text style={styles.emptyText}>Nie masz jeszcze zaplanowanej podróży.</Text>
+          <Text style={styles.emptyText}>{t.empty}</Text>
         </View>
       ) : (
         <>
@@ -580,13 +583,13 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                     </View>
                     
                     {evt.isCurrent && !isExpanded && (
-                      <Text style={styles.currentBadge}>TERAZ / NASTĘPNE</Text>
+                      <Text style={styles.currentBadge}>{t.nowNext}</Text>
                     )}
 
                     {isExpanded && (
                       <View style={styles.expandedSection}>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Data (DD-MM-YYYY)</Text>
+                          <Text style={styles.inputLabel}>{t.dateLabelWithFormat}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={evt.dateStr} 
@@ -594,7 +597,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Czas (HH:MM)</Text>
+                          <Text style={styles.inputLabel}>{t.timeLabelWithFormat}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={evt.timeStr} 
@@ -602,7 +605,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Tytuł wydarzenia</Text>
+                          <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={evt.title} 
@@ -610,7 +613,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Podtytuł / Opis</Text>
+                          <Text style={styles.inputLabel}>{t.eventSubtitleLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={evt.subtitle} 
@@ -634,7 +637,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                             </TouchableOpacity>
                           </View>
                           <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(evt.id)}>
-                            <Text style={styles.deleteBtnText}>Usuń</Text>
+                            <Text style={styles.deleteBtnText}>{t.delete}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -658,7 +661,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       {hasUnsavedChanges && (
         <View style={styles.saveFooter}>
           <TouchableOpacity style={styles.saveButton} onPress={saveTimelineChanges}>
-            <Text style={styles.saveButtonText}>Zapisz układ osi czasu</Text>
+            <Text style={styles.saveButtonText}>{t.saveLayout}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -667,7 +670,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Dodaj punkt w trasie</Text>
+              <Text style={styles.modalTitle}>{t.addTitle}</Text>
               <TouchableOpacity onPress={closeAddModal}>
                 <Text style={styles.closeIcon}>✕</Text>
               </TouchableOpacity>
@@ -675,8 +678,8 @@ export const TimelineScreen = ({ navigation, route }: any) => {
 
             <ScrollView showsVerticalScrollIndicator={false}>
               
-              <Text style={styles.modalSectionTitle}>Propozycje z okolicy</Text>
-              <Text style={styles.modalHint}>Kliknij, aby błyskawicznie dodać do planu.</Text>
+              <Text style={styles.modalSectionTitle}>{t.suggestions}</Text>
+              <Text style={styles.modalHint}>{t.suggestionsHint}</Text>
               
               <View style={styles.poolContainer}>
                 {visibleAttractions.length > 0 ? (
@@ -702,29 +705,29 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                         </TouchableOpacity>
                     ))
                 ) : (
-    <Text style={{color: '#64748B', fontSize: 12}}>Brak więcej propozycji w okolicy.</Text>
-  )}
-</View>
+                    <Text style={{color: '#64748B', fontSize: 12}}>{t.noSuggestions}</Text>
+                )}
+              </View>
 
               <View style={styles.divider} />
 
-              <Text style={styles.modalSectionTitle}>Dodaj własne ręcznie</Text>
+              <Text style={styles.modalSectionTitle}>{t.manual}</Text>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Tytuł *</Text>
-                <TextInput style={styles.input} placeholder="np. Obiad w restauracji" placeholderTextColor="#475569" value={newTitle} onChangeText={setNewTitle} />
+                <Text style={styles.inputLabel}>{t.titleLabel}</Text>
+                <TextInput style={styles.input} placeholder={t.titlePlaceholder} placeholderTextColor="#475569" value={newTitle} onChangeText={setNewTitle} />
               </View>
               <View style={{flexDirection: 'row', gap: 10}}>
                 <View style={[styles.inputGroup, {flex: 1}]}>
-                  <Text style={styles.inputLabel}>Data (DD-MM-YYYY) *</Text>
-                  <TextInput style={styles.input} placeholder="15-08-2026" placeholderTextColor="#475569" value={newDateStr} onChangeText={setNewDateStr} />
+                  <Text style={styles.inputLabel}>{t.dateLabel}</Text>
+                  <TextInput style={styles.input} placeholder={t.datePlaceholder} placeholderTextColor="#475569" value={newDateStr} onChangeText={setNewDateStr} />
                 </View>
                 <View style={[styles.inputGroup, {flex: 1}]}>
-                  <Text style={styles.inputLabel}>Godzina (HH:MM)</Text>
-                  <TextInput style={styles.input} placeholder="12:00" placeholderTextColor="#475569" value={newTimeStr} onChangeText={setNewTimeStr} />
+                  <Text style={styles.inputLabel}>{t.timeLabel}</Text>
+                  <TextInput style={styles.input} placeholder={t.timePlaceholder} placeholderTextColor="#475569" value={newTimeStr} onChangeText={setNewTimeStr} />
                 </View>
               </View>
               <TouchableOpacity style={styles.addBtn} onPress={() => handleAddNewEvent(false)}>
-                <Text style={styles.addBtnText}>DODAJ</Text>
+                <Text style={styles.addBtnText}>{t.add}</Text>
               </TouchableOpacity>
               <View style={{height: 30}}/>
 

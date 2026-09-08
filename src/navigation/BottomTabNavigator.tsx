@@ -45,11 +45,11 @@ export const BottomTabNavigator = () => {
       // Zatrzymujemy domyślne przejście do zakładki profilu
       e.preventDefault();
       Alert.alert(
-        "Konto Gościa",
-        "Aby uzyskać dostęp do profilu i synchronizacji w chmurze, zaloguj się lub zarejestruj.",
+        t.guestAlertTitle,
+        t.guestAlertMessage,
         [
-          { text: "Anuluj", style: "cancel" },
-          { text: "Zaloguj się", onPress: () => logout() } // logout cofnie gościa do WelcomeScreen
+          { text: t.guestAlertCancel, style: "cancel" },
+          { text: t.guestAlertLogin, onPress: () => logout() } // logout cofnie gościa do WelcomeScreen
         ]
       );
     }

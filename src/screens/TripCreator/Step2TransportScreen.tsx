@@ -100,7 +100,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
         }
       } catch (error: unknown) {
         if (isMounted) {
-          setErrorMessage('Nie udało się pobrać rekomendacji transportowych.');
+          setErrorMessage(t.noDataText);
           setOptions([]);
         }
       } finally {
@@ -249,7 +249,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             <Text style={styles.title}>{t.title}</Text>
             <Text style={styles.routeSubtitle}>
               {origin ? `${origin.toUpperCase()} ➔ ` : ''}
-              {destination.toUpperCase() || 'CEL PODRÓŻY'}
+              {destination.toUpperCase() || t.destinationFallback}
             </Text>
             <Text style={styles.desc}>{t.subtitle}</Text>
           </View>
@@ -471,7 +471,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                     {/* WGRYWANIE BILETU */}
                     <TouchableOpacity
                       style={styles.uploadButton}
-                      onPress={() => Alert.alert('Sejf Offline', 'Funkcja dodawania biletów (PDF/Zdjęcia) będzie dostępna wkrótce!')}
+                      onPress={() => Alert.alert(t.vaultFeatureComingSoonTitle, t.vaultFeatureComingSoonMessage)}
                       activeOpacity={0.8}
                     >
                       <Text style={styles.uploadButtonText}>📎 {t.uploadTicket}</Text>

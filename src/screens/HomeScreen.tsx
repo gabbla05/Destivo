@@ -26,6 +26,7 @@ const CARD_WIDTH = width - 48;
 export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { isGuest, user, language } = useAuthStore();
   const t = translations[language].homeScreen;
+  const commonT = translations[language].common;
   const destinationNames = t.destinationNames as Record<string, string>;
   const db = usePowerSync();
 
@@ -110,13 +111,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               const lodgingData = JSON.parse(currentFound.lodging_data || '{}');
               
               events = [
-                { id: '1', type: 'DEPARTURE', title: `Podróż do: ${currentFound.destination}`, timeStr: '08:00', dateStr: currentFound.start_date, subtitle: transportData.selectedOption?.provider || 'Twój środek transportu' },
-                { id: '2', type: 'LODGING', title: 'Zakwaterowanie (Check-in)', timeStr: '14:00', dateStr: currentFound.start_date, subtitle: lodgingData.lodgingAddress || 'Adres hotelu' },
+                { id: '1', type: 'DEPARTURE', title: t.defaultDepartureTitle.replace('{{destination}}', currentFound.destination), timeStr: '08:00', dateStr: currentFound.start_date, subtitle: transportData.selectedOption?.provider || t.defaultTransportSubtitle },
+                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: '14:00', dateStr: currentFound.start_date, subtitle: lodgingData.lodgingAddress || t.defaultLodgingSubtitle },
               ];
               
               const selectedAttrs = attractionsData.selected || [];
               selectedAttrs.forEach((attr: string, idx: number) => {
-                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attr, timeStr: `${15 + idx}:00`, dateStr: currentFound.start_date, subtitle: 'Zwiedzanie i relaks' });
+                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attr, timeStr: `${15 + idx}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
               });
             }
             setActiveTimeline(events);
@@ -181,9 +182,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   };
 
   const deleteEvent = (id: string) => {
-    Alert.alert("Usuń punkt", "Czy na pewno chcesz usunąć ten element z osi czasu?", [
-      { text: "Anuluj", style: "cancel" },
-      { text: "Usuń", style: "destructive", onPress: () => {
+    Alert.alert(t.deletePointTitle, t.deletePointMessage, [
+      { text: commonT.button_cancel, style: "cancel" },
+      { text: t.delete, style: "destructive", onPress: () => {
         const newEvents = activeTimeline.filter(e => e.id !== id);
         setActiveTimeline(newEvents);
         setHasUnsavedChanges(true);
@@ -219,10 +220,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       }
       
       setHasUnsavedChanges(false);
-      Alert.alert('Sukces', 'Zapisano zmiany w planie wycieczki.');
+      Alert.alert(commonT.saveSuccess, t.saveSuccess);
     } catch (e) {
       console.error(e);
-      Alert.alert('Błąd', 'Nie udało się zapisać zmian.');
+      Alert.alert(commonT.label_error, t.saveError);
     }
   };
 
@@ -243,7 +244,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             <View style={styles.heroGradient}>
               <SafeAreaView edges={['top']}>
                 <View style={styles.heroContent}>
-                  <Text style={styles.currentJourneyLabel}>TRWAJĄCA PODRÓŻ</Text>
+                  <Text style={styles.currentJourneyLabel}>{t.activeTripLabel}</Text>
                   <Text style={styles.heroTitle} numberOfLines={2}>{activeTrip.trip_name}</Text>
                   
                   <View style={styles.heroRow}>
@@ -260,7 +261,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                         <Text style={styles.widgetBadgeText}>{getCurrencyInfo(activeTrip.destination)}</Text>
                       </View>
                     )}
-                    <TouchableOpacity style={styles.widgetBadgeSos} onPress={() => Alert.alert('SOS', 'Wybieranie lokalnego numeru alarmowego 112...')}>
+                    <TouchableOpacity style={styles.widgetBadgeSos} onPress={() => Alert.alert(t.sosAlertTitle, t.sosAlertMessage)}>
                       <Text style={styles.widgetBadgeSosText}>⚠️ SOS: 112</Text>
                     </TouchableOpacity>
                   </View>
@@ -276,7 +277,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               activeOpacity={0.8}
               onPress={() => navigation.navigate('Vault', { tripId: activeTrip.id })}
             >
-              <Text style={styles.vaultAccessBtnText}>🔐 OTWÓRZ SEJF TEJ PODRÓŻY</Text>
+              <Text style={styles.vaultAccessBtnText}>{t.openVault}</Text>
             </TouchableOpacity>
           </View>
 
@@ -304,14 +305,14 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <Text style={styles.cardTitle}>{item.title}</Text>
                       <Text style={styles.editIcon}>✏️</Text>
                     </View>
-                    <Text style={styles.cardTime}>{item.timeStr} • {item.type === 'LODGING' ? 'Zameldowanie' : 'Punkt planu'}</Text>
-                    <Text style={styles.cardDesc} numberOfLines={isExpanded ? 0 : 2}>{item.subtitle || 'Brak dodatkowych szczegółów.'}</Text>
+                    <Text style={styles.cardTime}>{item.timeStr} • {item.type === 'LODGING' ? t.lodgingCheckIn : t.timelinePoint}</Text>
+                    <Text style={styles.cardDesc} numberOfLines={isExpanded ? 0 : 2}>{item.subtitle || t.noDetails}</Text>
 
                     {/* SEKCJA ROZWIJANA (EDYCJA) */}
                     {isExpanded && (
                       <View style={styles.expandedSection}>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Data (DD-MM-YYYY)</Text>
+                          <Text style={styles.inputLabel}>{t.dateLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={item.dateStr} 
@@ -319,7 +320,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Czas (HH:MM)</Text>
+                          <Text style={styles.inputLabel}>{t.timeLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={item.timeStr} 
@@ -327,7 +328,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Tytuł wydarzenia</Text>
+                          <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={item.title} 
@@ -335,7 +336,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           />
                         </View>
                         <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Podtytuł / Opis</Text>
+                          <Text style={styles.inputLabel}>{t.eventSubtitleLabel}</Text>
                           <TextInput 
                             style={styles.input} 
                             value={item.subtitle} 
@@ -354,7 +355,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                             </TouchableOpacity>
                           </View>
                           <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
-                            <Text style={styles.deleteBtnText}>Usuń</Text>
+                            <Text style={styles.deleteBtnText}>{t.delete}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -370,7 +371,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         {hasUnsavedChanges && (
           <View style={styles.saveFooter}>
             <TouchableOpacity style={styles.saveButton} onPress={saveTimelineChanges}>
-              <Text style={styles.saveButtonText}>Zapisz układ osi czasu</Text>
+              <Text style={styles.saveButtonText}>{t.saveTimelineLayout}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -412,7 +413,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               <Text style={styles.loaderText}>{t.loader_explore}</Text>
             </View>
           ) : (
-            <ScrollView style={styles.exploreList} showsVerticalScrollIndicator={false} nestedScrollEnabled contentContainerStyle={styles.exploreProjectsContainer}>
+            <View style={styles.exploreProjectsContainer}>
               {recommendations.length > 0 ? recommendations.map((dest) => (
                 <TouchableOpacity key={dest.id} activeOpacity={0.9} onPress={() => navigation?.navigate('ExploreDetails', { destData: dest })}>
                   <ImageBackground source={{ uri: dest.coverImage }} style={styles.exploreProjectCard} imageStyle={{ borderRadius: 18 }}>
@@ -439,7 +440,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   <Text style={styles.emptyCardText}>{t.empty_recommendations}</Text>
                 </View>
               )}
-            </ScrollView>
+            </View>
           )}
         </View>
 

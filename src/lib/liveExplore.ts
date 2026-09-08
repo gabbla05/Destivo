@@ -177,6 +177,303 @@ function formatDateStr(ymd: string) {
   return `${d}.${m}.${y}`;
 }
 
+function getFallbackRecommendations(userLat: number, userLon: number): LiveDestination[] {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayAfterTomorrow = new Date();
+  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 3);
+
+  const formatDate = (d: Date) => {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}.${month}.${year}`;
+  };
+
+  const startStr = formatDate(tomorrow);
+  const endStr = formatDate(dayAfterTomorrow);
+
+  const fallbackCities = [
+    {
+      id: 'rome_01',
+      city: 'Rzym',
+      country: 'Włochy',
+      lat: 41.9028,
+      lon: 12.4964,
+      coverImage: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
+      transportCode: 'ROM',
+      temp: 22,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Koloseum i Forum Romanum', 'Watykan i Bazylika św. Piotra', 'Fontanna di Trevi i Panteon'],
+    },
+    {
+      id: 'bcn_01',
+      city: 'Barcelona',
+      country: 'Hiszpania',
+      lat: 41.3851,
+      lon: 2.1734,
+      coverImage: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.',
+      transportCode: 'BCN',
+      temp: 20,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/02d@2x.png',
+      attractions: ['Sagrada Família', 'Park Güell', 'Dzielnica Gotycka (Barri Gòtic)'],
+    },
+    {
+      id: 'krk_01',
+      city: 'Kraków',
+      country: 'Polska',
+      lat: 50.0614,
+      lon: 19.9366,
+      coverImage: 'https://images.unsplash.com/photo-1558948574-8aa47b5962f3?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.',
+      transportCode: 'Kraków Główny',
+      temp: 18,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Rynek Główny i Sukiennice', 'Zamek Królewski na Wawelu', 'Kazimierz (Dzielnica Żydowska)'],
+    },
+    {
+      id: 'par_01',
+      city: 'Paryż',
+      country: 'Francja',
+      lat: 48.8566,
+      lon: 2.3522,
+      coverImage: 'https://images.unsplash.com/photo-1502602898657-3e90768ea0ab?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.',
+      transportCode: 'PAR',
+      temp: 19,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/03d@2x.png',
+      attractions: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame'],
+    },
+  ];
+
+  return fallbackCities.map((c) => {
+    const distance = calculateDistanceKm(userLat, userLon, c.lat, c.lon);
+    let recommendedTransport: 'flight' | 'train' | 'car' = 'flight';
+    if (distance < 350) recommendedTransport = 'car';
+    else if (distance <= 800) recommendedTransport = 'train';
+
+    return {
+      id: c.id,
+      city: c.city,
+      country: c.country,
+      lat: c.lat,
+      lon: c.lon,
+      coverImage: c.coverImage,
+      shortDescription: c.shortDescription,
+      transportCode: c.transportCode,
+      distanceKm: distance,
+      recommendedTransport,
+      weather: {
+        temp: c.temp,
+        condition: c.condition,
+        icon: c.icon,
+      },
+      proposedTrip: {
+        startDate: startStr,
+        endDate: endStr,
+        durationDays: 3,
+        estimatedTemp: c.temp,
+        condition: c.condition,
+        crowdLevel: 'Umiarkowany ruch turystyczny',
+        itinerary: [
+          { day: 1, title: 'Dzień 1: Odkrywanie miasta', attractions: [c.attractions[0], c.attractions[1]] },
+          { day: 2, title: 'Dzień 2: Kultura i zabytki', attractions: [c.attractions[1], c.attractions[2]] },
+          { day: 3, title: 'Dzień 3: Spacer i relaks', attractions: [c.attractions[0], c.attractions[2]] },
+        ],
+      },
+    };
+  });
+}
+
+async function fetchCityWeather(
+  dest: (typeof DESTINATION_POOL)[0],
+  userLat: number,
+  userLon: number
+): Promise<LiveDestination | null> {
+  const distance = calculateDistanceKm(userLat, userLon, dest.lat, dest.lon);
+
+  let recommendedTransport: 'flight' | 'train' | 'car' = 'flight';
+  if (distance < 350) recommendedTransport = 'car';
+  else if (distance <= 800) recommendedTransport = 'train';
+
+  let minDays = 2;
+  let maxDays = 3;
+  if (distance > 800) {
+    minDays = 3;
+    maxDays = 4;
+  } else if (distance < 300) {
+    minDays = 1;
+    maxDays = 2;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+  try {
+    const weatherRes = await fetch(
+      `https://api.openweathermap.org/data/2.5/forecast?lat=${dest.lat}&lon=${dest.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=pl`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+
+    if (!weatherRes.ok) {
+      return null;
+    }
+
+    const rawText = await weatherRes.text();
+    if (!rawText || !rawText.trim()) {
+      return null;
+    }
+
+    let weatherData: any;
+    try {
+      weatherData = JSON.parse(rawText);
+    } catch {
+      return null;
+    }
+
+    if (!weatherData?.list || !Array.isArray(weatherData.list) || weatherData.list.length === 0) {
+      return null;
+    }
+
+    const dailyForecasts: Record<string, { temps: number[]; rain: boolean; desc: string; icon: string }> = {};
+
+    weatherData.list.forEach((item: any) => {
+      const date = item.dt_txt?.split(' ')?.[0];
+      if (!date) return;
+      if (!dailyForecasts[date]) {
+        dailyForecasts[date] = {
+          temps: [],
+          rain: false,
+          desc: item.weather?.[0]?.description || '',
+          icon: item.weather?.[0]?.icon || '01d',
+        };
+      }
+      if (typeof item.main?.temp === 'number') {
+        dailyForecasts[date].temps.push(item.main.temp);
+      }
+      const weatherId = item.weather?.[0]?.id || 800;
+      if (weatherId >= 200 && weatherId < 700) {
+        dailyForecasts[date].rain = true;
+      }
+    });
+
+    const days = Object.keys(dailyForecasts).sort();
+    if (days.length <= minDays) return null;
+
+    let bestStartIdx = 1;
+    let finalDuration = minDays;
+    let foundPerfect = false;
+
+    const maxAllowedStart = Math.min(2, days.length - minDays);
+
+    for (let i = 1; i <= maxAllowedStart; i++) {
+      let rainFreeDays = 0;
+      for (let j = 0; j < maxDays; j++) {
+        if (i + j < days.length && !dailyForecasts[days[i + j]].rain) {
+          rainFreeDays++;
+        } else {
+          break;
+        }
+      }
+
+      if (rainFreeDays >= minDays) {
+        bestStartIdx = i;
+        finalDuration = rainFreeDays;
+        foundPerfect = true;
+        break;
+      }
+    }
+
+    if (!foundPerfect) {
+      bestStartIdx = 1;
+      finalDuration = minDays;
+    }
+
+    if (bestStartIdx + finalDuration > days.length) {
+      finalDuration = Math.max(1, days.length - bestStartIdx);
+    }
+
+    const startStr = days[bestStartIdx];
+    const endStr = days[bestStartIdx + finalDuration - 1];
+
+    let sumTemp = 0;
+    for (let i = 0; i < finalDuration; i++) {
+      const dayTemps = dailyForecasts[days[bestStartIdx + i]]?.temps || [];
+      const dayMaxTemp = dayTemps.length > 0 ? Math.max(...dayTemps) : 20;
+      sumTemp += dayMaxTemp;
+    }
+    const avgTemp = Math.round(sumTemp / finalDuration);
+    const condition = foundPerfect ? 'Bez opadów, idealnie na zwiedzanie' : 'Mogą wystąpić opady - weź parasol';
+
+    const defaultAttractionsByCity: Record<string, string[]> = {
+      Rzym: ['Koloseum i Forum Romanum', 'Watykan i Bazylika św. Piotra', 'Fontanna di Trevi i Panteon', 'Zatybrze'],
+      Barcelona: ['Sagrada Família', 'Park Güell', 'Dzielnica Gotycka (Barri Gòtic)', 'Plaża Barceloneta'],
+      Paryż: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame', 'Montmartre'],
+      Londyn: ['Big Ben i Parlament', 'British Museum', 'Tower Bridge', 'Hyde Park'],
+      Ateny: ['Akropol i Partenon', 'Muzeum Akropolu', 'Plaka', 'Świątynia Zeusa'],
+      Kraków: ['Rynek Główny i Sukiennice', 'Zamek Królewski na Wawelu', 'Kazimierz', 'Kopiec Kościuszki'],
+      Praga: ['Most Karola', 'Zamek na Hradczanach', 'Rynek Staromiejski', 'Złota Uliczka'],
+      Wiedeń: ['Pałac Schönbrunn', 'Katedra św. Szczepana', 'Pałac Hofburg', 'Belweder'],
+      Budapeszt: ['Parlament w Budapeszcie', 'Baszta Rybacka', 'Termy Széchenyi', 'Zamek w Budzie'],
+      Berlin: ['Brama Brandenburska', 'Wyspa Muzeów', 'Reichstag', 'East Side Gallery'],
+      Gdańsk: ['Długi Targ i Fontanna Neptuna', 'Żuraw nad Motławą', 'Bazylika Mariacka', 'Europejskie Centrum Solidarności'],
+      Wrocław: ['Rynek i Ratusz', 'Ostrów Tumski', 'Panorama Racławicka', 'Szlak Krasnali'],
+    };
+
+    const pool = defaultAttractionsByCity[dest.city] || [
+      'Stare Miasto i Rynek',
+      'Zabytkowy pałac lub zamek',
+      'Lokalne muzeum sztuki',
+      'Deptak spacerowy i kawiarnie',
+    ];
+
+    const itinerary: TripDay[] = [];
+    for (let i = 0; i < finalDuration; i++) {
+      const idx = (i * 2) % pool.length;
+      itinerary.push({
+        day: i + 1,
+        title: `Dzień ${i + 1}: Odkrywanie miasta`,
+        attractions: [pool[idx], pool[(idx + 1) % pool.length]],
+      });
+    }
+
+    const proposedTrip: ProposedTrip = {
+      startDate: formatDateStr(startStr),
+      endDate: formatDateStr(endStr),
+      durationDays: finalDuration,
+      estimatedTemp: avgTemp,
+      condition,
+      crowdLevel: 'Umiarkowany ruch turystyczny',
+      itinerary,
+    };
+
+    const firstDayTemps = dailyForecasts[startStr]?.temps || [];
+    const firstDayMaxTemp = firstDayTemps.length > 0 ? Math.max(...firstDayTemps) : avgTemp;
+
+    return {
+      ...dest,
+      distanceKm: distance,
+      recommendedTransport,
+      proposedTrip,
+      weather: {
+        temp: Math.round(firstDayMaxTemp),
+        condition: dailyForecasts[startStr]?.desc || 'Częściowo słonecznie',
+        icon: `https://openweathermap.org/img/wn/${dailyForecasts[startStr]?.icon || '01d'}@2x.png`,
+      },
+    };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
 export async function generateLiveRecommendations(): Promise<LiveDestination[]> {
   let userLat = 52.2297; // Domyślnie Warszawa (Złote Tarasy) jako fallback
   let userLon = 21.0122;
@@ -192,137 +489,26 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
     console.warn("Brak GPS, używam lokalizacji domyślnej (Warszawa).");
   }
 
+  // Wybieramy zróżnicowaną pulę kandydatów (8 miast), aby zapytania równoległe trwały ~500ms
+  const shuffledPool = [...DESTINATION_POOL].sort(() => 0.5 - Math.random());
+  const candidateBatch = shuffledPool.slice(0, 8);
+
+  const results = await Promise.allSettled(
+    candidateBatch.map((dest) => fetchCityWeather(dest, userLat, userLon))
+  );
+
   const weatherPassed: LiveDestination[] = [];
-
-  // ==========================================
-  // ETAP 1: Filtrowanie darmowym API pogodowym (SZYBKIE STRZAŁY)
-  // ==========================================
-  for (const dest of DESTINATION_POOL) {
-    try {
-      const distance = calculateDistanceKm(userLat, userLon, dest.lat, dest.lon);
-      
-      // Zależność Dystans -> Środek Transportu
-      let recommendedTransport: 'flight' | 'train' | 'car' = 'flight';
-      if (distance < 350) recommendedTransport = 'car';
-      else if (distance <= 800) recommendedTransport = 'train';
-
-      // Zależność Dystans -> Oczekiwana długość wycieczki
-      let minDays = 2;
-      let maxDays = 3;
-      if (distance > 800) {
-        minDays = 3;
-        maxDays = 4; // Zmniejszono do 4, aby zmieściło się w 5-dniowym API przy wylocie "jutro"
-      } else if (distance < 300) {
-        minDays = 1;
-        maxDays = 2;
-      }
-
-      // Uderzamy do API OpenWeather (Prognoza darmowa daje 5 dni w przód co 3 godziny)
-      const weatherRes = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${dest.lat}&lon=${dest.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=pl`);
-      if (!weatherRes.ok) {
-        console.warn(`Błąd pobierania pogody dla ${dest.city} - Status: ${weatherRes.status}`);
-        continue;
-      }
-
-      const weatherData = await weatherRes.json();
-      const dailyForecasts: Record<string, { temps: number[], rain: boolean, desc: string, icon: string }> = {};
-
-      // Parsowanie danych z API do obiektów "dniowych"
-      weatherData.list.forEach((item: any) => {
-        const date = item.dt_txt.split(' ')[0]; // Zostawiamy tylko YYYY-MM-DD
-        if (!dailyForecasts[date]) {
-          dailyForecasts[date] = { temps: [], rain: false, desc: item.weather[0].description, icon: item.weather[0].icon };
-        }
-        dailyForecasts[date].temps.push(item.main.temp);
-        
-        // Kody zjawisk atmosferycznych: 2xx (Burze), 3xx (Mżawka), 5xx (Deszcz), 6xx (Śnieg)
-        if (item.weather[0].id >= 200 && item.weather[0].id < 700) {
-          dailyForecasts[date].rain = true;
-        }
-      });
-
-      const days = Object.keys(dailyForecasts).sort();
-      if (days.length <= minDays) continue;
-
-      // Szukamy okna pogodowego TYLKO z wylotem jutro (index 1) lub pojutrze (index 2)
-      let bestStartIdx = 1; 
-      let finalDuration = minDays;
-      let foundPerfect = false;
-
-      const maxAllowedStart = Math.min(2, days.length - minDays);
-
-      for (let i = 1; i <= maxAllowedStart; i++) {
-        let rainFreeDays = 0;
-        
-        for (let j = 0; j < maxDays; j++) {
-          if (i + j < days.length && !dailyForecasts[days[i + j]].rain) {
-            rainFreeDays++;
-          } else {
-            break; 
-          }
-        }
-
-        if (rainFreeDays >= minDays) {
-          bestStartIdx = i;
-          finalDuration = rainFreeDays; 
-          foundPerfect = true;
-          break; // Mamy perfekcyjny termin (jutro lub pojutrze)
-        }
-      }
-
-      // Jeśli pogoda wszędzie jest słaba, po prostu wymuszamy najszybszy wyjazd (jutro)
-      if (!foundPerfect) {
-        bestStartIdx = 1;
-        finalDuration = minDays;
-      }
-
-      // Dodatkowe zabezpieczenie długości tablicy
-      if (bestStartIdx + finalDuration > days.length) {
-          finalDuration = days.length - bestStartIdx;
-      }
-
-      const startStr = days[bestStartIdx];
-      const endStr = days[bestStartIdx + finalDuration - 1];
-
-      // Wyliczanie uśrednionej temperatury DZIENNEJ w czasie całego wyjazdu
-      let sumTemp = 0;
-      for(let i = 0; i < finalDuration; i++) {
-        // Wybieramy najwyższą temperaturę z danego dnia (omijamy pomiary nocne)
-        const dayMaxTemp = Math.max(...dailyForecasts[days[bestStartIdx + i]].temps);
-        sumTemp += dayMaxTemp;
-      }
-      const avgTemp = Math.round(sumTemp / finalDuration);
-      
-      const condition = foundPerfect ? 'Bez opadów, idealnie na zwiedzanie' : 'Mogą wystąpić opady - weź parasol';
-
-      const proposedTrip: ProposedTrip = {
-        startDate: formatDateStr(startStr),
-        endDate: formatDateStr(endStr),
-        durationDays: finalDuration,
-        estimatedTemp: avgTemp,
-        condition: condition,
-        crowdLevel: '', // Uzupełniane z Google Places
-        itinerary: []   // Uzupełniane z Google Places
-      };
-
-      // Zabezpieczamy również ikonkę/pogodę pierwszego dnia na ekranie głównym
-      const firstDayMaxTemp = Math.max(...dailyForecasts[startStr].temps);
-
-      weatherPassed.push({
-        ...dest,
-        distanceKm: distance,
-        recommendedTransport,
-        proposedTrip,
-        weather: { 
-          temp: Math.round(firstDayMaxTemp), 
-          condition: dailyForecasts[startStr].desc, 
-          icon: `https://openweathermap.org/img/wn/${dailyForecasts[startStr].icon}@2x.png` 
-        }
-      });
-    } catch (e) {
-      console.warn(`Błąd ETAPU 1 dla ${dest.city}:`, e);
+  for (const res of results) {
+    if (res.status === 'fulfilled' && res.value) {
+      weatherPassed.push(res.value);
     }
   }
+
+  // Jeśli brak wyników (brak sieci / błędy API), zwracamy natychmiast bezpieczny fallback
+  if (weatherPassed.length === 0) {
+    return getFallbackRecommendations(userLat, userLon);
+  }
+
   // Sortujemy po temperaturze i czasie trwania, żeby najcieplejsze i bezdeszczowe były na górze
   weatherPassed.sort((a, b) => {
     const scoreA = (a.proposedTrip?.estimatedTemp || 0) + (a.proposedTrip?.durationDays || 0);
@@ -330,74 +516,67 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
     return scoreB - scoreA;
   });
 
-  // ==========================================
-  // ETAP 2: Pobieranie prawdziwych atrakcji i zdjęć z Google
-  // ==========================================
-  // Ograniczamy kosztowne zapytania Google do 5 losowych miast z najlepszą pogodą
-  const bestWeatherPool = weatherPassed.slice(0, 12);
-  bestWeatherPool.sort(() => 0.5 - Math.random());
-  const topCities = bestWeatherPool.slice(0, 5);
+  // Ograniczamy kosztowne zapytania Google do 5 miast z najlepszą pogodą
+  const topCities = weatherPassed.slice(0, 5);
   const finalRecommendations: LiveDestination[] = [];
 
   for (const dest of topCities) {
-    try {
-      if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('TYMCZASOWY')) {
-        throw new Error("Brak klucza Google API");
-      }
+    if (GOOGLE_API_KEY && !GOOGLE_API_KEY.includes('TYMCZASOWY')) {
+      try {
+        const placesRes = await fetch(
+          `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${dest.lat},${dest.lon}&radius=15000&type=tourist_attraction&key=${GOOGLE_API_KEY}`
+        );
+        const placesData = await placesRes.json();
 
-      const placesRes = await fetch(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${dest.lat},${dest.lon}&radius=15000&type=tourist_attraction&key=${GOOGLE_API_KEY}`);
-      const placesData = await placesRes.json();
+        if (placesData.status === 'OK' && placesData.results && placesData.results.length > 0) {
+          const sortedPlaces = placesData.results.sort(
+            (a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0)
+          );
 
-      if (placesData.status === 'OK' && placesData.results) {
-        // Sortujemy atrakcje po największej popularności (najwięcej ocen)
-        const sortedPlaces = placesData.results.sort((a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0));
-        
-        // --- NOWY KOD POBIERAJĄCY ZDJĘCIE ---
-        // Szukamy pierwszej atrakcji, która posiada zdjęcie z Google
-        const placeWithPhoto = sortedPlaces.find((place: any) => place.photos && place.photos.length > 0);
-        if (placeWithPhoto) {
-          const photoReference = placeWithPhoto.photos[0].photo_reference;
-          // Nadpisujemy domyślne zdjęcie z bazy prawdziwym zdjęciem z Google Places
-          dest.coverImage = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${GOOGLE_API_KEY}`;
-        }
-        // ------------------------------------
+          const placeWithPhoto = sortedPlaces.find((place: any) => place.photos && place.photos.length > 0);
+          if (placeWithPhoto) {
+            const photoReference = placeWithPhoto.photos[0].photo_reference;
+            dest.coverImage = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${GOOGLE_API_KEY}`;
+          }
 
-        // Zależnie od tego, czy wyjazd trwa 2 dni czy 5 dni, potrzebujemy inną liczbę atrakcji (np. 3 na dzień)
-        const tripDays = dest.proposedTrip!.durationDays;
-        const placesNeeded = tripDays * 3;
-        const topPlaces = sortedPlaces.slice(0, placesNeeded);
+          const tripDays = dest.proposedTrip?.durationDays || 2;
+          const placesNeeded = tripDays * 3;
+          const topPlaces = sortedPlaces.slice(0, placesNeeded);
 
-        // Szacowanie Tłumu - Im więcej "total reviews" na dzień, tym tłoczniej
-        const totalReviews = topPlaces.reduce((acc: number, val: any) => acc + (val.user_ratings_total || 0), 0);
-        const avgReviewsPerDay = totalReviews / tripDays;
+          const totalReviews = topPlaces.reduce((acc: number, val: any) => acc + (val.user_ratings_total || 0), 0);
+          const avgReviewsPerDay = totalReviews / tripDays;
 
-        let crowdLevel = 'Umiarkowany ruch turystyczny';
-        if (avgReviewsPerDay > 50000) crowdLevel = 'Bardzo popularne (duży tłum) - rezerwuj bilety wcześniej!';
-        else if (avgReviewsPerDay < 15000) crowdLevel = 'Spokojniejsza okolica, mniej turystów';
+          let crowdLevel = 'Umiarkowany ruch turystyczny';
+          if (avgReviewsPerDay > 50000) crowdLevel = 'Bardzo popularne (duży tłum) - rezerwuj bilety wcześniej!';
+          else if (avgReviewsPerDay < 15000) crowdLevel = 'Spokojniejsza okolica, mniej turystów';
 
-        // Płynne ładowanie do planu w zależności od tego, ile dni potrwa podróż
-        const itinerary: TripDay[] = [];
-        for (let i = 0; i < tripDays; i++) {
-          const dailyAttractions = topPlaces.slice(i * 3, (i + 1) * 3).map((p: any) => p.name);
-          if (dailyAttractions.length > 0) {
-            itinerary.push({
-              day: i + 1,
-              title: `Dzień ${i + 1}: Odkrywanie miasta`,
-              attractions: dailyAttractions
-            });
+          const itinerary: TripDay[] = [];
+          for (let i = 0; i < tripDays; i++) {
+            const dailyAttractions = topPlaces.slice(i * 3, (i + 1) * 3).map((p: any) => p.name);
+            if (dailyAttractions.length > 0) {
+              itinerary.push({
+                day: i + 1,
+                title: `Dzień ${i + 1}: Odkrywanie miasta`,
+                attractions: dailyAttractions,
+              });
+            }
+          }
+
+          if (dest.proposedTrip) {
+            dest.proposedTrip.crowdLevel = crowdLevel;
+            if (itinerary.length > 0) {
+              dest.proposedTrip.itinerary = itinerary;
+            }
           }
         }
-
-        if (dest.proposedTrip) {
-          dest.proposedTrip.crowdLevel = crowdLevel;
-          dest.proposedTrip.itinerary = itinerary;
-        }
+      } catch (e) {
+        console.warn(`Błąd Google Places dla ${dest.city}:`, e);
       }
-      finalRecommendations.push(dest);
-    } catch (e) {
-      console.warn(`Błąd Google Places dla ${dest.city}:`, e);
     }
+
+    // ZAWSZE dodajemy cel podróży do rekomendacji
+    finalRecommendations.push(dest);
   }
 
-  return finalRecommendations;
+  return finalRecommendations.length > 0 ? finalRecommendations : getFallbackRecommendations(userLat, userLon);
 }

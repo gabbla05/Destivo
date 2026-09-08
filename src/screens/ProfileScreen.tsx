@@ -21,7 +21,8 @@ export const ProfileScreen = ({ navigation }: any) => {
   const db = usePowerSync();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const t = translations[language].common; // Opcjonalnie stwórz w słowniku osobną sekcję dla profilu
+  const t = translations[language].profile;
+  const commonT = translations[language].common;
 
   const handleLanguageChange = (nextLanguage: Language) => {
     setLanguage(nextLanguage);
@@ -29,12 +30,12 @@ export const ProfileScreen = ({ navigation }: any) => {
 
   const handleLogout = async () => {
     Alert.alert(
-      "Wylogowanie",
-      "Czy na pewno chcesz się wylogować?",
+      t.logoutTitle,
+      t.logoutMessage,
       [
-        { text: "Anuluj", style: "cancel" },
+        { text: t.cancel, style: "cancel" },
         { 
-          text: "Wyloguj", 
+          text: t.logoutConfirm, 
           style: "destructive", 
           onPress: async () => {
             try {
@@ -49,7 +50,7 @@ export const ProfileScreen = ({ navigation }: any) => {
               // Czyścimy stan lokalny (powrót do Welcome Screen)
               logout();
             } catch (error) {
-              Alert.alert("Błąd", "Nie udało się poprawnie wylogować.");
+              Alert.alert(commonT.label_error, t.logoutError);
             } finally {
               setIsLoggingOut(false);
             }
@@ -65,7 +66,7 @@ export const ProfileScreen = ({ navigation }: any) => {
 
       {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Twój Profil</Text>
+        <Text style={styles.headerTitle}>{t.title}</Text>
       </View>
 
       <View style={styles.content}>
@@ -78,17 +79,17 @@ export const ProfileScreen = ({ navigation }: any) => {
             </Text>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{user?.name || 'Zalogowany Odkrywca'}</Text>
+            <Text style={styles.userName}>{user?.name || t.userFallback}</Text>
             <Text style={styles.userEmail}>{user?.email}</Text>
             
             <View style={styles.syncBadge}>
               <Ionicons name="cloud-done" size={12} color="#10B981" style={{ marginRight: 4 }} />
-              <Text style={styles.syncText}>Zsynchronizowano</Text>
+              <Text style={styles.syncText}>{t.synced}</Text>
             </View>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Ustawienia aplikacji</Text>
+        <Text style={styles.sectionTitle}>{t.appSettings}</Text>
 
         {/* USTAWIENIA: JĘZYK */}
         <View style={styles.settingRow}>
@@ -96,7 +97,7 @@ export const ProfileScreen = ({ navigation }: any) => {
             <View style={styles.iconBox}>
               <Ionicons name="language" size={20} color="#38BDF8" />
             </View>
-            <Text style={styles.settingLabel}>Język (Language)</Text>
+            <Text style={styles.settingLabel}>{t.language}</Text>
           </View>
           
           <View style={styles.languageSelector}>
@@ -123,7 +124,7 @@ export const ProfileScreen = ({ navigation }: any) => {
             <View style={styles.iconBox}>
               <Ionicons name="shield-checkmark" size={20} color="#F59E0B" />
             </View>
-            <Text style={styles.settingLabel}>Zarządzaj Sejfem Offline</Text>
+            <Text style={styles.settingLabel}>{t.vault}</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#475569" />
         </TouchableOpacity>
@@ -134,7 +135,7 @@ export const ProfileScreen = ({ navigation }: any) => {
             <View style={styles.iconBox}>
               <Ionicons name="person" size={20} color="#94A3B8" />
             </View>
-            <Text style={styles.settingLabel}>Konto i prywatność</Text>
+            <Text style={styles.settingLabel}>{t.accountPrivacy}</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#475569" />
         </TouchableOpacity>
@@ -154,11 +155,11 @@ export const ProfileScreen = ({ navigation }: any) => {
           ) : (
             <>
               <Ionicons name="log-out-outline" size={20} color="#F87171" style={{ marginRight: 8 }} />
-              <Text style={styles.logoutText}>Wyloguj się</Text>
+              <Text style={styles.logoutText}>{t.logout}</Text>
             </>
           )}
         </TouchableOpacity>
-        <Text style={styles.versionText}>Destivo v1.0.0 (Offline-First Build)</Text>
+        <Text style={styles.versionText}>{t.version}</Text>
       </View>
 
     </SafeAreaView>
