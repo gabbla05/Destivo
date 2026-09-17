@@ -15,16 +15,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   const { user, language } = useAuthStore();
   const t = translations[language].vault;
   const db = usePowerSync();
-  const initialTripId = route?.params?.tripId;
+  const targetTripId = route?.params?.tripId;
 
   const [trips, setTrips] = useState<any[]>([]);
   const [selectedTrip, setSelectedTrip] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Pobieranie wycieczek i plików
-  useEffect(() => {
-    fetchTrips();
-  }, []);
 
   const fetchTrips = async () => {
     try {
@@ -35,9 +30,9 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         : (result as any)?.rows?._array || (result as any)?.rows || [])) as any[];
       setTrips(rows);
 
-      // Jeśli weszliśmy bezpośrednio z Ekranu Głównego (aktywna podróż)
-      if (initialTripId) {
-        const trip = rows.find(t => t.id === initialTripId);
+      const currentTargetId = route?.params?.tripId;
+      if (currentTargetId) {
+        const trip = rows.find(t => t.id === currentTargetId);
         if (trip) setSelectedTrip(trip);
       }
     } catch (e) {
@@ -46,6 +41,23 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchTrips();
+    const unsubscribe = navigation?.addListener
+      ? navigation.addListener('focus', () => {
+          fetchTrips();
+        })
+      : undefined;
+    return unsubscribe;
+  }, [navigation, targetTripId, user?.id]);
+
+  useEffect(() => {
+    if (targetTripId && trips.length > 0) {
+      const trip = trips.find(t => t.id === targetTripId);
+      if (trip) setSelectedTrip(trip);
+    }
+  }, [targetTripId, trips]);
 
   // Zapis pliku do bazy (Dual-Write)
   const handleAddFile = async (method: 'DOC' | 'IMAGE') => {

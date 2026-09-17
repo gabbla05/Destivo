@@ -286,5 +286,17 @@ describe('Moduł Sejfu Offline (Vault)', () => {
         expect(require('expo-sharing').shareAsync).toHaveBeenCalledWith('file://mock_docs/destivo_vault/mock.pdf');
       });
     });
+
+    test('Powinien automatycznie otworzyć szufladkę podróży po przekazaniu tripId w parametrach route', async () => {
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
+
+      render(<VaultDashboardScreen route={{ params: { tripId: 'trip-1' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('SZUFLADKA PODRÓŻY:')).toBeTruthy();
+        expect(screen.getByText('Wgraj plik (PDF)')).toBeTruthy();
+        expect(screen.getByText('Ten sejf jest pusty.')).toBeTruthy();
+      });
+    });
   });
 });

@@ -304,6 +304,36 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
       });
     });
+
+    test('QuickSetupScreen powinien zablokować zapis wycieczki dla gościa, jeśli ten ma już zapisaną podróż', async () => {
+      mockAuthState.user = { id: 'guest-session', email: 'guest@destivo.io', isGuest: true };
+      mockAuthState.isGuest = true;
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: [{ id: 'existing-trip' }] } });
+
+      const mockRoute = {
+        params: {
+          destData: {
+            city: 'Madryt',
+            recommendedTransport: 'flight',
+            coverImage: 'madrid_cover.jpg',
+            proposedTrip: {
+              startDate: '01-10-2026',
+              endDate: '05-10-2026',
+              itinerary: [{ attractions: ['Prado', 'Retiro'] }]
+            }
+          }
+        }
+      };
+
+      render(<QuickSetupScreen route={mockRoute} navigation={{ navigate: mockNavigate }} />);
+      
+      fireEvent.press(screen.getByText('Zapisz i zakończ'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Gość może mieć tylko jedną podróż.');
+        expect(mockNavigate).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('3. Oś Czasu i CRUD (TimelineScreen)', () => {
@@ -490,6 +520,65 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         ['guest-trip']
       );
       expect(mockSupabaseDelete).not.toHaveBeenCalled();
+    });
+
+    test('Powinien wyrenderować szufladkę sejfu dla podróży i nawigować do Vault po kliknięciu', async () => {
+      render(<TimelineScreen route={{ params: { tripId: 'trip-upcoming' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Szufladka Sejfu')).toBeTruthy();
+        expect(screen.getByText('Brak plików w szufladce')).toBeTruthy();
+        expect(screen.getByText('Otwórz Sejf ➔')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByText('Szufladka Sejfu'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('MainTabs', {
+        screen: 'Vault',
+        params: { tripId: 'trip-upcoming' },
+      });
+    });
+
+    test('Powinien wyświetlić liczbę zabezpieczonych plików w szufladce sejfu, gdy lodging_data zawiera pliki', async () => {
+      const tripWithVaultFiles = [{
+        id: 'trip-vault-demo',
+        title: 'Paryż 2026',
+        origin: 'Kraków',
+        destination: 'Paryż',
+        start_date: '2026-09-01',
+        end_date: '2026-09-05',
+        user_id: 'test-user-id',
+        accommodation_address: 'Hotel Paris',
+        lodging_data: JSON.stringify({
+          lodgingAddress: 'Hotel Paris',
+          vaultFiles: [
+            { id: 'f1', name: 'ticket.pdf' },
+            { id: 'f2', name: 'hotel_booking.pdf' },
+          ],
+        }),
+        attractions_data: JSON.stringify({ selected: [], pool: [] }),
+      }];
+
+      mockSupabaseSelect.mockImplementationOnce(() => ({
+        eq: jest.fn().mockImplementationOnce(() => ({
+          eq: jest.fn().mockResolvedValueOnce({ data: tripWithVaultFiles, error: null }),
+          order: jest.fn().mockImplementationOnce(() => ({
+            limit: jest.fn().mockResolvedValueOnce({ data: tripWithVaultFiles, error: null }),
+          })),
+          then: (resolve: any) => resolve({ data: tripWithVaultFiles, error: null }),
+        })),
+        order: jest.fn().mockImplementationOnce(() => ({
+          limit: jest.fn().mockResolvedValueOnce({ data: tripWithVaultFiles, error: null }),
+        })),
+        then: (resolve: any) => resolve({ data: tripWithVaultFiles, error: null }),
+      }));
+
+      render(<TimelineScreen route={{ params: { tripId: 'trip-vault-demo' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Szufladka Sejfu')).toBeTruthy();
+        expect(screen.getByText('2 zabezpieczonych plików')).toBeTruthy();
+      });
     });
   });
 });

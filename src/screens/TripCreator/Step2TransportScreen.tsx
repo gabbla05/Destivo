@@ -235,7 +235,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* PASEK POSTĘPU KREATORA */}
           <View style={styles.progressHeader}>
             <Text style={styles.progressText}>{step2T.step_indicator}</Text>
@@ -518,7 +522,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF' },
   routeSubtitle: { fontSize: 14, fontWeight: '700', color: '#F59E0B', marginTop: 4, letterSpacing: 0.5 },
   desc: { fontSize: 13, color: '#94A3B8', marginTop: 4, lineHeight: 18 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 100, flexGrow: 1 },
   loaderContainer: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
   loaderText: { color: '#94A3B8', marginTop: 12, fontSize: 14, fontWeight: '500' },
   errorBox: { backgroundColor: 'rgba(248, 113, 113, 0.08)', borderWidth: 1, borderColor: 'rgba(248, 113, 113, 0.35)', borderRadius: 12, padding: 12, marginBottom: 14 },

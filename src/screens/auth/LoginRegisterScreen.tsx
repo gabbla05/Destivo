@@ -6,14 +6,16 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StatusBar,
+  Modal,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore, type Language } from '../../store/authStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
@@ -45,8 +47,14 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Forgot password modal
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLanguageChange = (nextLanguage: Language) => {
     setSelectedLanguage(nextLanguage);
@@ -54,8 +62,13 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   };
 
   const handleSubmit = async () => {
-    if (!email || !password || (!isLoginMode && (!fullName || !agreed))) {
+    if (!email.trim() || !password || (!isLoginMode && (!fullName.trim() || !agreed))) {
       Alert.alert('DESTIVO', t.errors.fieldsRequired);
+      return;
+    }
+
+    if (!isLoginMode && password.length < 6) {
+      Alert.alert('DESTIVO', t.passwordMinLength || 'Hasło musi zawierać co najmniej 6 znaków.');
       return;
     }
 
@@ -68,7 +81,31 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
           password: password,
         });
 
-        if (error) throw error;
+        if (error) {
+          const lowerMsg = (error.message || '').toLowerCase();
+          if (lowerMsg.includes('email not confirmed') || lowerMsg.includes('not confirmed')) {
+            Alert.alert(
+              'DESTIVO',
+              t.emailNotConfirmed || 'Twój adres e-mail nie został jeszcze potwierdzony. Sprawdź swoją skrzynkę (oraz folder SPAM) i kliknij link aktywacyjny.',
+              [
+                { text: commonT.button_cancel || 'Anuluj', style: 'cancel' },
+                {
+                  text: t.resendVerification || 'Wyślij ponownie link',
+                  onPress: async () => {
+                    try {
+                      await supabase.auth.resend({ type: 'signup', email: email.trim() });
+                      Alert.alert('DESTIVO', t.verificationResent || 'Wysłano ponownie e-mail z linkiem aktywacyjnym.');
+                    } catch (resendErr: any) {
+                      Alert.alert('DESTIVO', resendErr?.message || 'Błąd wysyłania linku.');
+                    }
+                  },
+                },
+              ]
+            );
+            return;
+          }
+          throw error;
+        }
 
         if (data.user) {
           const resolvedLanguage = (data.user.user_metadata?.language as Language | undefined) ?? selectedLanguage;
@@ -102,15 +139,46 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
             name: fullName,
             language: selectedLanguage,
           });
-          Alert.alert('DESTIVO', t.accountCreated);
+
+          if (!data.session) {
+            // Wymagana weryfikacja adresu e-mail przez link
+            Alert.alert('DESTIVO', t.emailConfirmationSent || 'Konto zostało utworzone! Wysłaliśmy link weryfikacyjny na Twój adres e-mail. Potwierdź adres przed pierwszym logowaniem.');
+          } else {
+            Alert.alert('DESTIVO', t.accountCreated);
+          }
           setIsLoginMode(true);
           setPassword('');
         }
       }
     } catch (error: any) {
-      Alert.alert('DESTIVO', error.message || t.errors.signUpFailed);
+      const msg = error?.message || '';
+      if (msg.toLowerCase().includes('network request failed')) {
+        Alert.alert('DESTIVO', t.errors.networkError);
+      } else {
+        Alert.alert('DESTIVO', error.message || t.errors.signUpFailed);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    const targetEmail = resetEmail.trim() || email.trim();
+    if (!targetEmail) {
+      Alert.alert('DESTIVO', t.errors.fieldsRequired);
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail);
+      if (error) throw error;
+      setShowForgotModal(false);
+      Alert.alert('DESTIVO', t.resetLinkSent);
+    } catch (err: any) {
+      Alert.alert('DESTIVO', err.message || 'Błąd resetowania hasła.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -118,10 +186,14 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
           
           <View style={styles.topBar}>
             <TouchableOpacity
@@ -129,7 +201,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
               style={styles.backButton}
               activeOpacity={0.7}
             >
-              <Text style={styles.backButtonText}>←</Text>
+              <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
             </TouchableOpacity>
           </View>
 
@@ -217,15 +289,40 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
               <View style={styles.inputContainer}>
                 <Text style={styles.inputIcon}>🛡️</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { flex: 1, paddingRight: 40 }]}
                   placeholder={t.passwordPlaceholder}
                   placeholderTextColor="#475569"
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
                 />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color="#94A3B8"
+                  />
+                </TouchableOpacity>
               </View>
             </View>
+
+            {/* Zapomniałeś hasła? (tylko w trybie logowania) */}
+            {isLoginMode && (
+              <TouchableOpacity
+                style={styles.forgotPasswordRow}
+                onPress={() => {
+                  setResetEmail(email);
+                  setShowForgotModal(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.forgotPasswordText}>{t.forgotPassword}</Text>
+              </TouchableOpacity>
+            )}
 
             {/* Checkbox regulaminu (tylko przy rejestracji) */}
             {!isLoginMode && (
@@ -282,6 +379,56 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Modal resetowania hasła (Forgot Password) */}
+      <Modal
+        visible={showForgotModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowForgotModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>{t.forgotPasswordTitle}</Text>
+              <TouchableOpacity
+                onPress={() => setShowForgotModal(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={22} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>@</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t.emailPlaceholder}
+                placeholderTextColor="#475569"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.primaryButton, { marginTop: 16 }, resetLoading && { opacity: 0.7 }]}
+              onPress={handleResetPassword}
+              disabled={resetLoading}
+              activeOpacity={0.8}
+            >
+              {resetLoading ? (
+                <ActivityIndicator color="#0B1120" />
+              ) : (
+                <Text style={styles.primaryButtonText}>{t.sendResetLink} ➔</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -299,8 +446,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B1120',
   },
   scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 140,
   },
   topBar: {
     flexDirection: 'row',
@@ -506,5 +654,56 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 1,
+  },
+  eyeBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  forgotPasswordRow: {
+    alignSelf: 'flex-end',
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 4,
+  },
+  forgotPasswordText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#111827',
+    borderRadius: 18,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalDesc: {
+    color: '#94A3B8',
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 16,
   },
 });

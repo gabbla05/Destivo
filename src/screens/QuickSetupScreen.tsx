@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePowerSync } from '@powersync/react-native';
 import * as Crypto from 'expo-crypto';
@@ -15,9 +15,11 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
   const db = usePowerSync();
   const tripTitle = destData.city.trim();
 
+  const normalizeDate = (d?: string) => (d ? d.replace(/[./]/g, '-') : '');
+
   const [origin, setOrigin] = useState('');
-  const [startDate, setStartDate] = useState(destData.proposedTrip?.startDate || '');
-  const [endDate, setEndDate] = useState(destData.proposedTrip?.endDate || '');
+  const [startDate, setStartDate] = useState(normalizeDate(destData.proposedTrip?.startDate));
+  const [endDate, setEndDate] = useState(normalizeDate(destData.proposedTrip?.endDate));
   const [lodging, setLodging] = useState('');
 
   const formatToDBDate = (dateStr: string) => {
@@ -34,12 +36,13 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
   const handleSaveTrip = async () => {
     try {
       const userId = user?.id || 'guest';
-      if (isGuest || user?.isGuest) {
+      if (isGuest || user?.isGuest || !user) {
         const existingTrips = await db.execute(
           'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
           [userId]
         );
-        if ((existingTrips.rows?.length ?? 0) > 0) {
+        const rows = ((existingTrips as any)?.array || (existingTrips as any)?.rows?._array || (existingTrips as any)?.rows || []) as any[];
+        if (rows.length > 0) {
           Alert.alert('DESTIVO', t.error_guestTripExists);
           return;
         }
@@ -113,8 +116,12 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <View style={styles.content}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView 
+          contentContainerStyle={styles.content} 
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={styles.title}>{t.title}</Text>
           <Text style={styles.subtitle}>{t.subtitle.replace('{{city}}', destData.city)}</Text>
 
@@ -152,7 +159,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
             <Text style={styles.secondaryButtonText}>{t.cancel}</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -160,7 +167,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1120' },
-  content: { padding: 24, paddingTop: 40 },
+  content: { padding: 24, paddingTop: 20, paddingBottom: 100, flexGrow: 1 },
   title: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8 },
   subtitle: { color: '#94A3B8', fontSize: 14, lineHeight: 20, marginBottom: 30 },
   inputGroup: { marginBottom: 20 },

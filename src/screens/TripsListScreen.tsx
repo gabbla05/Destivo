@@ -263,7 +263,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                 pastTrips.map((trip) => (
                   <View key={trip.id} style={styles.archivalCard}>
                     <ImageBackground 
-                      source={{ uri: `https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=800` }} // Fallback image for memory card
+                      source={{ uri: `https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800` }} // Fallback image for memory card
                       style={styles.archivalImage}
                     >
                       <View style={styles.archivalImageOverlay} />

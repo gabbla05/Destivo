@@ -8,4 +8,19 @@ process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANO
 const mockAsyncStorage = require('@react-native-async-storage/async-storage/jest/async-storage-mock');
 jest.mock('@react-native-async-storage/async-storage', () => mockAsyncStorage);
 
-// Optional: extend expect from testing-library/jest-native is configured via package.json
+// Mock PowerSync
+jest.mock('@powersync/react-native', () => ({
+  usePowerSync: () => ({
+    execute: jest.fn().mockResolvedValue({ rows: [], array: [] }),
+  }),
+  PowerSyncDatabase: jest.fn().mockImplementation(() => ({
+    execute: jest.fn().mockResolvedValue({ rows: [], array: [] }),
+    init: jest.fn().mockResolvedValue(undefined),
+  })),
+  PowerSyncContext: {
+    Provider: ({ children }) => children,
+  },
+  Table: jest.fn(),
+  Schema: jest.fn(),
+  column: { text: 'text', integer: 'integer', real: 'real' },
+}));

@@ -40,7 +40,7 @@ jest.mock('../src/store/tripCreatorStore', () => ({
 }));
 
 // 3. MOCKOWANIE BAZY DANYCH (POWERSYNC)
-const mockDbExecute = jest.fn();
+const mockDbExecute = jest.fn().mockResolvedValue({ rows: [], array: [] });
 jest.mock('@powersync/react-native', () => ({
   usePowerSync: () => ({
     execute: mockDbExecute,
@@ -102,6 +102,7 @@ globalThis.fetch = mockFetch as any;
 describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDbExecute.mockResolvedValue({ rows: [], array: [] });
     mockAuthState.user = { id: 'test-user-123' };
     mockAuthState.isGuest = false;
     mockAuthState.language = 'pl';

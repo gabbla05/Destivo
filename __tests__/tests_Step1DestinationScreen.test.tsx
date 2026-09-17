@@ -6,10 +6,30 @@ import { Step1DestinationScreen } from '../src/screens/TripCreator/Step1Destinat
 
 // 1. MOCKOWANIE ZUSTAND - AUTH STORE
 const mockToggleLanguage = jest.fn();
+const mockLogout = jest.fn();
+const mockAuthState: {
+  user: any;
+  isGuest: boolean;
+  language: 'pl' | 'en';
+  toggleLanguage: any;
+  logout: any;
+} = {
+  user: { id: 'test-user-123', isGuest: false },
+  isGuest: false,
+  language: 'pl',
+  toggleLanguage: mockToggleLanguage,
+  logout: mockLogout,
+};
+
 jest.mock('../src/store/authStore', () => ({
-  useAuthStore: () => ({
-    language: 'pl',
-    toggleLanguage: mockToggleLanguage,
+  useAuthStore: () => mockAuthState,
+}));
+
+// Mock PowerSync
+const mockDbExecute = jest.fn().mockResolvedValue({ rows: [], array: [] });
+jest.mock('@powersync/react-native', () => ({
+  usePowerSync: () => ({
+    execute: mockDbExecute,
   }),
 }));
 
@@ -42,6 +62,10 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthState.user = { id: 'test-user-123', isGuest: false };
+    mockAuthState.isGuest = false;
+    mockAuthState.language = 'pl';
+    mockDbExecute.mockResolvedValue({ rows: [], array: [] });
     // Domyślnie symulujemy, że Nominatim zwraca istniejącą miejscowość (niepusta tablica)
     mockFetch.mockResolvedValue({
       json: async () => [{ place_id: 1, display_name: 'Rzym, Włochy' }],
@@ -232,6 +256,88 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
       );
       expect(mockSetStep1Data).not.toHaveBeenCalled();
       expect(mockNavigate).not.toHaveBeenCalled();
+    });
+  });
+
+  test('10. powinien zablokować gościa i wyświetlić alert z opcjami, jeśli gość ma już zapisaną podróż', async () => {
+    mockAuthState.user = { id: 'guest-session', isGuest: true };
+    mockAuthState.isGuest = true;
+    mockDbExecute.mockResolvedValue({ rows: [{ id: 'existing-trip' }] });
+
+    render(<Step1DestinationScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(mockDbExecute).toHaveBeenCalledWith(
+        'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
+        ['guest-session']
+      );
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Limit konta gościa',
+        expect.stringContaining('Konto gościa pozwala na zaplanowanie maksymalnie 1 podróży'),
+        expect.any(Array)
+      );
+    });
+
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls[0][2];
+    expect(alertButtons).toHaveLength(3);
+
+    // 1. Cancel button -> goBack
+    alertButtons[0].onPress();
+    expect(mockNavigation.goBack).toHaveBeenCalled();
+
+    // 2. Go to trips button -> navigate to MainTabs / Trips
+    alertButtons[1].onPress();
+    expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
+
+    // 3. Login button -> logout
+    alertButtons[2].onPress();
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  test('11. powinien pozwolić gościowi przejść do Step2, jeśli nie ma jeszcze żadnej podróży', async () => {
+    mockAuthState.user = { id: 'guest-session', isGuest: true };
+    mockAuthState.isGuest = true;
+    mockDbExecute.mockResolvedValue({ rows: [] });
+
+    render(<Step1DestinationScreen navigation={mockNavigation} />);
+
+    fireEvent.changeText(screen.getByPlaceholderText('np. Rzym'), 'Rzym');
+    fireEvent.changeText(screen.getByPlaceholderText('np. Warszawa'), 'Warszawa');
+    const dateInputs = screen.getAllByPlaceholderText('DD-MM-YYYY');
+    fireEvent.changeText(dateInputs[0], '10-08-2027');
+    fireEvent.changeText(dateInputs[1], '20-08-2027');
+
+    fireEvent.press(screen.getByText(/Dalej/i));
+
+    await waitFor(() => {
+      expect(mockSetStep1Data).toHaveBeenCalledWith({
+        tripName: 'Podróż: Rzym',
+        destination: 'Rzym',
+        origin: 'Warszawa',
+        startDate: '10-08-2027',
+        endDate: '20-08-2027',
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('Step2Transport');
+    });
+  });
+
+  test('12. powinien pozwolić zalogowanemu użytkownikowi przejść dalej bez sprawdzania limitu gościa', async () => {
+    mockAuthState.user = { id: 'registered-user-999', isGuest: false };
+    mockAuthState.isGuest = false;
+
+    render(<Step1DestinationScreen navigation={mockNavigation} />);
+
+    fireEvent.changeText(screen.getByPlaceholderText('np. Rzym'), 'Rzym');
+    fireEvent.changeText(screen.getByPlaceholderText('np. Warszawa'), 'Warszawa');
+    const dateInputs = screen.getAllByPlaceholderText('DD-MM-YYYY');
+    fireEvent.changeText(dateInputs[0], '10-08-2027');
+    fireEvent.changeText(dateInputs[1], '20-08-2027');
+
+    fireEvent.press(screen.getByText(/Dalej/i));
+
+    await waitFor(() => {
+      expect(mockDbExecute).not.toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('Step2Transport');
     });
   });
 });

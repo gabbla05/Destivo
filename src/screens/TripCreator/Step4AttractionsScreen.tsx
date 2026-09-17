@@ -132,6 +132,18 @@ export const Step4AttractionsScreen = () => {
         lodgingAddress: lodgingAddress || '',
       });
 
+      if (isGuest || user?.isGuest || !user) {
+        const existingTrips = await db.execute(
+          'SELECT 1 FROM trips WHERE user_id = ? LIMIT 1',
+          [userId]
+        );
+        const rows = ((existingTrips as any)?.array || (existingTrips as any)?.rows?._array || (existingTrips as any)?.rows || []) as any[];
+        if (rows.length > 0) {
+          Alert.alert('DESTIVO', t.error_guestTripExists);
+          return;
+        }
+      }
+
       await db.execute(
         `INSERT INTO trips
         (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
@@ -198,7 +210,11 @@ export const Step4AttractionsScreen = () => {
   const scrollViewRef = useRef<ScrollView>(null);
   const cardLayouts = useRef<{ [key: string]: number }>({});
 
-  const googleApiKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey || '';
+  const googleConfigKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
+  const googleApiKey =
+    googleConfigKey !== undefined
+      ? googleConfigKey
+      : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
 
   // 1. Inicjalizacja lokalizacji
   useEffect(() => {
@@ -252,7 +268,7 @@ export const Step4AttractionsScreen = () => {
           const pLon = place.geometry.location.lng;
           const dist = calculateDistanceKm(lodgingCoords.lat, lodgingCoords.lon, pLat, pLon);
 
-          let photoUrl = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=600';
+          let photoUrl = 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600';
           if (place.photos && place.photos.length > 0) {
             const photoReference = place.photos[0].photo_reference;
             photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=600&photo_reference=${photoReference}&key=${googleApiKey}`;

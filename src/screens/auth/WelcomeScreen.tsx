@@ -5,9 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  SafeAreaView,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { translations } from '../../i18n/translations';
 import { useAuthStore } from '../../store/authStore';
 
@@ -101,12 +101,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
     justifyContent: 'space-between',
-    paddingBottom: 24,
+    paddingBottom: 32,
   },
   heroSection: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 20,
+    paddingTop: 40,
+    marginBottom: 20,
   },
   logoImage: {
     width: 200,

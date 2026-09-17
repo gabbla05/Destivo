@@ -5,11 +5,16 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "package": "com.gabrynia67.destivo",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#0B1120"
+      },
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ"

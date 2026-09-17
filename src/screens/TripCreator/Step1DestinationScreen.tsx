@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
+import { usePowerSync } from '@powersync/react-native';
 
 // --- POMOCNICZA FUNKCJA DO PARSOWANIA DATY DD-MM-YYYY ---
 const parseDDMMYYYY = (dateStr: string): Date | null => {
@@ -67,9 +68,10 @@ const checkDestinationExists = async (query: string): Promise<boolean> => {
 export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   navigation,
 }) => {
-  const { language } = useAuthStore();
+  const { language, isGuest, user, logout } = useAuthStore();
   const t = translations[language].tripCreatorStep1;
   const commonT = translations[language].common;
+  const db = usePowerSync();
 
   const {
     tripName: storedName,
@@ -80,14 +82,47 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     setStep1Data,
   } = useTripCreatorStore();
 
+  const normalizeDateInput = (val?: string) => (val ? val.trim().replace(/[./]/g, '-') : '');
+
   const [tripName, setTripName] = useState(storedName);
   const [origin, setOrigin] = useState(storedOrigin);
   const [destination, setDestination] = useState(storedDest);
-  const [startDate, setStartDate] = useState(storedStart);
-  const [endDate, setEndDate] = useState(storedEnd);
+  const [startDate, setStartDate] = useState(normalizeDateInput(storedStart));
+  const [endDate, setEndDate] = useState(normalizeDateInput(storedEnd));
 
   const [isValidating, setIsValidating] = useState(false);
   const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
+
+  const checkGuestTripLimit = async (): Promise<boolean> => {
+    if (isGuest || user?.isGuest || !user) {
+      try {
+        const userId = user?.id || 'guest';
+        const result = await db.execute('SELECT 1 FROM trips WHERE user_id = ? LIMIT 1', [userId]);
+        const rows = (((result as any).array?.length > 0
+          ? (result as any).array
+          : (result.rows as any)?._array || (result.rows as any) || [])) as any[];
+        if (rows.length > 0) {
+          Alert.alert(
+            t.guestLimitTitle,
+            t.guestLimitMessage,
+            [
+              { text: commonT.button_cancel, style: 'cancel', onPress: () => navigation?.goBack() },
+              { text: t.guestLimitGoToTrips, onPress: () => navigation?.navigate('MainTabs', { screen: 'Trips' }) },
+              { text: t.guestLimitLogin, onPress: () => logout() }
+            ]
+          );
+          return false;
+        }
+      } catch (e) {
+        console.warn('Błąd sprawdzania limitu gościa:', e);
+      }
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    checkGuestTripLimit();
+  }, []);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     const currentTarget = activePicker;
@@ -105,6 +140,10 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   };
 
   const handleNext = async () => {
+    // 0. Sprawdzenie limitu konta gościa
+    const canProceed = await checkGuestTripLimit();
+    if (!canProceed) return;
+
     // 1. Sprawdzenie czy wpisano miejsca
     if (!destination.trim()) {
       Alert.alert('DESTIVO', t.error_destinationRequired);
@@ -170,10 +209,14 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* PASEK POSTĘPU KREATORA */}
           <View style={styles.progressHeader}>
             <Text style={styles.progressText}>{t.step_indicator}</Text>
@@ -336,7 +379,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 120, flexGrow: 1 },
   topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
   langButton: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#1E293B', borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
   langButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '700' },

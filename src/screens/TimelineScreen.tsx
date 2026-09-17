@@ -19,7 +19,7 @@ import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
 const { height: screenHeight } = Dimensions.get('window');
@@ -55,6 +55,8 @@ interface TripRecord {
   transport_type: string;
   accommodation_address: string;
   attractions_data: string;
+  lodging_data?: string;
+  vaultFiles?: any[];
   created_at: string;
 }
 
@@ -84,7 +86,9 @@ const normalizeDateForTimeline = (dateStr: string | null): string => {
   return parts[0]?.length === 4 ? dateStr : `${parts[2]}-${parts[1]}-${parts[0]}`;
 };
 
-export const TimelineScreen = ({ navigation, route }: any) => {
+export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
+  const hookNavigation = useNavigation<any>();
+  const navigation = propNavigation || hookNavigation;
   const { user, language } = useAuthStore();
   const t = translations[language].timeline;
   const commonT = translations[language].common;
@@ -116,7 +120,10 @@ export const TimelineScreen = ({ navigation, route }: any) => {
 
   const fetchRealAttractionsFromGoogle = async (locationQuery: string, usedTitles: string[]) => {
     try {
-      const googleApiKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey || process.env.EXPO_PUBLIC_GOOGLE_API_KEY || '';
+      const googleApiKey =
+        (Constants.expoConfig?.android?.config?.googleMaps?.apiKey && Constants.expoConfig.android.config.googleMaps.apiKey.length > 5)
+          ? Constants.expoConfig.android.config.googleMaps.apiKey
+          : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
       if (!googleApiKey || googleApiKey.includes('TYMCZASOWY')) return;
 
       // 1. Znalezienie współrzędnych miasta/noclegu
@@ -133,7 +140,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       
       if (placesData.status === 'OK' && placesData.results) {
         const fetchedPool: PoolAttraction[] = placesData.results.map((r: any) => {
-          let photoUrl = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=600';
+          let photoUrl = 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600';
           if (r.photos && r.photos.length > 0) {
             photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${r.photos[0].photo_reference}&key=${googleApiKey}`;
           }
@@ -179,6 +186,8 @@ export const TimelineScreen = ({ navigation, route }: any) => {
             end_date: normalizeDateForTimeline(localTrip.end_date),
             transport_type: transportData.selectedOption?.type || '',
             accommodation_address: lodgingData.lodgingAddress || '',
+            lodging_data: localTrip.lodging_data,
+            vaultFiles: lodgingData.vaultFiles || [],
           } as TripRecord;
         }
       } else {
@@ -201,6 +210,8 @@ export const TimelineScreen = ({ navigation, route }: any) => {
             end_date: normalizeDateForTimeline(localTrip.end_date),
             transport_type: transportData.selectedOption?.type || '',
             accommodation_address: lodgingData.lodgingAddress || '',
+            lodging_data: localTrip.lodging_data,
+            vaultFiles: lodgingData.vaultFiles || [],
           } as TripRecord;
         } else {
           let query = supabase.from('trips').select('*').eq('user_id', user.id);
@@ -212,7 +223,16 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           const { data, error } = await query;
           if (error) throw error;
           if (data && data.length > 0) {
-            trip = data[0] as TripRecord;
+            const remoteTrip = data[0];
+            const lodgingData = JSON.parse(remoteTrip.lodging_data || '{}');
+            trip = {
+              ...remoteTrip,
+              title: remoteTrip.trip_name || remoteTrip.title,
+              start_date: normalizeDateForTimeline(remoteTrip.start_date),
+              end_date: normalizeDateForTimeline(remoteTrip.end_date),
+              lodging_data: remoteTrip.lodging_data,
+              vaultFiles: lodgingData.vaultFiles || [],
+            } as TripRecord;
           }
         }
       }
@@ -478,9 +498,8 @@ export const TimelineScreen = ({ navigation, route }: any) => {
       { text: t.deleteTrip, style: "destructive", onPress: async () => {
         try {
           const isUserGuest = user?.isGuest || !user;
-          if (isUserGuest) {
-            await db.execute('DELETE FROM trips WHERE id = ?', [tripData.id]);
-          } else {
+          await db.execute('DELETE FROM trips WHERE id = ?', [tripData.id]);
+          if (!isUserGuest) {
             await supabase.from('trips').delete().eq('id', tripData.id);
           }
           navigation.goBack();
@@ -530,6 +549,39 @@ export const TimelineScreen = ({ navigation, route }: any) => {
           <Text style={styles.trashIcon}>🗑️</Text>
         </TouchableOpacity>
       </View>
+
+      {/* SZUFLADKA SEJFU DLA TEJ PODRÓŻY */}
+      {tripData && (
+        <View style={styles.vaultDrawerContainer}>
+          <TouchableOpacity
+            style={styles.vaultDrawerCard}
+            activeOpacity={0.8}
+            onPress={() => {
+              navigation.navigate('MainTabs', {
+                screen: 'Vault',
+                params: { tripId: tripData.id },
+              });
+            }}
+          >
+            <View style={styles.vaultDrawerLeft}>
+              <View style={styles.vaultDrawerIconBox}>
+                <Text style={styles.vaultDrawerIcon}>🗄️</Text>
+              </View>
+              <View style={styles.vaultDrawerInfo}>
+                <Text style={styles.vaultDrawerTitle}>{t.tripVaultTitle}</Text>
+                <Text style={styles.vaultDrawerSubtitle}>
+                  {tripData.vaultFiles && tripData.vaultFiles.length > 0
+                    ? t.tripVaultCount.replace('{{count}}', String(tripData.vaultFiles.length))
+                    : t.tripVaultEmpty}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.vaultDrawerAction}>
+              <Text style={styles.vaultDrawerActionText}>{t.openVault} ➔</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.centerBox}>
@@ -691,7 +743,7 @@ export const TimelineScreen = ({ navigation, route }: any) => {
                             onPress={() => handleAddNewEvent(true, attr)} // Dodanie kliknięcia wywołującego zasilanie osi z Puli
                         >
                             <ImageBackground 
-                                source={{ uri: attr.imageUrl || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828' }} 
+                                source={{ uri: attr.imageUrl || 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600' }} 
                                 style={styles.poolCardImage}
                                 imageStyle={{ borderRadius: 12 }}
                             >
@@ -808,5 +860,69 @@ const styles = StyleSheet.create({
   poolCardOverlay: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(11, 17, 32, 0.75)', padding: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
   poolCardText: { color: '#F8FAFC', fontSize: 14, fontWeight: '600', flex: 1, marginRight: 10 },
   poolCardPlusCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F59E0B', justifyContent: 'center', alignItems: 'center' },
-  poolCardPlus: { color: '#0F172A', fontSize: 18, fontWeight: 'bold', marginTop: -2 }
+  poolCardPlus: { color: '#0F172A', fontSize: 18, fontWeight: 'bold', marginTop: -2 },
+
+  // --- SZUFLADKA SEJFU ---
+  vaultDrawerContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 4,
+    backgroundColor: '#0B1120',
+  },
+  vaultDrawerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 14,
+    padding: 12,
+  },
+  vaultDrawerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  vaultDrawerIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  vaultDrawerIcon: {
+    fontSize: 20,
+  },
+  vaultDrawerInfo: {
+    flex: 1,
+  },
+  vaultDrawerTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  vaultDrawerSubtitle: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  vaultDrawerAction: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+  },
+  vaultDrawerActionText: {
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });

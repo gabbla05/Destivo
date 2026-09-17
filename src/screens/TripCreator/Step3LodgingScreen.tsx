@@ -64,11 +64,15 @@ export const Step3LodgingScreen = () => {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
         style={{ flex: 1 }}
       >
         <View style={styles.container}>
-          <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent} 
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+          >
             {/* PASEK POSTĘPU */}
             <View style={styles.progressHeader}>
               <Text style={styles.progressText}>{t.step_indicator}</Text>
@@ -148,7 +152,7 @@ export const Step3LodgingScreen = () => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 120, flexGrow: 1 },
   
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
