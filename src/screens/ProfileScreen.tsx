@@ -74,9 +74,13 @@ export const ProfileScreen = ({ navigation }: any) => {
         {/* KARTA UŻYTKOWNIKA */}
         <View style={styles.userCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.name ? user.name.charAt(0).toUpperCase() : '👤'}
-            </Text>
+            {user?.name ? (
+              <Text style={styles.avatarText}>
+                {user.name.charAt(0).toUpperCase()}
+              </Text>
+            ) : (
+              <Ionicons name="person" size={24} color="#F8FAFC" />
+            )}
           </View>
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{user?.name || t.userFallback}</Text>

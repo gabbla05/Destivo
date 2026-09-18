@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Alert } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack'; // DODANE
+import { Ionicons } from '@expo/vector-icons';
 import { HomeScreen } from '../screens/HomeScreen';
 import { TripsListScreen } from '../screens/TripsListScreen'; // DODANE
 import { TimelineScreen } from '../screens/TimelineScreen';
@@ -59,8 +60,8 @@ export const BottomTabNavigator = () => {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#F8FAFC',
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarActiveTintColor: '#F59E0B',
+        tabBarInactiveTintColor: '#64748B',
         tabBarStyle: {
           backgroundColor: '#0B1120',
           borderTopColor: '#334155',
@@ -77,23 +78,40 @@ export const BottomTabNavigator = () => {
       <Tab.Screen 
         name="Explore" 
         component={HomeScreen} 
-        options={{ tabBarIcon: () => <Text>🏠</Text>, tabBarLabel: t.tab_explore }} 
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "compass" : "compass-outline"} size={22} color={color} />
+          ),
+          tabBarLabel: t.tab_explore,
+        }} 
       />
       <Tab.Screen 
-         name="Trips" 
-         component={TripsStackNavigator} // ZAMIANA
-         options={{ tabBarIcon: () => <Text>⏱️</Text>, tabBarLabel: t.tab_trips }} 
-       />
+        name="Trips" 
+        component={TripsStackNavigator}
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "map" : "map-outline"} size={22} color={color} />
+          ),
+          tabBarLabel: t.tab_trips,
+        }} 
+      />
       <Tab.Screen 
         name="Vault" 
         component={VaultScreen} 
-        options={{ tabBarIcon: () => <Text>🗄️</Text>, tabBarLabel: t.tab_vault }} 
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "shield-checkmark" : "shield-checkmark-outline"} size={22} color={color} />
+          ),
+          tabBarLabel: t.tab_vault,
+        }} 
       />
       <Tab.Screen 
         name="Profile" 
-        component={ProfileStackNavigator} // <-- ZMIANA TUTAJ
+        component={ProfileStackNavigator}
         options={{
-          tabBarIcon: () => <Text>👤</Text>,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={22} color={color} />
+          ),
           tabBarLabel: t.tab_profile,
         }}
         listeners={({ navigation }) => ({

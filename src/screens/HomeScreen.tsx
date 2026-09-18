@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar, 
+  Image,
   ImageBackground,
   ActivityIndicator,
   Alert,
@@ -20,6 +21,7 @@ import { generateLiveRecommendations, LiveDestination } from '../lib/liveExplore
 import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
 
 const { width } = Dimensions.get('window');
@@ -59,16 +61,142 @@ const CURRENCY_LIST = [
 
 const getCurrencyForDestination = (dest: string): string => {
   if (!dest) return 'EUR';
-  const d = dest.toLowerCase();
-  if (['londyn', 'london', 'edynburg', 'edinburgh', 'brytania', 'uk'].some(c => d.includes(c))) return 'GBP';
-  if (['praga', 'prague', 'czech'].some(c => d.includes(c))) return 'CZK';
-  if (['budapeszt', 'budapest', 'węgry', 'hungary'].some(c => d.includes(c))) return 'HUF';
-  if (['zurych', 'zurich', 'szwajcaria', 'switzerland'].some(c => d.includes(c))) return 'CHF';
-  if (['tokio', 'tokyo', 'japan', 'japonia'].some(c => d.includes(c))) return 'JPY';
-  if (['nowy jork', 'new york', 'usa', 'stany'].some(c => d.includes(c))) return 'USD';
+  const d = dest.toLowerCase().trim();
+  // Polska -> PLN
+  if (['warszawa', 'warsaw', 'kraków', 'krakow', 'gdańsk', 'gdansk', 'wrocław', 'wroclaw', 'poznań', 'poznan', 'zakopane', 'tatry', 'morze', 'bałtyk', 'polska', 'poland', 'pl'].some(c => d.includes(c))) return 'PLN';
+  // Wielka Brytania -> GBP
+  if (['londyn', 'london', 'edynburg', 'edinburgh', 'manchester', 'liverpool', 'birmingham', 'glasgow', 'brytania', 'anglia', 'wielka brytania', 'uk', 'united kingdom'].some(c => d.includes(c))) return 'GBP';
+  // Czechy -> CZK
+  if (['praga', 'prague', 'brno', 'ostrawa', 'ostrava', 'czech', 'czechia', 'republika czeska'].some(c => d.includes(c))) return 'CZK';
+  // Węgry -> HUF
+  if (['budapeszt', 'budapest', 'debreczyn', 'węgry', 'wegry', 'hungary'].some(c => d.includes(c))) return 'HUF';
+  // Szwajcaria -> CHF
+  if (['zurych', 'zurich', 'genewa', 'geneva', 'bazylea', 'basel', 'berno', 'szwajcaria', 'switzerland', 'swiss'].some(c => d.includes(c))) return 'CHF';
+  // Japonia -> JPY
+  if (['tokio', 'tokyo', 'kioto', 'kyoto', 'osaka', 'japan', 'japonia'].some(c => d.includes(c))) return 'JPY';
+  // USA -> USD
+  if (['nowy jork', 'new york', 'los angeles', 'chicago', 'miami', 'san francisco', 'las vegas', 'usa', 'stany', 'stany zjednoczone', 'united states'].some(c => d.includes(c))) return 'USD';
+  // Islandia -> ISK
   if (['reykjavik', 'islandia', 'iceland'].some(c => d.includes(c))) return 'ISK';
-  if (['warszawa', 'kraków', 'krakow', 'gdańsk', 'gdansk', 'wrocław', 'wroclaw', 'polska', 'poland'].some(c => d.includes(c))) return 'PLN';
+  // Norwegia -> NOK
+  if (['oslo', 'bergen', 'tromso', 'norwegia', 'norway'].some(c => d.includes(c))) return 'NOK';
+  // Szwecja -> SEK
+  if (['sztokholm', 'stockholm', 'goteborg', 'malmo', 'szwecja', 'sweden'].some(c => d.includes(c))) return 'SEK';
+  // Dania -> DKK
+  if (['kopenhaga', 'copenhagen', 'dania', 'denmark'].some(c => d.includes(c))) return 'DKK';
+  // Turcja -> TRY
+  if (['stambuł', 'stambul', 'istanbul', 'ankara', 'antalya', 'turcja', 'turkey'].some(c => d.includes(c))) return 'TRY';
+  // Domyślnie waluta strefy Euro
   return 'EUR';
+};
+
+const POPULAR_DESTINATION_ATTRACTIONS: Record<string, Array<{ name: string; subtitle: string; imageUrl: string }>> = {
+  rzym: [
+    { name: 'Koloseum', subtitle: 'Starożytny amfiteatr Flawiuszów', imageUrl: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Fontanna di Trevi', subtitle: 'Słynna barokowa fontanna', imageUrl: 'https://images.unsplash.com/photo-1525874684015-58379d421a52?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Panteon', subtitle: 'Starożytna świątynia wszystkich bogów', imageUrl: 'https://images.unsplash.com/photo-1542820229-081e0c12af0b?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Forum Romanum', subtitle: 'Serce antycznego Rzymu', imageUrl: 'https://images.unsplash.com/photo-1515542622106-78bda8ba0e5b?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Bazylika św. Piotra', subtitle: 'Serce Watykanu i arcydzieło renesansu', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Schody Hiszpańskie', subtitle: 'Piazza di Spagna', imageUrl: 'https://images.unsplash.com/photo-1531572753322-ad063cecc140?auto=format&fit=crop&q=80&w=600' },
+  ],
+  rome: [
+    { name: 'Koloseum', subtitle: 'Starożytny amfiteatr Flawiuszów', imageUrl: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Fontanna di Trevi', subtitle: 'Słynna barokowa fontanna', imageUrl: 'https://images.unsplash.com/photo-1525874684015-58379d421a52?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Panteon', subtitle: 'Starożytna świątynia wszystkich bogów', imageUrl: 'https://images.unsplash.com/photo-1542820229-081e0c12af0b?auto=format&fit=crop&q=80&w=600' },
+  ],
+  paryż: [
+    { name: 'Wieża Eiffla', subtitle: 'Ikona Paryża i widok na panoramę', imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Luwr', subtitle: 'Największe muzeum sztuki na świecie', imageUrl: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Katedra Notre-Dame', subtitle: 'Gotyckie arcydzieło nad Sekwaną', imageUrl: 'https://images.unsplash.com/photo-1478359844494-1092259d93e4?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Bazylika Sacré-Cœur', subtitle: 'Wzgórze Montmartre', imageUrl: 'https://images.unsplash.com/photo-1520939817895-060bdef4ad1b?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Łuk Triumfalny', subtitle: 'Champs-Élysées', imageUrl: 'https://images.unsplash.com/photo-1509299349698-dd22323b5963?auto=format&fit=crop&q=80&w=600' },
+  ],
+  paris: [
+    { name: 'Wieża Eiffla', subtitle: 'Ikona Paryża i widok na panoramę', imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Luwr', subtitle: 'Największe muzeum sztuki na świecie', imageUrl: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&q=80&w=600' },
+  ],
+  barcelona: [
+    { name: 'Sagrada Família', subtitle: 'Niedokończone arcydzieło Gaudiego', imageUrl: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Park Güell', subtitle: 'Magiczny park z mozaikami', imageUrl: 'https://images.unsplash.com/photo-1564221710304-0b37c8b9d729?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Casa Batlló', subtitle: 'Modernistyczna perła architektury', imageUrl: 'https://images.unsplash.com/photo-1587789202069-f57c846b6535?auto=format&fit=crop&q=80&w=600' },
+    { name: 'La Rambla', subtitle: 'Tętniący życiem deptak', imageUrl: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=600' },
+  ],
+  londyn: [
+    { name: 'Big Ben & Westminster', subtitle: 'Słynna wieża zegarowa i parlament', imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600' },
+    { name: 'London Eye', subtitle: 'Koło widokowe nad Tamizą', imageUrl: 'https://images.unsplash.com/photo-1486299267070-83823f5448dd?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Tower Bridge', subtitle: 'Zabytkowy most zwodzony', imageUrl: 'https://images.unsplash.com/photo-1526129318478-62ed807ebdf9?auto=format&fit=crop&q=80&w=600' },
+    { name: 'British Museum', subtitle: 'Światowej klasy zbiory historyczne', imageUrl: 'https://images.unsplash.com/photo-1574610758891-5b809b6e6e2e?auto=format&fit=crop&q=80&w=600' },
+  ],
+  london: [
+    { name: 'Big Ben & Westminster', subtitle: 'Słynna wieża zegarowa i parlament', imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Tower Bridge', subtitle: 'Zabytkowy most zwodzony', imageUrl: 'https://images.unsplash.com/photo-1526129318478-62ed807ebdf9?auto=format&fit=crop&q=80&w=600' },
+  ],
+  kraków: [
+    { name: 'Wawel', subtitle: 'Zamek Królewski i Katedra', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Rynek Główny', subtitle: 'Sukiennice i Kościół Mariacki', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Kazimierz', subtitle: 'Zabytkowa dzielnica żydowska', imageUrl: 'https://images.unsplash.com/photo-1596484552834-6a58f850e0a1?auto=format&fit=crop&q=80&w=600' },
+  ],
+  krakow: [
+    { name: 'Wawel', subtitle: 'Zamek Królewski i Katedra', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Rynek Główny', subtitle: 'Sukiennice i Kościół Mariacki', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
+  ],
+  warszawa: [
+    { name: 'Stare Miasto', subtitle: 'Zamek Królewski i Rynek Starego Miasta', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Łazienki Królewskie', subtitle: 'Pałac na Wyspie i pomnik Chopina', imageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Muzeum Powstania Warszawskiego', subtitle: 'Interaktywna historia', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
+  ],
+  warsaw: [
+    { name: 'Stare Miasto', subtitle: 'Zamek Królewski i Rynek Starego Miasta', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
+  ],
+  praga: [
+    { name: 'Most Karola', subtitle: 'Średniowieczny most kamienny na Wełtawie', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Hradczany', subtitle: 'Zamek Praski i Katedra św. Wita', imageUrl: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Rynek Staromiejski', subtitle: 'Zegar astronomiczny Orloj', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
+  ],
+  prague: [
+    { name: 'Most Karola', subtitle: 'Średniowieczny most kamienny na Wełtawie', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
+  ],
+  tokio: [
+    { name: 'Świątynia Senso-ji', subtitle: 'Najstarsza buddyjska świątynia w Asakusie', imageUrl: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=600' },
+    { name: 'Shibuya Crossing', subtitle: 'Najsłynniejsze skrzyżowanie świata', imageUrl: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&q=80&w=600' },
+  ],
+  tokyo: [
+    { name: 'Świątynia Senso-ji', subtitle: 'Najstarsza buddyjska świątynia w Asakusie', imageUrl: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=600' },
+  ],
+};
+
+const parseEventDateTime = (dateStr?: string, timeStr?: string): Date => {
+  const now = new Date();
+  if (!dateStr && !timeStr) return now;
+  let year = now.getFullYear();
+  let month = now.getMonth();
+  let day = now.getDate();
+
+  if (dateStr) {
+    const clean = dateStr.replace(/\./g, '-');
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        year = Number(parts[0]);
+        month = Number(parts[1]) - 1;
+        day = Number(parts[2]);
+      } else {
+        day = Number(parts[0]);
+        month = Number(parts[1]) - 1;
+        year = Number(parts[2]);
+      }
+    }
+  }
+
+  let hours = 12;
+  let minutes = 0;
+  if (timeStr) {
+    const parts = timeStr.split(':').map(Number);
+    hours = parts[0] || 0;
+    minutes = parts[1] || 0;
+  }
+
+  return new Date(year, month, day, hours, minutes, 0, 0);
 };
 
 const getEmergencyNumber = (dest: string): string => {
@@ -121,6 +249,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [activeTimeline, setActiveTimeline] = useState<any[]>([]);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Stany dla Modala Dodawania Atrakcji
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualSubtitle, setManualSubtitle] = useState('');
+  const [manualDate, setManualDate] = useState('');
+  const [manualTime, setManualTime] = useState('');
 
   // Stany dla Kalkulatora Walut
   const [fromCurrency, setFromCurrency] = useState('EUR');
@@ -189,8 +324,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             // Inicjalizacja waluty bazowej dla danego celu podróży
             const baseCurr = getCurrencyForDestination(currentFound.destination);
             setFromCurrency(baseCurr);
-            setToCurrency('PLN');
-            setToAmount(convertCurrency(fromAmount, baseCurr, 'PLN'));
+            setToCurrency(baseCurr === 'PLN' ? 'EUR' : 'PLN');
+            setToAmount(convertCurrency(fromAmount, baseCurr, baseCurr === 'PLN' ? 'EUR' : 'PLN'));
             
             // Ekstrakcja wydarzeń do osi czasu z JSONa
             const attractionsData = JSON.parse(currentFound.attractions_data || '{}');
@@ -207,8 +342,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               ];
               
               const selectedAttrs = attractionsData.selected || [];
-              selectedAttrs.forEach((attr: string, idx: number) => {
-                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attr, timeStr: `${15 + idx}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
+              selectedAttrs.forEach((attr: any, idx: number) => {
+                const attrTitle = typeof attr === 'string' ? attr : (attr.name || attr.title || `Atrakcja ${idx + 1}`);
+                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attrTitle, timeStr: `${15 + idx}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
               });
             }
             setActiveTimeline(events);
@@ -227,42 +363,172 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   const activeEventIndex = useMemo(() => {
     if (!activeTimeline || activeTimeline.length === 0) return -1;
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-    const parseMinutes = (timeStr: string) => {
-      if (!timeStr) return 0;
-      const [h, m] = timeStr.split(':').map(Number);
-      return (h || 0) * 60 + (m || 0);
-    };
+    // 1. Sprawdź czy którekolwiek wydarzenie ma jawny status IN_PROGRESS lub isCurrent
+    const explicitIdx = activeTimeline.findIndex(
+      (e) => e.status === 'IN_PROGRESS' || e.status === 'in_progress' || e.isCurrent === true
+    );
+    if (explicitIdx !== -1) return explicitIdx;
 
-    let activeIdx = 0;
-    for (let i = 0; i < activeTimeline.length; i++) {
-      const evMin = parseMinutes(activeTimeline[i].timeStr);
-      if (currentMinutes >= evMin) {
-        activeIdx = i;
-      } else {
-        break;
+    // 2. Wyszukaj punkt najbliższy obecnej dacie i godzinie
+    const nowMs = Date.now();
+    let closestIdx = 0;
+    let minDiff = Infinity;
+
+    activeTimeline.forEach((ev, idx) => {
+      const evDate = parseEventDateTime(ev.dateStr || activeTrip?.start_date, ev.timeStr || ev.time);
+      const diff = Math.abs(nowMs - evDate.getTime());
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+
+    return closestIdx;
+  }, [activeTimeline, activeTrip]);
+
+  const availableSuggestions = useMemo(() => {
+    if (!activeTrip) return [];
+    const usedTitles = (activeTimeline || []).map(e => (e.title || '').trim().toLowerCase());
+    
+    // 1. Sprawdź pulę zapisaną w bazie (attractions_data.pool)
+    const attractionsData = JSON.parse(activeTrip.attractions_data || '{}');
+    const rawPool: Array<{ id?: string; name: string; imageUrl?: string }> = attractionsData.pool || [];
+    
+    const candidates: Array<{ id: string; name: string; subtitle?: string; imageUrl?: string }> = [];
+
+    rawPool.forEach((p, idx) => {
+      if (p.name && !usedTitles.includes(p.name.trim().toLowerCase())) {
+        candidates.push({
+          id: p.id || `pool_${idx}`,
+          name: p.name,
+          subtitle: language === 'pl' ? 'Rekomendowane miejsce' : 'Recommended attraction',
+          imageUrl: p.imageUrl,
+        });
+      }
+    });
+
+    // 2. Dodaj propozycje z bazy popularnych atrakcji jeśli brakuje
+    const destKey = (activeTrip.destination || '').toLowerCase().trim();
+    for (const [key, items] of Object.entries(POPULAR_DESTINATION_ATTRACTIONS)) {
+      if (destKey.includes(key)) {
+        items.forEach((item, idx) => {
+          if (!usedTitles.includes(item.name.toLowerCase()) && !candidates.some(c => c.name.toLowerCase() === item.name.toLowerCase())) {
+            candidates.push({
+              id: `curated_${key}_${idx}`,
+              name: item.name,
+              subtitle: item.subtitle,
+              imageUrl: item.imageUrl,
+            });
+          }
+        });
       }
     }
-    return activeIdx;
-  }, [activeTimeline]);
 
-  const handleAddNewAttraction = () => {
+    return candidates;
+  }, [activeTrip, activeTimeline, language]);
+
+  const handleOpenAddModal = () => {
+    setManualDate(activeTrip?.start_date || '');
+    const nextHour = Math.min(22, 10 + (activeTimeline.length % 11));
+    setManualTime(nextHour < 10 ? `0${nextHour}:00` : `${nextHour}:00`);
+    setManualTitle('');
+    setManualSubtitle('');
+    setIsAddModalVisible(true);
+  };
+
+  const handleAddSuggestedAttraction = async (item: { name: string; subtitle?: string; imageUrl?: string }) => {
     const newId = 'attr_' + Date.now();
-    const nextHour = Math.min(22, 14 + (activeTimeline.length % 8));
+    const nextHour = Math.min(22, 10 + (activeTimeline.length % 11));
     const formattedHour = nextHour < 10 ? `0${nextHour}:00` : `${nextHour}:00`;
     const newEvent = {
       id: newId,
       type: 'ATTRACTION',
-      title: language === 'pl' ? 'Nowa atrakcja' : 'New attraction',
+      title: item.name,
       timeStr: formattedHour,
       dateStr: activeTrip?.start_date || '',
-      subtitle: language === 'pl' ? 'Własny punkt zwiedzania' : 'Sightseeing & relaxation'
+      subtitle: item.subtitle || (language === 'pl' ? 'Polecane miejsce' : 'Recommended attraction'),
     };
-    setActiveTimeline([...activeTimeline, newEvent]);
+    const updated = [...activeTimeline, newEvent];
+    setActiveTimeline(updated);
     setExpandedEventId(newId);
     setHasUnsavedChanges(true);
+    setIsAddModalVisible(false);
+
+    try {
+      const isUserGuest = user?.isGuest || !user;
+      const currentAttractions = JSON.parse(activeTrip?.attractions_data || '{}');
+      const updatedAttractions = {
+        ...currentAttractions,
+        customTimeline: updated,
+      };
+      if (isUserGuest) {
+        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+          JSON.stringify(updatedAttractions),
+          activeTrip.id,
+        ]);
+      } else {
+        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+          JSON.stringify(updatedAttractions),
+          activeTrip.id,
+        ]);
+        await supabase
+          .from('trips')
+          .update({ attractions_data: JSON.stringify(updatedAttractions) })
+          .eq('id', activeTrip.id);
+      }
+    } catch (err) {
+      console.warn('Błąd zapisu nowej atrakcji:', err);
+    }
+  };
+
+  const handleAddManualAttraction = async () => {
+    if (!manualTitle.trim()) {
+      Alert.alert(commonT.label_error || 'Błąd', language === 'pl' ? 'Wprowadź nazwę atrakcji' : 'Please enter an attraction title');
+      return;
+    }
+    const newId = 'attr_' + Date.now();
+    const newEvent = {
+      id: newId,
+      type: 'ATTRACTION',
+      title: manualTitle.trim(),
+      timeStr: manualTime.trim() || '15:00',
+      dateStr: manualDate.trim() || activeTrip?.start_date || '',
+      subtitle: manualSubtitle.trim() || (language === 'pl' ? 'Własny punkt zwiedzania' : 'Custom sightseeing spot'),
+    };
+    const updated = [...activeTimeline, newEvent];
+    setActiveTimeline(updated);
+    setExpandedEventId(newId);
+    setHasUnsavedChanges(true);
+    setManualTitle('');
+    setManualSubtitle('');
+    setIsAddModalVisible(false);
+
+    try {
+      const isUserGuest = user?.isGuest || !user;
+      const currentAttractions = JSON.parse(activeTrip?.attractions_data || '{}');
+      const updatedAttractions = {
+        ...currentAttractions,
+        customTimeline: updated,
+      };
+      if (isUserGuest) {
+        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+          JSON.stringify(updatedAttractions),
+          activeTrip.id,
+        ]);
+      } else {
+        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+          JSON.stringify(updatedAttractions),
+          activeTrip.id,
+        ]);
+        await supabase
+          .from('trips')
+          .update({ attractions_data: JSON.stringify(updatedAttractions) })
+          .eq('id', activeTrip.id);
+      }
+    } catch (err) {
+      console.warn('Błąd zapisu własnej atrakcji:', err);
+    }
   };
 
   const handleFromAmountChange = (val: string) => {
@@ -283,13 +549,18 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     setToAmount(convertCurrency(fromAmount, prevTo, prevFrom));
   };
 
-  const getTimelineIcon = (type: string) => {
-    switch(type) {
-      case 'DEPARTURE': return '🛫';
-      case 'LODGING': return '🏨';
-      case 'ATTRACTION': return '📸';
-      case 'RETURN': return '🛬';
-      default: return '📍';
+  const renderTimelineIcon = (type?: string) => {
+    switch (type) {
+      case 'DEPARTURE':
+        return <Ionicons name="airplane" size={13} color="#38BDF8" />;
+      case 'LODGING':
+        return <Ionicons name="bed" size={13} color="#A855F7" />;
+      case 'ATTRACTION':
+        return <Ionicons name="camera" size={13} color="#F59E0B" />;
+      case 'RETURN':
+        return <Ionicons name="airplane-outline" size={13} color="#94A3B8" />;
+      default:
+        return <Ionicons name="location" size={13} color="#38BDF8" />;
     }
   };
 
@@ -384,6 +655,16 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         <StatusBar barStyle="light-content" backgroundColor="#0B1120" />
         <ScrollView bounces={false} contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
           
+          {/* LOGO DESTIVO NA GÓRZE NA ŚRODKU */}
+          <View style={styles.topLogoContainer}>
+            <Image
+              source={require('../../assets/logo/NapisKropkaBialy.png')}
+              style={styles.topLogo}
+              resizeMode="contain"
+              testID="destivo-top-logo"
+            />
+          </View>
+
           {/* HEADER I SZYBKIE AKCJE (CZYSTE CIEMNE TŁO) */}
           <View style={styles.activeTripHeaderCard}>
             <Text style={styles.headerTripTitle}>
@@ -400,9 +681,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               <TouchableOpacity
                 style={styles.addAttractionTopBtn}
                 activeOpacity={0.8}
-                onPress={handleAddNewAttraction}
+                onPress={handleOpenAddModal}
               >
-                <Text style={styles.addAttractionTopBtnText}>{t.addAttractionBtn || '+ Dodaj atrakcję'}</Text>
+                <Ionicons name="add" size={16} color="#0F172A" style={{ marginRight: 4 }} />
+                <Text style={styles.addAttractionTopBtnText}>{t.addAttractionBtn || 'Dodaj atrakcję'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -410,14 +692,18 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 activeOpacity={0.8}
                 onPress={() => navigation?.navigate('Vault', { tripId: activeTrip.id })}
               >
-                <Text style={styles.safeVaultTopBtnText}>🔐 {t.safeVaultBtn || 'Sejf / Dokumenty'}</Text>
+                <Ionicons name="shield-checkmark" size={15} color="#38BDF8" style={{ marginRight: 6 }} />
+                <Text style={styles.safeVaultTopBtnText}>{t.safeVaultBtn || 'Sejf / Dokumenty'}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* OŚ CZASU (DAILY ITINERARY) */}
           <View style={styles.itinerarySection}>
-            <Text style={styles.sectionHeaderTitle}>📅 {t.dailyItineraryTitle || 'Plan Dnia'}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+              <Text style={styles.sectionHeaderTitle}>{t.dailyItineraryTitle || 'Plan Dnia'}</Text>
+            </View>
             
             <View style={styles.timelineWrapper}>
               <View style={styles.timelineLineAbsolute} />
@@ -427,6 +713,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 const isPast = index < activeEventIndex;
                 const isInProgress = index === activeEventIndex;
                 const isFuture = index > activeEventIndex;
+                const eventTime = item.timeStr || item.time || '12:00';
+                const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
 
                 return (
                   <View key={item.id || index} style={styles.timelineRow}>
@@ -434,7 +722,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     <View style={styles.nodeColumn}>
                       {isPast ? (
                         <View style={[styles.nodeCircle, styles.nodeCirclePast]}>
-                          <Text style={styles.nodePastCheck}>✓</Text>
+                          <Ionicons name="checkmark" size={12} color="#0F172A" />
                         </View>
                       ) : isInProgress ? (
                         <View style={[styles.nodeCircle, styles.nodeCircleActive]}>
@@ -465,23 +753,29 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                             <Text style={styles.inProgressBadgeText}>{t.inProgressBadge || 'IN PROGRESS'}</Text>
                           </View>
                           <View style={styles.inProgressWeather}>
-                            <Text style={styles.inProgressWeatherText}>☀️ 24°C</Text>
+                            <Ionicons name="sunny" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                            <Text style={styles.inProgressWeatherText}>24°C</Text>
                           </View>
                         </View>
                       )}
 
                       <View style={styles.cardHeaderFlex}>
-                        <Text 
-                          style={[
-                            styles.cardTitle,
-                            isPast && styles.cardTitlePast,
-                            isInProgress && styles.cardTitleActive,
-                            isFuture && styles.cardTitleFuture
-                          ]}
-                        >
-                          {item.title}
-                        </Text>
-                        <Text style={styles.editIcon}>✏️</Text>
+                        <View style={styles.cardTitleRow}>
+                          <View style={styles.cardTypeIconWrap}>
+                            {renderTimelineIcon(item.type)}
+                          </View>
+                          <Text 
+                            style={[
+                              styles.cardTitle,
+                              isPast && styles.cardTitlePast,
+                              isInProgress && styles.cardTitleActive,
+                              isFuture && styles.cardTitleFuture
+                            ]}
+                          >
+                            {item.title}
+                          </Text>
+                        </View>
+                        <Ionicons name="pencil-outline" size={15} color="#64748B" />
                       </View>
 
                       <Text 
@@ -492,7 +786,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           isFuture && styles.cardTimeFuture
                         ]}
                       >
-                        {item.timeStr} • {item.type === 'LODGING' ? t.lodgingCheckIn : t.timelinePoint}
+                        {eventTime} • {item.type === 'LODGING' ? t.lodgingCheckIn : t.timelinePoint}
                       </Text>
 
                       <Text 
@@ -504,7 +798,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                         ]} 
                         numberOfLines={isExpanded ? 0 : 2}
                       >
-                        {item.subtitle || t.noDetails}
+                        {eventSubtitle}
                       </Text>
 
                       {/* PRZYCISKI AKCJI "DIRECTIONS" I "TICKETS" DLA IN PROGRESS */}
@@ -518,7 +812,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                               Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
                             }}
                           >
-                            <Text style={styles.inProgressDirectionsBtnText}>🗺️ {t.directionsBtn || 'Trasa'}</Text>
+                            <Ionicons name="navigate-outline" size={14} color="#0F172A" style={{ marginRight: 6 }} />
+                            <Text style={styles.inProgressDirectionsBtnText}>{t.directionsBtn || 'Trasa'}</Text>
                           </TouchableOpacity>
 
                           <TouchableOpacity
@@ -526,7 +821,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                             activeOpacity={0.8}
                             onPress={() => navigation?.navigate('Vault', { tripId: activeTrip.id })}
                           >
-                            <Text style={styles.inProgressTicketsBtnText}>🎟️ {t.ticketsBtn || 'Bilety'}</Text>
+                            <Ionicons name="ticket-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+                            <Text style={styles.inProgressTicketsBtnText}>{t.ticketsBtn || 'Bilety'}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -571,10 +867,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           <View style={styles.cardActionsRow}>
                             <View style={styles.moveActions}>
                               <TouchableOpacity style={[styles.actionBtn, index === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(index, 'UP')}>
-                                <Text style={styles.actionBtnText}>⬆️</Text>
+                                <Ionicons name="chevron-up" size={15} color={index === 0 ? "#475569" : "#94A3B8"} />
                               </TouchableOpacity>
                               <TouchableOpacity style={[styles.actionBtn, index === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(index, 'DOWN')}>
-                                <Text style={styles.actionBtnText}>⬇️</Text>
+                                <Ionicons name="chevron-down" size={15} color={index === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
                               </TouchableOpacity>
                             </View>
                             <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
@@ -592,7 +888,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
           {/* INTERAKTYWNY KALKULATOR WALUT */}
           <View style={styles.converterSection}>
-            <Text style={styles.sectionHeaderTitle}>💱 {t.currencyConverterTitle || 'Kalkulator Walut'}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Ionicons name="cash-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+              <Text style={styles.sectionHeaderTitle}>{t.currencyConverterTitle || 'Kalkulator Walut'}</Text>
+            </View>
             <View style={styles.converterCard}>
               <View style={styles.converterRow}>
                 {/* Pole waluty bazowej */}
@@ -605,7 +904,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       setIsCurrencyModalVisible(true);
                     }}
                   >
-                    <Text style={styles.currencyPillText}>{fromCurrency} ▼</Text>
+                    <Text style={styles.currencyPillText}>{fromCurrency}</Text>
+                    <Ionicons name="chevron-down" size={12} color="#94A3B8" style={{ marginLeft: 4 }} />
                   </TouchableOpacity>
                   <TextInput
                     style={styles.converterTextInput}
@@ -623,7 +923,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   activeOpacity={0.8}
                   onPress={handleSwapCurrencies}
                 >
-                  <Text style={styles.swapCircleIcon}>⇄</Text>
+                  <Ionicons name="swap-horizontal" size={18} color="#0F172A" />
                 </TouchableOpacity>
 
                 {/* Pole waluty docelowej */}
@@ -636,7 +936,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       setIsCurrencyModalVisible(true);
                     }}
                   >
-                    <Text style={styles.currencyPillText}>{toCurrency} ▼</Text>
+                    <Text style={styles.currencyPillText}>{toCurrency}</Text>
+                    <Ionicons name="chevron-down" size={12} color="#94A3B8" style={{ marginLeft: 4 }} />
                   </TouchableOpacity>
                   <TextInput
                     style={styles.converterTextInput}
@@ -658,12 +959,15 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
           {/* WSPARCIE ALARMOWE (EMERGENCY SUPPORT) */}
           <View style={styles.emergencySection}>
-            <Text style={styles.sectionHeaderTitle}>🚨 {t.emergencySupportTitle || 'Wsparcie Alarmowe'}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Ionicons name="warning-outline" size={18} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={styles.sectionHeaderTitle}>{t.emergencySupportTitle || 'Wsparcie Alarmowe'}</Text>
+            </View>
 
             {/* Lokalny numer alarmowy */}
             <View style={styles.emergencyRowCard}>
               <View style={styles.emergencyIconBubble}>
-                <Text style={styles.emergencyIconText}>🚨</Text>
+                <Ionicons name="call" size={18} color="#EF4444" />
               </View>
               <View style={styles.emergencyTextCol}>
                 <Text style={styles.emergencyCardTitle}>
@@ -679,34 +983,134 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 activeOpacity={0.8}
                 onPress={() => Linking.openURL(`tel:${emergencyNum}`)}
               >
-                <Text style={styles.emergencyCallBtnText}>📞 {emergencyNum}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Placówka konsularna */}
-            <View style={styles.emergencyRowCard}>
-              <View style={[styles.emergencyIconBubble, styles.consulateIconBubble]}>
-                <Text style={styles.emergencyIconText}>🏛️</Text>
-              </View>
-              <View style={styles.emergencyTextCol}>
-                <Text style={styles.emergencyCardTitle}>
-                  {t.consulateOfficeTitle || 'Wsparcie Konsularne'}
-                </Text>
-                <Text style={styles.emergencyCardSubtitle}>
-                  {t.consulateOfficeSubtitle || 'Ambasada RP & Infolinia 24/7 dla obywateli'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.emergencyCallBtn, styles.consulateCallBtn]}
-                activeOpacity={0.8}
-                onPress={() => Linking.openURL('tel:+48225239000')}
-              >
-                <Text style={styles.consulateCallBtnText}>📞 Połącz</Text>
+                <Ionicons name="call" size={13} color="#FFFFFF" style={{ marginRight: 5 }} />
+                <Text style={styles.emergencyCallBtnText}>{emergencyNum}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
         </ScrollView>
+
+        {/* MODAL DODAWANIA ATRAKCJI (PROPOZYCJE I RĘCZNE) */}
+        <Modal
+          visible={isAddModalVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setIsAddModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.addModalDialog}>
+              <View style={styles.modalHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="sparkles" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.modalDialogTitle}>{t.addAttractionModalTitle || 'Dodaj punkt w trasie'}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsAddModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
+                {/* SEKCJA 1: PROPOZYCJE Z OKOLICY */}
+                <View style={styles.addSectionWrap}>
+                  <Text style={styles.addSectionTitle}>{t.suggestions || 'Propozycje z okolicy'}</Text>
+                  <Text style={styles.addSectionSubtitle}>{t.suggestionsHint || 'Kliknij, aby błyskawicznie dodać do planu.'}</Text>
+                  
+                  {availableSuggestions.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsScrollContent}>
+                      {availableSuggestions.map((sug) => (
+                        <View key={sug.id} style={styles.suggestionCard}>
+                          {sug.imageUrl ? (
+                            <Image source={{ uri: sug.imageUrl }} style={styles.suggestionCardImage} />
+                          ) : (
+                            <View style={styles.suggestionImagePlaceholder}>
+                              <Ionicons name="image-outline" size={24} color="#64748B" />
+                            </View>
+                          )}
+                          <View style={styles.suggestionCardBody}>
+                            <Text style={styles.suggestionCardTitle} numberOfLines={1}>{sug.name}</Text>
+                            <Text style={styles.suggestionCardSubtitle} numberOfLines={1}>{sug.subtitle || t.defaultAttractionSubtitle}</Text>
+                            <TouchableOpacity
+                              style={styles.suggestionAddBtn}
+                              activeOpacity={0.8}
+                              onPress={() => handleAddSuggestedAttraction(sug)}
+                            >
+                              <Ionicons name="add" size={14} color="#0F172A" style={{ marginRight: 4 }} />
+                              <Text style={styles.suggestionAddBtnText}>{language === 'pl' ? 'Dodaj' : 'Add'}</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.noSuggestionsBox}>
+                      <Text style={styles.noSuggestionsText}>{t.noSuggestions || 'Brak więcej propozycji w okolicy.'}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* SEKCJA 2: RĘCZNE DODAWANIE */}
+                <View style={styles.addSectionWrap}>
+                  <Text style={styles.addSectionTitle}>{t.manual || 'Dodaj własne ręcznie'}</Text>
+                  
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>{t.titleLabel || 'Tytuł *'}</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder={t.titlePlaceholder || 'np. Obiad w restauracji'}
+                      placeholderTextColor="#475569"
+                      value={manualTitle}
+                      onChangeText={setManualTitle}
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>{t.eventSubtitleLabel || 'Podtytuł / Opis'}</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder={language === 'pl' ? 'np. Włoska kuchnia' : 'e.g. Italian cuisine'}
+                      placeholderTextColor="#475569"
+                      value={manualSubtitle}
+                      onChangeText={setManualSubtitle}
+                    />
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.inputLabel}>{t.dateLabel || 'Data'}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={manualDate}
+                        onChangeText={setManualDate}
+                        placeholder={activeTrip?.start_date || 'DD-MM-YYYY'}
+                        placeholderTextColor="#475569"
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.inputLabel}>{t.timeLabel || 'Godzina'}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={manualTime}
+                        onChangeText={setManualTime}
+                        placeholder="15:00"
+                        placeholderTextColor="#475569"
+                      />
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.manualSubmitBtn}
+                    activeOpacity={0.8}
+                    onPress={handleAddManualAttraction}
+                  >
+                    <Ionicons name="add-circle" size={16} color="#0F172A" style={{ marginRight: 6 }} />
+                    <Text style={styles.manualSubmitBtnText}>{language === 'pl' ? 'Dodaj do planu' : 'Add to itinerary'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
         {/* MODAL WYBORU WALUTY */}
         <Modal
@@ -719,8 +1123,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             <View style={styles.modalDialog}>
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalDialogTitle}>{t.selectCurrency || 'Wybierz walutę'}</Text>
-                <TouchableOpacity onPress={() => setIsCurrencyModalVisible(false)}>
-                  <Text style={styles.modalCloseBtn}>✕</Text>
+                <TouchableOpacity onPress={() => setIsCurrencyModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
               <ScrollView style={{ maxHeight: 360 }}>
@@ -745,7 +1149,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <Text style={styles.currencyFlagText}>{curr.flag}</Text>
                       <Text style={styles.currencyCodeText}>{curr.code}</Text>
                       <Text style={styles.currencyLabelText}>{curr.label}</Text>
-                      {isSelected && <Text style={styles.currencyCheckText}>✓</Text>}
+                      {isSelected && <Ionicons name="checkmark" size={16} color="#F59E0B" />}
                     </TouchableOpacity>
                   );
                 })}
@@ -774,6 +1178,16 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       <StatusBar barStyle="light-content" />
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         
+        {/* LOGO DESTIVO NA GÓRZE NA ŚRODKU */}
+        <View style={styles.topLogoContainer}>
+          <Image
+            source={require('../../assets/logo/NapisKropkaBialy.png')}
+            style={styles.topLogo}
+            resizeMode="contain"
+            testID="destivo-top-logo"
+          />
+        </View>
+
         <View style={styles.header}>
           <Text style={styles.welcomeText}>
             {isGuest ? t.header_greetingGuest : `${t.header_greetingUser}, ${userName}!`}
@@ -879,7 +1293,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <View style={styles.cardPlanFooterRow}>
                         <Text style={styles.cardPlanNotice}>
                           {dest.hasPredefinedPlan
-                            ? `✨ ${dest.proposedTrip?.durationDays || 3}-dniowy gotowy plan wycieczki`
+                            ? (t.readyPlanDays || '✨ {{days}}-dniowy gotowy plan wycieczki').replace(
+                                '{{days}}',
+                                String(dest.proposedTrip?.durationDays || 3)
+                              )
                             : `🛠️ ${t.noPlanNotice || 'Wymaga własnego planu w kreatorze'}`}
                         </Text>
                         <Text style={styles.cardExploreArrow}>➔</Text>
@@ -906,6 +1323,16 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
   scrollContent: { flexGrow: 1, paddingBottom: 40 },
+  topLogoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  topLogo: {
+    width: 120,
+    height: 28,
+  },
   
   // --- STANDARDOWY HOME ---
   header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 },
@@ -1073,7 +1500,8 @@ const styles = StyleSheet.create({
 
   // Itinerary & Timeline
   itinerarySection: { paddingHorizontal: 20, paddingTop: 10, marginTop: 6 },
-  sectionHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', marginBottom: 16, paddingHorizontal: 4 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 4 },
+  sectionHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
   timelineWrapper: { position: 'relative' },
   timelineLineAbsolute: { position: 'absolute', left: 21, top: 20, bottom: 20, width: 2, backgroundColor: '#1E293B', zIndex: 0 },
   timelineRow: { flexDirection: 'row', marginBottom: 18, alignItems: 'flex-start' },
@@ -1095,7 +1523,9 @@ const styles = StyleSheet.create({
   eventCardExpanded: { borderColor: '#38BDF8' },
 
   cardHeaderFlex: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
-  cardTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '700', flex: 1, marginRight: 8 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  cardTypeIconWrap: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(56, 189, 248, 0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  cardTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: '700', flex: 1 },
   cardTitlePast: { color: '#64748B' },
   cardTitleActive: { color: '#FFFFFF', fontWeight: '800' },
   cardTitleFuture: { color: '#94A3B8' },
@@ -1115,13 +1545,13 @@ const styles = StyleSheet.create({
   inProgressHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   inProgressBadge: { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderWidth: 1, borderColor: '#F59E0B', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   inProgressBadgeText: { color: '#F59E0B', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-  inProgressWeather: { backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
+  inProgressWeather: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   inProgressWeatherText: { color: '#F8FAFC', fontSize: 11, fontWeight: '700' },
 
   inProgressActionsRow: { flexDirection: 'row', gap: 10, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(245, 158, 11, 0.2)' },
-  inProgressDirectionsBtn: { flex: 1, backgroundColor: '#F59E0B', paddingVertical: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  inProgressDirectionsBtn: { flex: 1, flexDirection: 'row', backgroundColor: '#F59E0B', paddingVertical: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   inProgressDirectionsBtnText: { color: '#0F172A', fontSize: 13, fontWeight: '800' },
-  inProgressTicketsBtn: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', paddingVertical: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  inProgressTicketsBtn: { flex: 1, flexDirection: 'row', backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', paddingVertical: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   inProgressTicketsBtnText: { color: '#F8FAFC', fontSize: 13, fontWeight: '700' },
 
   // Expanded edit section
@@ -1142,11 +1572,10 @@ const styles = StyleSheet.create({
   converterCard: { backgroundColor: '#111827', borderRadius: 18, padding: 18, borderWidth: 1, borderColor: '#1E293B' },
   converterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   converterInputCol: { flex: 1 },
-  currencyPill: { backgroundColor: '#1E293B', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 8, borderWidth: 1, borderColor: '#334155' },
+  currencyPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 8, borderWidth: 1, borderColor: '#334155' },
   currencyPillText: { color: '#F8FAFC', fontSize: 12, fontWeight: '800' },
   converterTextInput: { backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#334155', borderRadius: 10, height: 44, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   swapCircleBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', marginTop: 22 },
-  swapCircleIcon: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
   rateFooterBox: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1E293B' },
   rateFooterLabel: { color: '#64748B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
@@ -1154,28 +1583,41 @@ const styles = StyleSheet.create({
   emergencySection: { paddingHorizontal: 20, marginTop: 26 },
   emergencyRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', borderRadius: 16, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#1E293B' },
   emergencyIconBubble: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  consulateIconBubble: { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.3)' },
-  emergencyIconText: { fontSize: 20 },
   emergencyTextCol: { flex: 1, marginRight: 8 },
   emergencyCardTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: '700' },
   emergencyCardSubtitle: { color: '#64748B', fontSize: 11, marginTop: 2 },
-  emergencyCallBtn: { backgroundColor: '#EF4444', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  emergencyCallBtn: { flexDirection: 'row', backgroundColor: '#EF4444', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   emergencyCallBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
-  consulateCallBtn: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#38BDF8' },
-  consulateCallBtnText: { color: '#38BDF8', fontSize: 12, fontWeight: '800' },
+
+  // Add Attraction Modal
+  addModalDialog: { width: '100%', backgroundColor: '#111827', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#334155' },
+  addSectionWrap: { marginBottom: 20 },
+  addSectionTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: '800', marginBottom: 2 },
+  addSectionSubtitle: { color: '#94A3B8', fontSize: 12, marginBottom: 12 },
+  suggestionsScrollContent: { paddingVertical: 4, gap: 12 },
+  suggestionCard: { width: 170, backgroundColor: '#0B1120', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  suggestionCardImage: { width: '100%', height: 95 },
+  suggestionImagePlaceholder: { width: '100%', height: 95, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' },
+  suggestionCardBody: { padding: 10 },
+  suggestionCardTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  suggestionCardSubtitle: { color: '#64748B', fontSize: 11, marginBottom: 10 },
+  suggestionAddBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', paddingVertical: 6, borderRadius: 8 },
+  suggestionAddBtnText: { color: '#0F172A', fontSize: 12, fontWeight: '800' },
+  noSuggestionsBox: { backgroundColor: '#0B1120', padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' },
+  noSuggestionsText: { color: '#64748B', fontSize: 12, fontStyle: 'italic' },
+  manualSubmitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', paddingVertical: 12, borderRadius: 10, marginTop: 6 },
+  manualSubmitBtnText: { color: '#0F172A', fontSize: 13, fontWeight: '800' },
 
   // Modal Wyboru Waluty
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalDialog: { width: '100%', backgroundColor: '#111827', borderRadius: 18, padding: 20, borderWidth: 1, borderColor: '#334155' },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
   modalDialogTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  modalCloseBtn: { color: '#94A3B8', fontSize: 18, fontWeight: '700', padding: 4 },
   currencyRowItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4 },
   currencyRowItemSelected: { backgroundColor: '#1E293B' },
   currencyFlagText: { fontSize: 20, marginRight: 12 },
   currencyCodeText: { color: '#F59E0B', fontSize: 14, fontWeight: '800', width: 48 },
   currencyLabelText: { color: '#F8FAFC', fontSize: 13, flex: 1 },
-  currencyCheckText: { color: '#F59E0B', fontSize: 15, fontWeight: '900' },
 
   // Save footer
   saveFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'rgba(11, 17, 32, 0.95)', borderTopWidth: 1, borderTopColor: '#1E293B' },

@@ -99,7 +99,7 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
   test('3. powinien wyrenderować listę transportów i ustawić pierwszy jako domyślny', async () => {
     const mockOptions = [
       { id: 'flight-1', type: 'flight', provider: 'Skyscanner', price: { status: 'LIVE', currency: 'PLN' } },
-      { id: 'bus-1', type: 'bus', provider: 'FlixBus', price: { status: 'LIVE', currency: 'PLN' } }
+      { id: 'train-1', type: 'train', provider: 'Koleo', price: { status: 'LIVE', currency: 'PLN' } }
     ];
     (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce(mockOptions);
     
@@ -107,7 +107,7 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
     
     await waitFor(() => {
       expect(screen.getByText('Samolot')).toBeTruthy();
-      expect(screen.getByText('Autobus')).toBeTruthy();
+      expect(screen.getByText('Pociąg')).toBeTruthy();
       
       // Sprawdzamy czy auto-zaznaczyło pierwszą opcję
       expect(mockSetTransportOption).toHaveBeenCalledWith(mockOptions[0]);
@@ -309,5 +309,41 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
       fireEvent.press(skipButton);
       expect(mockNavigate).toHaveBeenCalledWith('Step3');
     });
+  });
+
+  test('14. powinien wyfiltrować opcje autobusowe (FlixBus) i prezentować wyłącznie samolot, pociąg lub auto', async () => {
+    const mockOptions = [
+      { id: 'flight-1', type: 'flight', provider: 'Skyscanner', price: { status: 'LIVE', currency: 'PLN' } },
+      { id: 'bus-1', type: 'bus', provider: 'FlixBus', price: { status: 'LIVE', currency: 'PLN' } },
+      { id: 'car-1', type: 'car', provider: 'Własny samochód', price: { status: 'ESTIMATE', currency: 'PLN' } },
+    ];
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce(mockOptions);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Samolot')).toBeTruthy();
+      expect(screen.getByText('Samochód')).toBeTruthy();
+      expect(screen.queryByText('Autobus')).toBeNull();
+      expect(screen.queryByText('FlixBus')).toBeNull();
+    });
+  });
+
+  test('15. powinien wywołać Alert z opcjami wyboru dokumentu lub zdjęcia przy próbie wgrania biletu do Sejfu', async () => {
+    mockTransport.selectedOption = { id: 'car-1', type: 'car', provider: 'Własny samochód' } as any;
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([mockTransport.selectedOption]);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+
+    await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
+
+    const uploadButton = screen.getByText('Wgraj bilet do Sejfu (PDF/Zdj)');
+    fireEvent.press(uploadButton);
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Wgraj bilet do Sejfu (PDF/Zdj)',
+      expect.any(String),
+      expect.any(Array)
+    );
   });
 });

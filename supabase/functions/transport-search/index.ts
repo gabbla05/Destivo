@@ -57,9 +57,12 @@ serve(async (req: Request) => {
 
     let transportPlan: any[] = [];
 
-    // SZTUCZNE / TWARDE ZASADY LOGISTYCZNE
-    if (airDistance < 70) {
-      // 1. TRASY LOKALNE (< 70 km) -> Tylko samochód
+    // KRYTERIA LOGISTYCZNE SPÓJNE Z EXPLORE:
+    // < 120 km: Auto
+    // 120 - 550 km: Pociąg + Auto
+    // > 550 km: Samolot + Auto
+    if (airDistance < 120) {
+      // 1. TRASY KRÓTKIE / LOKALNE (< 120 km) -> Samochód
       transportPlan.push({
         type: 'car',
         provider: 'Własny samochód',
@@ -69,8 +72,8 @@ serve(async (req: Request) => {
         ],
         notes: [`Trasa lokalna (~${airDistance} km). Najwygodniej udać się bezpośrednio własnym samochodem.`]
       });
-    } else if (airDistance >= 70 && airDistance <= 600) {
-      // 2. TRASY KRAJOWE (70 - 600 km) -> Pociąg + Autobus (FlixBus) + Samochód
+    } else if (airDistance >= 120 && airDistance <= 550) {
+      // 2. TRASY ŚREDNIE / REGIONALNE (120 - 550 km) -> Pociąg + Samochód
       transportPlan.push({
         type: 'train',
         provider: 'PKP Intercity / Koleo',
@@ -83,27 +86,16 @@ serve(async (req: Request) => {
       });
 
       transportPlan.push({
-        type: 'bus',
-        provider: 'FlixBus',
-        bookingUrl: 'https://www.flixbus.pl',
-        actionLinks: [
-          { label: `Dworzec autobusowy: ${origin}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Autobusowy+${encodeURIComponent(origin)}` },
-          { label: `Dworzec autobusowy: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=Dworzec+Autobusowy+${encodeURIComponent(destination)}` }
-        ],
-        notes: [`Alternatywne połączenie autokarowe.`]
-      });
-
-      transportPlan.push({
         type: 'car',
         provider: 'Własny samochód',
         bookingUrl: '',
         actionLinks: [
           { label: `Nawiguj do: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}` }
         ],
-        notes: [`Podróż własnym samochodem z punktu A do B.`]
+        notes: [`Podróż własnym samochodem z punktu A do B (~${airDistance} km).`]
       });
     } else {
-      // 3. TRASY MIĘDZYNARODOWE / DALEKIE (> 600 km) -> Samolot (Skyscanner) + Samochód
+      // 3. TRASY MIĘDZYNARODOWE / DALEKIE (> 550 km) -> Samolot + Samochód
       transportPlan.push({
         type: 'flight',
         provider: 'Połączenie lotnicze (Skyscanner)',
@@ -122,7 +114,7 @@ serve(async (req: Request) => {
         actionLinks: [
           { label: `Nawiguj do: ${destination}`, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}` }
         ],
-        notes: [`Dla fanów długich tras samochodowych.`]
+        notes: [`Dla fanów długich tras samochodowych (~${airDistance} km).`]
       });
     }
 

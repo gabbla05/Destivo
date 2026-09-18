@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { useVaultStore } from '../store/vaultStore';
 import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
 
@@ -26,6 +27,24 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResetVaultPin = () => {
+    Alert.alert(
+      t.resetVaultPinTitle,
+      t.resetVaultPinConfirm,
+      [
+        { text: commonT.cancel, style: 'cancel' },
+        { 
+          text: t.resetVaultPinBtn, 
+          style: 'destructive',
+          onPress: () => {
+            useVaultStore.setState({ pin: null, isUnlocked: false });
+            Alert.alert(t.successTitle, t.vaultPinResetDone);
+          }
+        }
+      ]
+    );
   };
 
   const handleDeleteAccount = () => {
@@ -70,30 +89,30 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
         {/* ZARZĄDZANIE KONTEM */}
         <Text style={styles.sectionTitle}>{t.accountManagement}</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={styles.row} onPress={handlePasswordReset} disabled={loading}>
+          <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={handlePasswordReset} disabled={loading}>
             <View style={styles.rowLeft}>
               <Ionicons name="key-outline" size={20} color="#38BDF8" style={styles.icon} />
               <Text style={styles.rowText}>{t.resetPassword}</Text>
             </View>
             {loading ? <ActivityIndicator color="#38BDF8" /> : <Ionicons name="chevron-forward" size={20} color="#475569" />}
           </TouchableOpacity>
+
+          <TouchableOpacity style={styles.row} onPress={handleResetVaultPin}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="shield-outline" size={20} color="#F59E0B" style={styles.icon} />
+              <Text style={styles.rowText}>{t.resetVaultPin}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#475569" />
+          </TouchableOpacity>
         </View>
 
         {/* PRYWATNOŚĆ I DANE */}
         <Text style={styles.sectionTitle}>{t.privacyData}</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={() => Alert.alert(t.privacyPolicy, t.privacyText)}>
+          <TouchableOpacity style={styles.row} onPress={() => Alert.alert(t.privacyPolicy, t.privacyText)}>
             <View style={styles.rowLeft}>
               <Ionicons name="document-text-outline" size={20} color="#10B981" style={styles.icon} />
               <Text style={styles.rowText}>{t.privacyPolicy}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#475569" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.row} onPress={() => Alert.alert(t.dataTitle, t.exportText)}>
-            <View style={styles.rowLeft}>
-              <Ionicons name="download-outline" size={20} color="#F59E0B" style={styles.icon} />
-              <Text style={styles.rowText}>{t.exportData}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#475569" />
           </TouchableOpacity>

@@ -11,13 +11,21 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
+
+// --- POMOCNICZA FUNKCJA DO AUTOMATYCZNEJ DUŻEJ LITERY W NAZWACH MIAST ---
+export const capitalizeCity = (str: string): string => {
+  if (!str) return '';
+  return str.replace(/(^|[\s\-])(\S)/g, (_, sep, char) => sep + char.toUpperCase());
+};
 
 // --- POMOCNICZA FUNKCJA DO PARSOWANIA DATY DD-MM-YYYY ---
 const parseDDMMYYYY = (dateStr: string): Date | null => {
@@ -85,13 +93,37 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   const normalizeDateInput = (val?: string) => (val ? val.trim().replace(/[./]/g, '-') : '');
 
   const [tripName, setTripName] = useState(storedName);
-  const [origin, setOrigin] = useState(storedOrigin);
-  const [destination, setDestination] = useState(storedDest);
+  const [origin, setOrigin] = useState(capitalizeCity(storedOrigin));
+  const [destination, setDestination] = useState(capitalizeCity(storedDest));
   const [startDate, setStartDate] = useState(normalizeDateInput(storedStart));
   const [endDate, setEndDate] = useState(normalizeDateInput(storedEnd));
 
   const [isValidating, setIsValidating] = useState(false);
   const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
+
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const checkGuestTripLimit = async (): Promise<boolean> => {
     if (isGuest || user?.isGuest || !user) {
@@ -144,8 +176,11 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     const canProceed = await checkGuestTripLimit();
     if (!canProceed) return;
 
+    const formattedDestination = capitalizeCity(destination.trim());
+    const formattedOrigin = capitalizeCity(origin.trim());
+
     // 1. Sprawdzenie czy wpisano miejsca
-    if (!destination.trim()) {
+    if (!formattedDestination) {
       Alert.alert('DESTIVO', t.error_destinationRequired);
       return;
     }
@@ -181,8 +216,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
     // 3. Weryfikacja czy miejscowości istnieją
     setIsValidating(true);
     const [destExists, originExists] = await Promise.all([
-      checkDestinationExists(destination.trim()),
-      origin.trim() ? checkDestinationExists(origin.trim()) : Promise.resolve(true),
+      checkDestinationExists(formattedDestination),
+      formattedOrigin ? checkDestinationExists(formattedOrigin) : Promise.resolve(true),
     ]);
     setIsValidating(false);
 
@@ -193,9 +228,9 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
     // 4. Zapisujemy do store'a i przechodzimy dalej
     setStep1Data({
-      tripName: tripName.trim() || `${t.default_tripNamePrefix}${destination.trim()}`,
-      origin: origin.trim(),
-      destination: destination.trim(),
+      tripName: tripName.trim() || `${t.default_tripNamePrefix}${formattedDestination}`,
+      origin: formattedOrigin,
+      destination: formattedDestination,
       startDate: startDate.trim(),
       endDate: endDate.trim(),
     });
@@ -210,12 +245,18 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
         style={{ flex: 1 }}
       >
         <ScrollView 
-          contentContainerStyle={styles.scrollContent} 
-          bounces={false}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 100 }
+          ]} 
+          bounces={true}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
         >
           {/* PASEK POSTĘPU KREATORA */}
           <View style={styles.progressHeader}>
@@ -240,13 +281,14 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 <Text style={styles.requiredBadge}>{t.badge_required}</Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📍</Text>
+                <Ionicons name="navigate-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_originPlaceholder}
                   placeholderTextColor="#475569"
                   value={origin}
-                  onChangeText={setOrigin}
+                  onChangeText={(val) => setOrigin(capitalizeCity(val))}
+                  autoCapitalize="words"
                 />
               </View>
             </View>
@@ -260,13 +302,14 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 <Text style={styles.requiredBadge}>{t.badge_required}</Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🎯</Text>
+                <Ionicons name="location-outline" size={18} color="#F59E0B" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_destinationPlaceholder}
                   placeholderTextColor="#475569"
                   value={destination}
-                  onChangeText={setDestination}
+                  onChangeText={(val) => setDestination(capitalizeCity(val))}
+                  autoCapitalize="words"
                 />
               </View>
             </View>
@@ -279,13 +322,14 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 </Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📝</Text>
+                <Ionicons name="bookmark-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_tripNamePlaceholder}
                   placeholderTextColor="#475569"
                   value={tripName}
                   onChangeText={setTripName}
+                  autoCapitalize="sentences"
                 />
               </View>
             </View>
@@ -297,8 +341,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   {t.input_startDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  <TouchableOpacity onPress={() => setActivePicker('start')}>
-                    <Text style={styles.inputIcon}>📅</Text>
+                  <TouchableOpacity onPress={() => setActivePicker('start')} activeOpacity={0.7} style={styles.dateIconTouch}>
+                    <Ionicons name="calendar-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                   </TouchableOpacity>
                   <TextInput
                     style={styles.input}
@@ -315,8 +359,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   {t.input_endDateLabel.toUpperCase()}
                 </Text>
                 <View style={styles.inputContainer}>
-                  <TouchableOpacity onPress={() => setActivePicker('end')}>
-                    <Text style={styles.inputIcon}>📅</Text>
+                  <TouchableOpacity onPress={() => setActivePicker('end')} activeOpacity={0.7} style={styles.dateIconTouch}>
+                    <Ionicons name="calendar-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                   </TouchableOpacity>
                   <TextInput
                     style={styles.input}
@@ -340,9 +384,12 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
               {isValidating ? (
                 <ActivityIndicator color="#0F172A" />
               ) : (
-                <Text style={styles.primaryButtonText}>
-                  {commonT.button_nextStep} ➔
-                </Text>
+                <View style={styles.buttonRowContent}>
+                  <Text style={styles.primaryButtonText}>
+                    {commonT.button_nextStep}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={16} color="#0F172A" style={{ marginLeft: 6 }} />
+                </View>
               )}
             </TouchableOpacity>
 
@@ -379,7 +426,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 120, flexGrow: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 100, flexGrow: 1 },
   topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
   langButton: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#1E293B', borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
   langButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '700' },
@@ -397,9 +444,11 @@ const styles = StyleSheet.create({
   label: { color: '#94A3B8', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 },
   requiredBadge: { color: '#F59E0B', fontSize: 10, fontWeight: '700' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, height: 48 },
-  inputIcon: { fontSize: 15, marginRight: 10 },
+  inputIcon: { marginRight: 10 },
+  dateIconTouch: { justifyContent: 'center', alignItems: 'center' },
   input: { flex: 1, color: '#F8FAFC', fontSize: 14 },
   primaryButton: { backgroundColor: '#F59E0B', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 16, shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
+  buttonRowContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
   secondaryButton: { height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },

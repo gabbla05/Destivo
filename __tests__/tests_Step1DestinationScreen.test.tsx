@@ -340,4 +340,42 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
       expect(mockNavigate).toHaveBeenCalledWith('Step2Transport');
     });
   });
+
+  test('13. powinien automatycznie przekształcać wpisywane miasta na wielką literę (np. rzym -> Rzym, warszawa -> Warszawa)', async () => {
+    render(<Step1DestinationScreen navigation={mockNavigation} />);
+
+    const destInput = screen.getByPlaceholderText('np. Rzym');
+    const originInput = screen.getByPlaceholderText('np. Warszawa');
+
+    fireEvent.changeText(destInput, 'rzym');
+    fireEvent.changeText(originInput, 'warszawa');
+
+    expect(destInput.props.value).toBe('Rzym');
+    expect(originInput.props.value).toBe('Warszawa');
+
+    const dateInputs = screen.getAllByPlaceholderText('DD-MM-YYYY');
+    fireEvent.changeText(dateInputs[0], '10-08-2027');
+    fireEvent.changeText(dateInputs[1], '20-08-2027');
+
+    fireEvent.press(screen.getByText(/Dalej/i));
+
+    await waitFor(() => {
+      expect(mockSetStep1Data).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destination: 'Rzym',
+          origin: 'Warszawa',
+        })
+      );
+    });
+  });
+
+  test('14. funkcja capitalizeCity poprawnie formatuje wieloczłonowe nazwy miast i znaki diakrytyczne', () => {
+    const { capitalizeCity } = require('../src/screens/TripCreator/Step1DestinationScreen');
+    expect(capitalizeCity('rzym')).toBe('Rzym');
+    expect(capitalizeCity('nowy jork')).toBe('Nowy Jork');
+    expect(capitalizeCity('bielsko-biała')).toBe('Bielsko-Biała');
+    expect(capitalizeCity('zielona góra')).toBe('Zielona Góra');
+    expect(capitalizeCity('łódź')).toBe('Łódź');
+    expect(capitalizeCity('')).toBe('');
+  });
 });

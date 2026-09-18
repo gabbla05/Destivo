@@ -194,6 +194,86 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
       expect(screen.getByText('W TRAKCIE')).toBeTruthy();
       expect(screen.getByText(/Kalkulator Walut/i)).toBeTruthy();
       expect(screen.getByText(/Lokalny numer alarmowy/i)).toBeTruthy();
+      // Upewniamy się, że blok wsparcia konsularnego został całkowicie usunięty
+      expect(screen.queryByText(/Wsparcie Konsularne/i)).toBeNull();
+    });
+  });
+
+  test('7. wycieczka w Polsce: wyświetla kalkulator walut (z możliwością zmiany waluty) i nie renderuje wsparcia konsularnego', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    const polishTripDbRow = {
+      id: 'polish-trip-1',
+      trip_name: 'Weekend w stolicy',
+      destination: 'Warszawa',
+      origin: 'Kraków',
+      start_date: today,
+      end_date: tomorrow,
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-1', title: 'Łazienki Królewskie', time: '11:00', description: 'Spacer po parku', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [polishTripDbRow],
+      array: [polishTripDbRow],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Podróż do Warszawa/i)).toBeTruthy();
+      expect(screen.getByText('Łazienki Królewskie')).toBeTruthy();
+      // Kalkulator walut jest zawsze dostępny (z możliwością wyboru dowolnej waluty)
+      expect(screen.getByText(/Kalkulator Walut/i)).toBeTruthy();
+      // Wsparcie konsularne jest całkowicie usunięte
+      expect(screen.queryByText(/Wsparcie Konsularne/i)).toBeNull();
+      // Lokalny numer alarmowy pozostaje
+      expect(screen.getByText(/Lokalny numer alarmowy/i)).toBeTruthy();
+    });
+  });
+
+  test('8. kliknięcie Dodaj atrakcję otwiera modal proponujący atrakcje nieuwzględnione na osi', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    const activeTripDbRow = {
+      id: 'active-trip-rome',
+      trip_name: 'Rzymskie wakacje',
+      destination: 'Rzym',
+      origin: 'Warszawa',
+      start_date: today,
+      end_date: tomorrow,
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-1', title: 'Koloseum', time: '10:00', description: 'Zwiedzanie', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [activeTripDbRow],
+      array: [activeTripDbRow],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Dodaj atrakcję')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText('Dodaj atrakcję'));
+
+    await waitFor(() => {
+      // Tytuł modala
+      expect(screen.getByText(/Dodaj punkt w trasie/i)).toBeTruthy();
+      // Sekcja propozycji
+      expect(screen.getByText(/Propozycje z okolicy/i)).toBeTruthy();
+      // Fontanna di Trevi powinna być zaproponowana (bo nie ma jej na osi, a Koloseum jest)
+      expect(screen.getByText('Fontanna di Trevi')).toBeTruthy();
     });
   });
 });
