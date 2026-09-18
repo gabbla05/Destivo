@@ -44,7 +44,7 @@ export interface LiveDestination {
 }
 
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
-const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'flightPricePln' | 'nearestAirport' | 'flightDate'>[] = [
+export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'flightPricePln' | 'nearestAirport' | 'flightDate'>[] = [
   // --- ORYGINALNE 7 MIAST ---
   { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600', shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.', transportCode: 'ROM' },
   { id: 'bcn_01', city: 'Barcelona', country: 'Hiszpania', lat: 41.3851, lon: 2.1734, coverImage: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600', shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.', transportCode: 'BCN' },
@@ -206,14 +206,14 @@ export const CITIES_WITH_PREDEFINED_PLANS = new Set([
 ]);
 
 // ETAP 1: Polskie lotniska wylotowe
-interface AirportInfo {
+export interface AirportInfo {
   code: string;
   city: string;
   lat: number;
   lon: number;
 }
 
-const POLISH_AIRPORTS: AirportInfo[] = [
+export const POLISH_AIRPORTS: AirportInfo[] = [
   { code: 'WAW', city: 'Warszawa', lat: 52.1672, lon: 20.9679 },
   { code: 'KRK', city: 'Kraków', lat: 50.0777, lon: 19.7848 },
   { code: 'GDN', city: 'Gdańsk', lat: 54.3776, lon: 18.4662 },
@@ -222,7 +222,7 @@ const POLISH_AIRPORTS: AirportInfo[] = [
   { code: 'POZ', city: 'Poznań', lat: 52.4210, lon: 16.8260 },
 ];
 
-function findNearestAirport(lat: number, lon: number): AirportInfo {
+export function findNearestAirport(lat: number, lon: number): AirportInfo {
   let best = POLISH_AIRPORTS[0];
   let minD = Infinity;
   for (const ap of POLISH_AIRPORTS) {
@@ -236,7 +236,7 @@ function findNearestAirport(lat: number, lon: number): AirportInfo {
 }
 
 // Funkcja pobierająca zdjęcie danej lokalizacji z Google Places
-async function fetchCityGooglePhoto(city: string, lat: number, lon: number): Promise<string | null> {
+export async function fetchCityGooglePhoto(city: string, lat: number, lon: number): Promise<string | null> {
   if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('TYMCZASOWY')) return null;
   try {
     const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lon}&radius=20000&type=tourist_attraction&key=${GOOGLE_API_KEY}`;
@@ -261,7 +261,7 @@ export function determineTransport(distanceKm: number): 'flight' | 'train' | 'ca
   return 'flight';
 }
 
-function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -274,7 +274,7 @@ function formatDateStr(ymd: string) {
   return `${d}.${m}.${y}`;
 }
 
-function getFallbackRecommendations(userLat: number, userLon: number): LiveDestination[] {
+export function getFallbackRecommendations(userLat: number, userLon: number): LiveDestination[] {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const dayAfterTomorrow = new Date();
@@ -395,7 +395,7 @@ function getFallbackRecommendations(userLat: number, userLon: number): LiveDesti
 }
 
 // ETAP 2: Weryfikacja warunków atmosferycznych i wykluczenie anomalii pogodowych
-async function fetchCityWeather(
+export async function fetchCityWeather(
   dest: (typeof DESTINATION_POOL)[0],
   userLat: number,
   userLon: number,

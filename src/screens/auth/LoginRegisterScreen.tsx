@@ -13,6 +13,7 @@ import {
   ScrollView,
   StatusBar,
   Modal,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,9 +25,15 @@ interface LoginRegisterScreenProps {
   onSuccess?: () => void;
   onBack?: () => void;
   initialMode?: 'login' | 'register';
+  initialRecoveryUrl?: string;
 }
 
-export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSuccess, onBack, initialMode = 'register' }) => {
+export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
+  onSuccess,
+  onBack,
+  initialMode = 'register',
+  initialRecoveryUrl,
+}) => {
   const { setUser, setLanguage, continueAsGuest, language } = useAuthStore();
 
   const [isLoginMode, setIsLoginMode] = useState(initialMode === 'login');
@@ -51,10 +58,70 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Forgot password modal
+  // Forgot password OTP modal
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotStage, setForgotStage] = useState<'EMAIL' | 'OTP'>('EMAIL');
   const [resetEmail, setResetEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [isRecoverySessionActive, setIsRecoverySessionActive] = useState(false);
+
+  const handleDeepLink = async (url: string | null) => {
+    if (!url || !url.includes('destivo://')) return;
+
+    try {
+      // 1. Obsługa URL z hashem (#access_token=...&refresh_token=...&type=recovery)
+      const hashIndex = url.indexOf('#');
+      if (hashIndex !== -1) {
+        const hash = url.substring(hashIndex + 1);
+        const params = new URLSearchParams(hash);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken) {
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || '',
+          });
+          setIsRecoverySessionActive(true);
+          setForgotStage('OTP');
+          setShowForgotModal(true);
+          return;
+        }
+      }
+
+      // 2. Obsługa URL z parametrami query (?code=...)
+      const queryIndex = url.indexOf('?');
+      if (queryIndex !== -1) {
+        const query = url.substring(queryIndex + 1).split('#')[0];
+        const params = new URLSearchParams(query);
+        const code = params.get('code');
+        if (code) {
+          await supabase.auth.exchangeCodeForSession(code);
+          setIsRecoverySessionActive(true);
+          setForgotStage('OTP');
+          setShowForgotModal(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Error handling deep link in LoginRegisterScreen:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (initialRecoveryUrl) {
+      handleDeepLink(initialRecoveryUrl);
+    }
+  }, [initialRecoveryUrl]);
+
+  useEffect(() => {
+    Linking.getInitialURL().then(handleDeepLink);
+    const sub = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
+    return () => sub.remove();
+  }, []);
 
   const handleLanguageChange = (nextLanguage: Language) => {
     setSelectedLanguage(nextLanguage);
@@ -162,7 +229,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
     }
   };
 
-  const handleResetPassword = async () => {
+  const handleSendOtpCode = async () => {
     const targetEmail = resetEmail.trim() || email.trim();
     if (!targetEmail) {
       Alert.alert('DESTIVO', t.errors.fieldsRequired);
@@ -171,12 +238,57 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
 
     try {
       setResetLoading(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail);
+      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: 'destivo://reset-password',
+      });
       if (error) throw error;
       setShowForgotModal(false);
-      Alert.alert('DESTIVO', t.resetLinkSent);
+      Alert.alert('DESTIVO', t.resetLinkSent || 'Link do zresetowania hasła został wysłany na Twój adres e-mail. Kliknij go na telefonie, aby ustawić nowe hasło.');
     } catch (err: any) {
-      Alert.alert('DESTIVO', err.message || 'Błąd resetowania hasła.');
+      const errorMsg =
+        typeof err === 'string'
+          ? err
+          : err?.message ||
+            err?.error_description ||
+            err?.msg ||
+            (err?.status === 500 ? 'Błąd serwera pocztowego (500). Sprawdź konfigurację SMTP w Supabase.' : 'Błąd wysyłania kodu.');
+      Alert.alert('DESTIVO', errorMsg);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleVerifyOtpAndSetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      Alert.alert('DESTIVO', t.passwordMinLength || 'Hasło musi zawierać co najmniej 6 znaków.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('DESTIVO', t.passwordsDoNotMatch || 'Wprowadzone hasła nie są identyczne.');
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+
+      // Aktualizujemy hasło zalogowanej sesji recovery
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updateError) throw updateError;
+
+      // Sukces - zamykamy modal i czyścimy formularz
+      setShowForgotModal(false);
+      setForgotStage('EMAIL');
+      setIsRecoverySessionActive(false);
+      setOtpCode('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setIsLoginMode(true);
+      Alert.alert('DESTIVO', t.passwordResetSuccess || 'Hasło zostało pomyślnie zmienione! Możesz się teraz zalogować nowym hasłem.');
+    } catch (err: any) {
+      Alert.alert('DESTIVO', err.message || 'Błąd zapisu nowego hasła.');
     } finally {
       setResetLoading(false);
     }
@@ -200,6 +312,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
               onPress={onBack}
               style={styles.backButton}
               activeOpacity={0.7}
+              testID="back-button"
             >
               <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
             </TouchableOpacity>
@@ -300,6 +413,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeBtn}
                   activeOpacity={0.7}
+                  testID="toggle-password-visibility"
                 >
                   <Ionicons
                     name={showPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -316,6 +430,10 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
                 style={styles.forgotPasswordRow}
                 onPress={() => {
                   setResetEmail(email);
+                  setForgotStage('EMAIL');
+                  setOtpCode('');
+                  setNewPassword('');
+                  setConfirmPassword('');
                   setShowForgotModal(true);
                 }}
                 activeOpacity={0.7}
@@ -393,39 +511,129 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({ onSucc
         >
           <View style={styles.modalContent}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>{t.forgotPasswordTitle}</Text>
+              <Text style={styles.modalTitle}>
+                {forgotStage === 'EMAIL' ? t.forgotPasswordTitle : (t.setNewPasswordTitle || 'Ustaw nowe hasło')}
+              </Text>
               <TouchableOpacity
                 onPress={() => setShowForgotModal(false)}
                 style={styles.modalCloseBtn}
+                testID="modal-close-button"
               >
                 <Ionicons name="close" size={22} color="#94A3B8" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>@</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={t.emailPlaceholder}
-                placeholderTextColor="#475569"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={resetEmail}
-                onChangeText={setResetEmail}
-              />
-            </View>
-            <TouchableOpacity
-              style={[styles.primaryButton, { marginTop: 16 }, resetLoading && { opacity: 0.7 }]}
-              onPress={handleResetPassword}
-              disabled={resetLoading}
-              activeOpacity={0.8}
-            >
-              {resetLoading ? (
-                <ActivityIndicator color="#0B1120" />
-              ) : (
-                <Text style={styles.primaryButtonText}>{t.sendResetLink} ➔</Text>
-              )}
-            </TouchableOpacity>
+
+            {forgotStage === 'EMAIL' ? (
+              <>
+                <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputIcon}>@</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t.emailPlaceholder}
+                    placeholderTextColor="#475569"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={resetEmail}
+                    onChangeText={setResetEmail}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { marginTop: 16 }, resetLoading && { opacity: 0.7 }]}
+                  onPress={handleSendOtpCode}
+                  disabled={resetLoading}
+                  activeOpacity={0.8}
+                >
+                  {resetLoading ? (
+                    <ActivityIndicator color="#0B1120" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>{t.sendResetLink} ➔</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalDesc}>
+                  {t.setNewPasswordDesc || 'Wprowadź nowe hasło do swojego konta Destivo.'}
+                </Text>
+
+                {/* Nowe hasło */}
+                <View style={[styles.inputGroup, { marginTop: 6 }]}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>{t.newPasswordLabel || 'NOWE HASŁO'}</Text>
+                    <Text style={styles.labelBadge}>🔒</Text>
+                  </View>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.inputIcon}>🛡️</Text>
+                    <TextInput
+                      style={[styles.input, { flex: 1, paddingRight: 40 }]}
+                      placeholder={t.newPasswordPlaceholder || 'Nowe hasło (min. 6 znaków)'}
+                      placeholderTextColor="#475569"
+                      secureTextEntry={!showNewPassword}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      testID="new-password-input"
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowNewPassword(!showNewPassword)}
+                      style={styles.eyeBtn}
+                      activeOpacity={0.7}
+                      testID="toggle-new-password-visibility"
+                    >
+                      <Ionicons
+                        name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color="#94A3B8"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Powtórz nowe hasło */}
+                <View style={[styles.inputGroup, { marginTop: 6 }]}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>{t.confirmPasswordLabel || 'POWTÓRZ NOWE HASŁO'}</Text>
+                    <Text style={styles.labelBadge}>✓</Text>
+                  </View>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.inputIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder={t.confirmPasswordPlaceholder || 'Powtórz nowe hasło'}
+                      placeholderTextColor="#475569"
+                      secureTextEntry={!showNewPassword}
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      testID="confirm-password-input"
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.primaryButton, { marginTop: 14 }, resetLoading && { opacity: 0.7 }]}
+                  onPress={handleVerifyOtpAndSetPassword}
+                  disabled={resetLoading}
+                  activeOpacity={0.8}
+                  testID="submit-new-password-btn"
+                >
+                  {resetLoading ? (
+                    <ActivityIndicator color="#0B1120" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>{t.setNewPasswordBtn || 'Ustaw nowe hasło'} ➔</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{ marginTop: 12, alignItems: 'center' }}
+                  onPress={() => setForgotStage('EMAIL')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ color: '#F59E0B', fontSize: 13, fontWeight: '600' }}>
+                    {t.backToEmailStage || '← Zmień e-mail / Wyślij ponownie'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>

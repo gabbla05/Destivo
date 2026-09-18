@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack'; // <-- 1. Importujemy Stack Navigator
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Linking } from 'react-native';
 
 import { WelcomeScreen } from './src/screens/auth/WelcomeScreen';
 import { LoginRegisterScreen } from './src/screens/auth/LoginRegisterScreen';
@@ -19,6 +20,19 @@ export default function App() {
   const { user, isGuest } = useAuthStore();
   const [currentScreen, setCurrentScreen] = useState<'welcome' | 'auth'>('welcome');
   const [authScreenMode, setAuthScreenMode] = useState<'login' | 'register'>('register');
+
+  useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      if (url && url.includes('destivo://')) {
+        setCurrentScreen('auth');
+        setAuthScreenMode('login');
+      }
+    };
+
+    Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
+  }, []);
 
   const renderContent = () => {
     // 1. Jeśli użytkownik jest zalogowany LUB wszedł jako gość -> uruchamiamy Root Stack (Dolne menu + Kreator)

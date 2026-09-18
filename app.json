@@ -2,6 +2,7 @@
   "expo": {
     "name": "Destivo",
     "slug": "destivo",
+    "scheme": "destivo",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",

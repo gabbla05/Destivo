@@ -85,7 +85,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
       
       <ImageBackground source={{ uri: destData.coverImage }} style={styles.heroImage}>
         <SafeAreaView edges={['top']} style={styles.topNav}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} testID="explore-back-button">
             <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </SafeAreaView>
