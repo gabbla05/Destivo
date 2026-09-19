@@ -13,7 +13,7 @@ import {
   Platform, 
   StatusBar 
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { useAuthStore } from '../../store/authStore';
@@ -24,6 +24,7 @@ export const Step3LodgingScreen = () => {
   const { language } = useAuthStore();
   const t = translations[language].tripCreatorStep3;
   const commonT = translations[language].common;
+  const insets = useSafeAreaInsets();
   
   const destination = useTripCreatorStore((state) => state.destination);
   const lodgingAddress = useTripCreatorStore((state) => state.lodgingAddress);
@@ -37,7 +38,7 @@ export const Step3LodgingScreen = () => {
       const url = `https://www.booking.com/searchresults.html?ss=${encodedDestination}`;
       
       // LOGOWANIE LINKU DO KONSOLI
-      console.log('🔗 Wygenerowany link do Booking.com:', url);
+      console.log('Wygenerowany link do Booking.com:', url);
       
       const supported = await Linking.canOpenURL(url);
       if (supported) {
@@ -61,7 +62,7 @@ export const Step3LodgingScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
@@ -69,7 +70,10 @@ export const Step3LodgingScreen = () => {
       >
         <View style={styles.container}>
           <ScrollView 
-            contentContainerStyle={styles.scrollContent} 
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16) }
+            ]} 
             bounces={false}
             keyboardShouldPersistTaps="handled"
           >
@@ -112,7 +116,7 @@ export const Step3LodgingScreen = () => {
                 <TextInput
                   style={styles.textInput}
                   placeholder={t.input_accommodationAddressPlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   value={localAddress}
                   onChangeText={setLocalAddress}
                   multiline
@@ -124,7 +128,7 @@ export const Step3LodgingScreen = () => {
           </ScrollView>
 
           {/* AKCJE NA DOLE EKRANU */}
-          <View style={styles.bottomActions}>
+          <View style={[styles.bottomActions, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
             <TouchableOpacity 
               style={[styles.primaryButton, localAddress.trim().length === 0 && { opacity: 0.5 }]}
               disabled={localAddress.trim().length === 0}
@@ -135,10 +139,10 @@ export const Step3LodgingScreen = () => {
             </TouchableOpacity>
 
             <View style={styles.actionButtonsRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
                 <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.7}>
                 <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
               </TouchableOpacity>
             </View>
@@ -152,37 +156,37 @@ export const Step3LodgingScreen = () => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 120, flexGrow: 1 },
+  scrollContent: { paddingHorizontal: 20, flexGrow: 1, paddingBottom: 120 },
   
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+  progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
   progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   
   header: { marginBottom: 20 },
   title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
-  subtitle: { fontSize: 14, color: '#94A3B8', lineHeight: 20 },
+  subtitle: { fontSize: 14, color: '#CBD5E1', lineHeight: 20 },
 
   bookingCard: { backgroundColor: 'rgba(56, 189, 248, 0.05)', borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.2)' },
   bookingCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   bookingTitle: { color: '#38BDF8', fontSize: 16, fontWeight: '800' },
-  bookingDesc: { color: '#94A3B8', fontSize: 13, lineHeight: 18, marginBottom: 14 },
+  bookingDesc: { color: '#CBD5E1', fontSize: 13, lineHeight: 18, marginBottom: 14 },
   bookingButton: { backgroundColor: '#0EA5E9', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
   bookingButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
 
   detailsCard: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1E293B' },
   inputGroup: { marginBottom: 4 },
-  label: { color: '#94A3B8', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 4 },
-  inputHint: { color: '#64748B', fontSize: 12, marginBottom: 10, lineHeight: 16 },
+  label: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginBottom: 4 },
+  inputHint: { color: '#94A3B8', fontSize: 12, marginBottom: 10, lineHeight: 16 },
   textInput: { backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#334155', borderRadius: 10, color: '#F8FAFC', paddingHorizontal: 14, paddingTop: 14, paddingBottom: 14, minHeight: 80, fontSize: 14 },
 
-  bottomActions: { paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B1120' },
+  bottomActions: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B1120' },
   primaryButton: { backgroundColor: '#F59E0B', height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  actionButtonsRow: { flexDirection: 'row', gap: 8 },
-  secondaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
-  tertiaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#475569' },
-  tertiaryButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '500' },
+  actionButtonsRow: { flexDirection: 'row', gap: 12 },
+  secondaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
+  tertiaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  tertiaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
 });

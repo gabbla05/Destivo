@@ -96,7 +96,7 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
     });
   });
 
-  test('3. powinien wyrenderować listę transportów i ustawić pierwszy jako domyślny', async () => {
+  test('3. powinien wyrenderować listę transportów i pozwolić zaznaczyć opcję', async () => {
     const mockOptions = [
       { id: 'flight-1', type: 'flight', provider: 'Skyscanner', price: { status: 'LIVE', currency: 'PLN' } },
       { id: 'train-1', type: 'train', provider: 'Koleo', price: { status: 'LIVE', currency: 'PLN' } }
@@ -108,10 +108,11 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
     await waitFor(() => {
       expect(screen.getByText('Samolot')).toBeTruthy();
       expect(screen.getByText('Pociąg')).toBeTruthy();
-      
-      // Sprawdzamy czy auto-zaznaczyło pierwszą opcję
-      expect(mockSetTransportOption).toHaveBeenCalledWith(mockOptions[0]);
     });
+
+    // Sprawdzamy czy kliknięcie zaznacza opcję
+    fireEvent.press(screen.getByText('Samolot'));
+    expect(mockSetTransportOption).toHaveBeenCalledWith(mockOptions[0]);
   });
 
   test('4. powinien wyrenderować formularz "Szczegóły połączenia" po wybraniu opcji transportu', async () => {

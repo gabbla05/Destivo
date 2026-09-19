@@ -132,7 +132,7 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
     expect(screen.getByText(/Wymaga własnego planu/i)).toBeTruthy();
 
     // Pastylka transportu
-    expect(screen.getAllByText(/✈️ Lot/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Lot/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/z WAW/i)).toBeTruthy();
     expect(screen.getByText(/z KRK/i)).toBeTruthy();
   });

@@ -1,13 +1,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, ImageBackground, TouchableOpacity, Linking, Alert, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveDestination } from '../lib/liveExplore';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import { useTripCreatorStore } from '../store/tripCreatorStore';
 
 export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets();
   const { destData } = route.params as { destData: LiveDestination };
   const trip = destData.proposedTrip;
   const { language } = useAuthStore();
@@ -115,9 +116,13 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                 ? styles.transportIconColCar
                 : styles.transportIconColFlight
           ]}>
-            <Text style={styles.transportIconText}>
-              {destData.recommendedTransport === 'flight' ? '✈️' : destData.recommendedTransport === 'train' ? '🚆' : '🚗'}
-            </Text>
+            {destData.recommendedTransport === 'train' ? (
+              <Ionicons name="train" size={24} color="#818CF8" />
+            ) : destData.recommendedTransport === 'car' ? (
+              <Ionicons name="car" size={24} color="#F59E0B" />
+            ) : (
+              <Ionicons name="airplane" size={24} color="#38BDF8" />
+            )}
           </View>
           <View style={styles.transportTextCol}>
             <Text style={[
@@ -129,10 +134,10 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                   : styles.transportTitleFlight
             ]}>
               {destData.recommendedTransport === 'flight'
-                ? (t.transportFlightTitle || '✈️ Połączenie lotnicze')
+                ? (t.transportFlightTitle || 'Połączenie lotnicze').replace('✈️ ', '')
                 : destData.recommendedTransport === 'train'
-                  ? (t.transportTrainTitle || '🚆 Połączenie kolejowe')
-                  : (t.transportCarTitle || '🚗 Podróż samochodem ({{distance}} km)').replace('{{distance}}', String(destData.distanceKm || ''))}
+                  ? (t.transportTrainTitle || 'Połączenie kolejowe').replace('🚆 ', '')
+                  : (t.transportCarTitle || 'Podróż samochodem ({{distance}} km)').replace('🚗 ', '').replace('{{distance}}', String(destData.distanceKm || ''))}
             </Text>
             <Text style={styles.transportDescText}>
               {destData.recommendedTransport === 'flight'
@@ -147,9 +152,9 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         {/* REKOMENDACJA POGODOWA I LOGISTYCZNA */}
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>{t.proposedTripTitle}</Text>
-          <Text style={styles.highlightText}>{t.dateRange.replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
-          <Text style={styles.highlightText}>{t.forecast.replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
-          <Text style={styles.highlightText}>{t.crowd.replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
+          <Text style={styles.highlightText}>{t.dateRange.replace('🗓️ ', '').replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
+          <Text style={styles.highlightText}>{t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
+          <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
         </View>
 
         <Text style={styles.description}>{description}</Text>
@@ -172,7 +177,10 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                 <View style={styles.tagsContainer}>
                   {dayPlan.attractions.map((attr, idx) => (
                     <View key={idx} style={styles.tag}>
-                      <Text style={styles.tagText}>📍 {attr}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="location-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                        <Text style={styles.tagText}>{attr}</Text>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -183,7 +191,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
           /* BRAK PREDEFINIOWANEGO SZABLONU - ZBUDUJ WŁASNY PLAN W KREATORZE */
           <View style={styles.customPlanNoticeBox}>
             <View style={styles.customPlanHeaderRow}>
-              <Text style={styles.customPlanHeaderIcon}>💡</Text>
+              <Ionicons name="bulb-outline" size={22} color="#F59E0B" style={{ marginRight: 8 }} />
               <Text style={styles.customPlanNoticeTitle}>
                 {t.customPlanNoticeTitle || 'Brak gotowego szablonu wycieczki'}
               </Text>
@@ -196,25 +204,40 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
               activeOpacity={0.85}
               onPress={handleBuildCustomPlan}
             >
-              <Text style={styles.planOwnTripInlineBtnText}>
-                {t.planOwnTripBtn || '🛠️ Zbuduj własny plan wycieczki'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="construct-outline" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
+                <Text style={styles.planOwnTripInlineBtnText}>
+                  {(t.planOwnTripBtn || 'Zbuduj własny plan wycieczki').replace('🛠️ ', '')}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
 
       {/* PRZYCISKI AKCJI NA DOLE */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
         <View style={styles.rowButtons}>
           <TouchableOpacity style={styles.actionButton} onPress={handleCheckTransport}>
-            <Text style={styles.actionButtonText}>
-              {destData.recommendedTransport === 'flight' ? t.checkFlights : 
-               destData.recommendedTransport === 'train' ? t.checkTrains : t.checkRoute}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons 
+                name={destData.recommendedTransport === 'train' ? 'train-outline' : destData.recommendedTransport === 'car' ? 'car-outline' : 'airplane-outline'} 
+                size={15} 
+                color="#38BDF8" 
+                style={{ marginRight: 6 }} 
+              />
+              <Text style={styles.actionButtonText}>
+                {(destData.recommendedTransport === 'flight' ? t.checkFlights : 
+                 destData.recommendedTransport === 'train' ? t.checkTrains : t.checkRoute)
+                 .replace('✈️ ', '').replace('🚆 ', '').replace('🚗 ', '')}
+              </Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleCheckLodging}>
-            <Text style={styles.actionButtonText}>{t.lodging}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="bed-outline" size={15} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.actionButtonText}>{t.lodging.replace('🏨 ', '')}</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -230,9 +253,12 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
             style={styles.primaryButton} 
             onPress={handleBuildCustomPlan}
           >
-            <Text style={styles.primaryButtonText}>
-              {t.planOwnTripBtn || '🛠️ Zbuduj własny plan w kreatorze'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="construct-outline" size={18} color="#0F172A" style={{ marginRight: 8 }} />
+              <Text style={styles.primaryButtonText}>
+                {(t.planOwnTripBtn || 'Zbuduj własny plan w kreatorze').replace('🛠️ ', '')}
+              </Text>
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -369,7 +395,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customPlanNoticeDesc: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 13,
     lineHeight: 19,
     marginBottom: 14,

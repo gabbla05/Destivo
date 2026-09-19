@@ -332,7 +332,7 @@ export const TripsListScreen = ({ navigation }: any) => {
         <TextInput
           style={styles.searchInput}
           placeholder={t.searchPlaceholder || "Szukaj podróży po nazwie..."}
-          placeholderTextColor="#64748B"
+          placeholderTextColor="#94A3B8"
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"
@@ -553,7 +553,7 @@ const styles = StyleSheet.create({
   tabContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 12, gap: 10 },
   tabButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#111827' },
   tabButtonActive: { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: '#38BDF8' },
-  tabText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
+  tabText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' },
   tabTextActive: { color: '#38BDF8' },
 
   // Wyszukiwarka
@@ -574,13 +574,13 @@ const styles = StyleSheet.create({
   clearSearchBtn: { padding: 4 },
 
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: 40 },
-  emptyText: { color: '#94A3B8', fontSize: 15, marginBottom: 20 },
+  emptyText: { color: '#CBD5E1', fontSize: 15, marginBottom: 20 },
   primaryButton: { backgroundColor: '#F59E0B', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
   
   noResultsBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-  noResultsText: { color: '#94A3B8', fontSize: 14 },
+  noResultsText: { color: '#CBD5E1', fontSize: 14 },
 
   // Kafelki podróży ze zdjęciem w tle (atrakcyjny wygląd)
   card: { 
@@ -660,10 +660,10 @@ const styles = StyleSheet.create({
   // Karta statystyk
   statsCard: { backgroundColor: '#111827', borderRadius: 20, padding: 22, marginBottom: 20, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' },
   statsTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 6 },
-  statsSubtitle: { color: '#94A3B8', fontSize: 13, textAlign: 'center', marginBottom: 18, paddingHorizontal: 10, lineHeight: 18 },
+  statsSubtitle: { color: '#CBD5E1', fontSize: 13, textAlign: 'center', marginBottom: 18, paddingHorizontal: 10, lineHeight: 18 },
   statsRow: { flexDirection: 'row', width: '100%', justifyContent: 'center', alignItems: 'center' },
   statCol: { alignItems: 'center', flex: 1 },
   statValue: { color: '#F59E0B', fontSize: 24, fontWeight: '900' },
-  statLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
+  statLabel: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
   statDivider: { width: 1, height: 36, backgroundColor: '#1E293B' },
 });

@@ -94,7 +94,7 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
               <Ionicons name="key-outline" size={20} color="#38BDF8" style={styles.icon} />
               <Text style={styles.rowText}>{t.resetPassword}</Text>
             </View>
-            {loading ? <ActivityIndicator color="#38BDF8" /> : <Ionicons name="chevron-forward" size={20} color="#475569" />}
+            {loading ? <ActivityIndicator color="#38BDF8" /> : <Ionicons name="chevron-forward" size={20} color="#94A3B8" />}
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.row} onPress={handleResetVaultPin}>
@@ -102,7 +102,7 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
               <Ionicons name="shield-outline" size={20} color="#F59E0B" style={styles.icon} />
               <Text style={styles.rowText}>{t.resetVaultPin}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#475569" />
+            <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
           </TouchableOpacity>
         </View>
 
@@ -114,7 +114,7 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
               <Ionicons name="document-text-outline" size={20} color="#10B981" style={styles.icon} />
               <Text style={styles.rowText}>{t.privacyPolicy}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#475569" />
+            <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
           </TouchableOpacity>
         </View>
 
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   backBtn: { marginRight: 16 },
   headerTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
   content: { flex: 1, padding: 20 },
-  sectionTitle: { color: '#64748B', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8, paddingLeft: 4 },
+  sectionTitle: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8, paddingLeft: 4 },
   card: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 24, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
   borderBottom: { borderBottomWidth: 1, borderBottomColor: '#1E293B' },

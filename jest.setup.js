@@ -24,3 +24,12 @@ jest.mock('@powersync/react-native', () => ({
   Schema: jest.fn(),
   column: { text: 'text', integer: 'integer', real: 'real' },
 }));
+
+// Mock react-native-safe-area-context
+jest.mock('react-native-safe-area-context', () => {
+  const actual = jest.requireActual('react-native-safe-area-context');
+  return {
+    ...actual,
+    useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
+  };
+});

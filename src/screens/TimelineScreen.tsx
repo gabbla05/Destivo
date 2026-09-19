@@ -1022,7 +1022,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                 <TextInput 
                   style={styles.input} 
                   placeholder={t.titlePlaceholder} 
-                  placeholderTextColor="#475569" 
+                  placeholderTextColor="#94A3B8" 
                   value={newTitle} 
                   onChangeText={setNewTitle} 
                 />
@@ -1036,7 +1036,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                     <TextInput 
                       style={[styles.input, { flex: 1 }]} 
                       placeholder={t.datePlaceholder} 
-                      placeholderTextColor="#475569" 
+                      placeholderTextColor="#94A3B8" 
                       value={newDateStr} 
                       onChangeText={setNewDateStr} 
                     />
@@ -1057,7 +1057,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                     <TextInput 
                       style={[styles.input, { flex: 1 }]} 
                       placeholder={t.timePlaceholder} 
-                      placeholderTextColor="#475569" 
+                      placeholderTextColor="#94A3B8" 
                       value={newTimeStr} 
                       onChangeText={setNewTimeStr} 
                     />
@@ -1173,7 +1173,7 @@ const styles = StyleSheet.create({
   eventRow: { flexDirection: 'row', marginBottom: 22, alignItems: 'flex-start' },
   dateTimeColumn: { width: 60, alignItems: 'flex-end', paddingTop: 6 },
   timeText: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
-  dateText: { color: '#64748B', fontSize: 10, fontWeight: '600', marginTop: 2 },
+  dateText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', marginTop: 2 },
   nodeColumn: { width: 36, alignItems: 'center', position: 'relative' },
   iconContainer: { 
     width: 32, 
@@ -1233,7 +1233,7 @@ const styles = StyleSheet.create({
   cardHeaderTexts: { flex: 1, paddingRight: 8 },
   eventTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 4 },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  eventSubtitle: { color: '#94A3B8', fontSize: 12, lineHeight: 16, flex: 1 },
+  eventSubtitle: { color: '#CBD5E1', fontSize: 12, lineHeight: 16, flex: 1 },
   dotsButton: { 
     width: 28, 
     height: 28, 
@@ -1242,7 +1242,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     alignItems: 'center' 
   },
-  textPast: { color: '#64748B' },
+  textPast: { color: '#94A3B8' },
   
   // Badge Teraz / Następne
   currentBadgeContainer: {
@@ -1393,7 +1393,7 @@ const styles = StyleSheet.create({
     alignItems: 'center' 
   },
   modalSectionTitle: { color: '#38BDF8', fontSize: 13, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 },
-  modalHint: { color: '#64748B', fontSize: 12, marginBottom: 12 },
+  modalHint: { color: '#CBD5E1', fontSize: 12, marginBottom: 12 },
   divider: { height: 1, backgroundColor: '#1E293B', marginVertical: 18 },
   addBtn: { backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   addBtnText: { color: '#0F172A', fontSize: 14, fontWeight: '800' },

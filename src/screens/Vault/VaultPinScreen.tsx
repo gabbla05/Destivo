@@ -154,9 +154,9 @@ export const VaultPinScreen = () => {
         redirectTo: 'destivo://reset-password',
       });
       if (error) throw error;
-      Alert.alert('DESTIVO', 'Link do zresetowania hasła został wysłany na Twój adres e-mail.');
+      Alert.alert(commonT.success || 'DESTIVO', t.resetLinkSent || 'Link do zresetowania hasła został wysłany na Twój adres e-mail.');
     } catch (e: any) {
-      Alert.alert('DESTIVO', e?.message || 'Błąd wysyłania linku resetującego.');
+      Alert.alert(t.error || 'DESTIVO', e?.message || t.resetLinkError || 'Błąd wysyłania linku resetującego.');
     } finally {
       setResetLoading(false);
     }
@@ -236,8 +236,8 @@ export const VaultPinScreen = () => {
       </View>
 
       <View style={styles.footer}>
-        <Ionicons name="shield-checkmark-outline" size={13} color="#475569" style={{ marginRight: 6 }} />
-        <Text style={styles.footerText}>{t.encryptedProtection}</Text>
+        <Ionicons name="shield-checkmark-outline" size={13} color="#94A3B8" style={{ marginRight: 6 }} />
+        <Text style={styles.footerText}>{t.footerNotice || 'DESTIVO END-TO-END LOCAL ENCRYPTION'}</Text>
       </View>
 
       {/* MODAL RESETOWANIA KODU PIN (FORGOT PIN) */}
@@ -278,7 +278,7 @@ export const VaultPinScreen = () => {
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>{t.emailLabel || 'ADRES E-MAIL'}</Text>
                     <View style={styles.inputContainerDisabled}>
-                      <Ionicons name="mail-outline" size={18} color="#64748B" style={{ marginRight: 10 }} />
+                      <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                       <Text style={styles.disabledEmailText}>{user.email}</Text>
                     </View>
                   </View>
@@ -290,7 +290,7 @@ export const VaultPinScreen = () => {
                       <TextInput
                         style={[styles.input, { flex: 1, paddingRight: 40 }]}
                         placeholder={t.passwordPlaceholder || 'Wpisz hasło do konta'}
-                        placeholderTextColor="#475569"
+                        placeholderTextColor="#94A3B8"
                         secureTextEntry={!showResetPassword}
                         value={resetPassword}
                         onChangeText={setResetPassword}
@@ -422,14 +422,14 @@ const styles = StyleSheet.create({
   },
   biometricText: { color: '#CBD5E1', fontSize: 13, fontWeight: '600' },
   forgotButton: { marginTop: 18, paddingVertical: 6, paddingHorizontal: 12 },
-  forgotText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
+  forgotText: { color: '#F59E0B', fontSize: 13, fontWeight: '700' },
   footer: { 
     flexDirection: 'row',
     paddingBottom: 24, 
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footerText: { color: '#475569', fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
+  footerText: { color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
 
   // Style Modala Forgot PIN
   modalOverlay: { 

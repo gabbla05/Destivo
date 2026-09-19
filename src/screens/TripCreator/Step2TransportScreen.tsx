@@ -28,7 +28,7 @@ import {
 import { VaultManager } from '../../lib/vaultManager';
 import { useAuthStore } from '../../store/authStore';
 import { translations } from '../../i18n/translations';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // --- NARZĘDZIE DO SZYBKIEGO LICZENIA DYSTANSU (GEOKODOWANIE) ---
 const getCoords = async (query: string) => {
@@ -91,6 +91,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
   const t = translations[language].transport;
   const step2T = translations[language].tripCreatorStep2;
   const commonT = translations[language].common;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [options, setOptions] = useState<TransportOption[]>([]);
@@ -162,9 +163,6 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
         });
 
         setOptions(filtered);
-        if (!transport.selectedOption && filtered.length > 0) {
-          setTransportOption(filtered[0]);
-        }
       } catch (error: unknown) {
         if (isMounted) {
           setErrorMessage(t.noDataText);
@@ -391,7 +389,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -403,6 +401,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             contentContainerStyle={[
               styles.scrollContent,
               {
+                paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
                   ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40)
                   : 120,
@@ -471,7 +470,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                     <TouchableOpacity
                       key={item.id}
                       activeOpacity={0.85}
-                      onPress={() => setTransportOption(item)}
+                      onPress={() => setTransportOption(isSelected ? null : item)}
                       style={[styles.card, isSelected && styles.cardSelected]}
                     >
                       <View style={styles.cardHeaderRow}>
@@ -565,7 +564,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                           <TextInput
                             style={styles.input}
                             placeholder="..."
-                            placeholderTextColor="#475569"
+                            placeholderTextColor="#94A3B8"
                             value={transportDetails.outboundDepartureLocation}
                             onChangeText={(txt) => setTransportDetails({ outboundDepartureLocation: txt })}
                             onBlur={() =>
@@ -590,7 +589,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                           <TextInput
                             style={styles.input}
                             placeholder="..."
-                            placeholderTextColor="#475569"
+                            placeholderTextColor="#94A3B8"
                             value={transportDetails.outboundArrivalLocation}
                             onChangeText={(txt) => setTransportDetails({ outboundArrivalLocation: txt })}
                             onBlur={() =>
@@ -623,7 +622,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                             <TextInput
                               style={styles.timeTextInput}
                               placeholder={t.timePlaceholder}
-                              placeholderTextColor="#475569"
+                              placeholderTextColor="#94A3B8"
                               value={transportDetails.outboundDepartureTime}
                               onChangeText={(txt) => setTransportDetails({ outboundDepartureTime: txt })}
                               keyboardType="numbers-and-punctuation"
@@ -646,7 +645,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                             <TextInput
                               style={styles.timeTextInput}
                               placeholder={t.timePlaceholder}
-                              placeholderTextColor="#475569"
+                              placeholderTextColor="#94A3B8"
                               value={transportDetails.outboundArrivalTime}
                               onChangeText={(txt) => setTransportDetails({ outboundArrivalTime: txt })}
                               keyboardType="numbers-and-punctuation"
@@ -669,7 +668,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                               <TextInput
                                 style={styles.input}
                                 placeholder="..."
-                                placeholderTextColor="#475569"
+                                placeholderTextColor="#94A3B8"
                                 value={transportDetails.returnDepartureLocation}
                                 onChangeText={(txt) => setTransportDetails({ returnDepartureLocation: txt })}
                                 onBlur={() =>
@@ -694,7 +693,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                               <TextInput
                                 style={styles.input}
                                 placeholder="..."
-                                placeholderTextColor="#475569"
+                                placeholderTextColor="#94A3B8"
                                 value={transportDetails.returnArrivalLocation}
                                 onChangeText={(txt) => setTransportDetails({ returnArrivalLocation: txt })}
                                 onBlur={() =>
@@ -727,7 +726,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                                 <TextInput
                                   style={styles.timeTextInput}
                                   placeholder={t.timePlaceholder}
-                                  placeholderTextColor="#475569"
+                                  placeholderTextColor="#94A3B8"
                                   value={transportDetails.returnDepartureTime}
                                   onChangeText={(txt) => setTransportDetails({ returnDepartureTime: txt })}
                                   keyboardType="numbers-and-punctuation"
@@ -750,7 +749,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                                 <TextInput
                                   style={styles.timeTextInput}
                                   placeholder={t.timePlaceholder}
-                                  placeholderTextColor="#475569"
+                                  placeholderTextColor="#94A3B8"
                                   value={transportDetails.returnArrivalTime}
                                   onChangeText={(txt) => setTransportDetails({ returnArrivalTime: txt })}
                                   keyboardType="numbers-and-punctuation"
@@ -823,20 +822,30 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             />
           )}
 
-          <View style={styles.bottomActions}>
+          <View style={[styles.bottomActions, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
             <TouchableOpacity
-              style={[styles.primaryButton, !transport.selectedOption && { opacity: 0.5 }]}
+              style={[
+                styles.primaryButton,
+                !transport.selectedOption && styles.primaryButtonDisabled,
+              ]}
               disabled={!transport.selectedOption}
               onPress={() => navigation?.navigate('Step3')}
               activeOpacity={0.8}
             >
-              <Text style={styles.primaryButtonText}>{commonT.button_nextStep}</Text>
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  !transport.selectedOption && styles.primaryButtonTextDisabled,
+                ]}
+              >
+                {commonT.button_nextStep}
+              </Text>
             </TouchableOpacity>
             <View style={styles.actionButtonsRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
                 <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => navigation?.navigate('Step3')} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={() => navigation?.navigate('Step3')} activeOpacity={0.7}>
                 <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
               </TouchableOpacity>
             </View>
@@ -850,33 +859,33 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+  progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
   progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 },
-  title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF' },
-  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  header: { marginBottom: 20 },
+  title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
+  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   routeCity: { fontSize: 14, fontWeight: '700', color: '#F59E0B', letterSpacing: 0.5 },
-  desc: { fontSize: 13, color: '#94A3B8', marginTop: 4, lineHeight: 18 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 120, flexGrow: 1 },
+  desc: { fontSize: 14, color: '#CBD5E1', lineHeight: 20 },
+  scrollContent: { paddingHorizontal: 20, flexGrow: 1 },
   loaderContainer: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
-  loaderText: { color: '#94A3B8', marginTop: 12, fontSize: 14, fontWeight: '500' },
+  loaderText: { color: '#CBD5E1', marginTop: 12, fontSize: 14, fontWeight: '500' },
   errorBox: { backgroundColor: 'rgba(248, 113, 113, 0.08)', borderWidth: 1, borderColor: 'rgba(248, 113, 113, 0.35)', borderRadius: 12, padding: 12, marginBottom: 14 },
   errorHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   errorTitle: { color: '#F87171', fontSize: 13, fontWeight: '800' },
   errorText: { color: '#CBD5E1', fontSize: 12, lineHeight: 17 },
   emptyBox: { backgroundColor: '#111827', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' },
   emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', marginBottom: 6 },
-  emptyText: { color: '#94A3B8', fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  emptyText: { color: '#CBD5E1', fontSize: 13, lineHeight: 18, textAlign: 'center' },
   card: { backgroundColor: '#111827', borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#1E293B' },
   cardSelected: { borderColor: '#F59E0B', backgroundColor: '#162032' },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   typeIconWrapper: { width: 40, height: 40, borderRadius: 10, backgroundColor: 'rgba(255, 255, 255, 0.04)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   providerInfo: { flex: 1, marginRight: 10 },
   typeTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
-  providerSubtitle: { color: '#94A3B8', fontSize: 13, marginTop: 2, fontWeight: '500' },
+  providerSubtitle: { color: '#CBD5E1', fontSize: 13, marginTop: 2, fontWeight: '500' },
   selectedBadge: { marginLeft: 6 },
   notesBox: { marginBottom: 12, paddingHorizontal: 2, gap: 4 },
   noteRow: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -886,21 +895,40 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 12, marginTop: 8 },
   bookButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#38BDF8', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   bookButtonText: { color: '#38BDF8', fontSize: 12, fontWeight: '700' },
-  bottomActions: { paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B1120' },
-  primaryButton: { backgroundColor: '#F59E0B', height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  bottomActions: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B1120' },
+  primaryButton: { 
+    backgroundColor: '#F59E0B', 
+    height: 48, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginBottom: 8,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: '#1E293B',
+    opacity: 0.5,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  actionButtonsRow: { flexDirection: 'row', gap: 8 },
-  secondaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
-  tertiaryButton: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#475569' },
-  tertiaryButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '500' },
+  primaryButtonTextDisabled: { color: '#94A3B8' },
+  actionButtonsRow: { flexDirection: 'row', gap: 12 },
+  secondaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
+  tertiaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  tertiaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
   
   detailsContainer: { marginTop: 16 },
   detailsTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
   detailsCard: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1E293B' },
   detailsSectionTitle: { color: '#38BDF8', fontSize: 13, fontWeight: '700', marginBottom: 12, textTransform: 'uppercase' },
   fullWidthInputGroup: { marginBottom: 12 },
-  label: { color: '#94A3B8', fontSize: 11, fontWeight: '600', marginBottom: 6 },
+  label: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', marginBottom: 6 },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',

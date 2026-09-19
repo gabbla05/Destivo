@@ -387,7 +387,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                 value={newFileName}
                 onChangeText={setNewFileName}
                 placeholder={t.fileNamePlaceholder || 'np. Bilet lotniczy'}
-                placeholderTextColor="#64748B"
+                placeholderTextColor="#94A3B8"
                 autoFocus
               />
             </View>
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   folderTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: '700', textAlign: 'center', marginBottom: 4 },
-  folderSub: { color: '#64748B', fontSize: 11, fontWeight: '600' },
+  folderSub: { color: '#CBD5E1', fontSize: 11, fontWeight: '600' },
   
   tripTitleLabel: { color: '#F59E0B', fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 4 },
   tripTitle: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', marginBottom: 20 },
@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed' 
   },
   emptyText: { color: '#CBD5E1', fontSize: 15, fontWeight: '700', marginBottom: 8 },
-  emptySub: { color: '#64748B', fontSize: 13, textAlign: 'center', paddingHorizontal: 30, lineHeight: 18 },
+  emptySub: { color: '#CBD5E1', fontSize: 13, textAlign: 'center', paddingHorizontal: 30, lineHeight: 18 },
 
   // Style Modala Nadawania Nazwy
   modalOverlay: { 

@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   },
   subtitleTop: {
     fontSize: 15,
-    color: '#94A3B8',
+    color: '#CBD5E1',
     textAlign: 'center',
     fontWeight: '400',
   },
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   guestButtonText: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 1,

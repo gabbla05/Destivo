@@ -134,29 +134,29 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>{t.originLabel}</Text>
-            <TextInput style={styles.input} placeholder={t.originPlaceholder} placeholderTextColor="#475569" value={origin} onChangeText={setOrigin} />
+            <TextInput style={styles.input} placeholder={t.originPlaceholder} placeholderTextColor="#94A3B8" value={origin} onChangeText={setOrigin} />
           </View>
 
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>{t.departureDateLabel}</Text>
-              <TextInput style={styles.input} placeholder={t.datePlaceholder} placeholderTextColor="#475569" value={startDate} onChangeText={setStartDate} />
+              <TextInput style={styles.input} placeholder={t.datePlaceholder} placeholderTextColor="#94A3B8" value={startDate} onChangeText={setStartDate} />
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
               <Text style={styles.label}>{t.returnDateLabel}</Text>
-              <TextInput style={styles.input} placeholder={t.datePlaceholder} placeholderTextColor="#475569" value={endDate} onChangeText={setEndDate} />
+              <TextInput style={styles.input} placeholder={t.datePlaceholder} placeholderTextColor="#94A3B8" value={endDate} onChangeText={setEndDate} />
             </View>
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>{t.lodgingLabel}</Text>
-            <TextInput style={styles.input} placeholder={t.lodgingPlaceholder} placeholderTextColor="#475569" value={lodging} onChangeText={setLodging} />
+            <TextInput style={styles.input} placeholder={t.lodgingPlaceholder} placeholderTextColor="#94A3B8" value={lodging} onChangeText={setLodging} />
           </View>
 
           <TouchableOpacity style={styles.primaryButton} onPress={handleSaveTrip}>
             <Text style={styles.primaryButtonText}>{t.saveAndFinish}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
             <Text style={styles.secondaryButtonText}>{t.cancel}</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -169,15 +169,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1120' },
   content: { padding: 24, paddingTop: 20, paddingBottom: 100, flexGrow: 1 },
   title: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8 },
-  subtitle: { color: '#94A3B8', fontSize: 14, lineHeight: 20, marginBottom: 30 },
+  subtitle: { color: '#CBD5E1', fontSize: 14, lineHeight: 20, marginBottom: 30 },
   inputGroup: { marginBottom: 20 },
   row: { flexDirection: 'row' },
-  label: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold', marginBottom: 8 },
+  label: { color: '#CBD5E1', fontSize: 12, fontWeight: 'bold', marginBottom: 8 },
   input: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, color: '#FFF', paddingHorizontal: 16, height: 50 },
   readOnlyInput: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingHorizontal: 16, height: 50, justifyContent: 'center' },
   readOnlyInputText: { color: '#F8FAFC', fontSize: 15, fontWeight: '600' },
   primaryButton: { backgroundColor: '#F59E0B', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: 'bold' },
-  secondaryButton: { height: 50, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' }
+  secondaryButton: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 10, backgroundColor: 'transparent' },
+  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' }
 });

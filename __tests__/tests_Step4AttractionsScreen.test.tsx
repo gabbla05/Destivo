@@ -162,7 +162,6 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     await waitFor(() => {
       expect(screen.getByText('Koloseum')).toBeTruthy();
       expect(screen.getByText('Panteon')).toBeTruthy();
-      expect(screen.getByText('Sortuj wg odległości')).toBeTruthy();
     });
   });
 
@@ -300,10 +299,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
   test('7. powinien wrócić do poprzedniego ekranu po kliknięciu przycisku Wstecz', () => {
     render(<Step4AttractionsScreen />);
     
-    // Szukamy przycisku cofania (ma w środku tekst '←', zakodowany często jako puste miejsce lub ikonka)
-    // Łatwiej znaleźć go przez testID, ale tu użyjemy getByText jeśli ikonka to konkretny znak, 
-    // lub po prostu odpalimy pierwszy przycisk w topNav. Dla uproszczenia:
-    const backButton = screen.getByText('←'); // Dopasuj do znaku jakiego używasz w <Text style={styles.backIcon}>
+    const backButton = screen.getByText('Wróć');
     fireEvent.press(backButton);
 
     expect(mockNavigate.mock.calls.length).toBe(0); // Nie idziemy do przodu

@@ -361,11 +361,11 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
                   <Text style={styles.labelBadge}>{t.required}</Text>
                 </View>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputIcon}>👤</Text>
+                  <Ionicons name="person-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                   <TextInput
                     style={styles.input}
                     placeholder={t.fullNamePlaceholder}
-                    placeholderTextColor="#475569"
+                    placeholderTextColor="#94A3B8"
                     value={fullName}
                     onChangeText={setFullName}
                   />
@@ -380,11 +380,11 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
                 <Text style={styles.labelBadge}>{t.secureData}</Text>
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>@</Text>
+                <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                 <TextInput
                   style={styles.input}
                   placeholder={t.emailPlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   value={email}
@@ -397,14 +397,14 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>{t.password}</Text>
-                <Text style={styles.labelBadge}>🔒</Text>
+                <Ionicons name="lock-closed-outline" size={12} color="#94A3B8" />
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🛡️</Text>
+                <Ionicons name="shield-checkmark-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                 <TextInput
                   style={[styles.input, { flex: 1, paddingRight: 40 }]}
                   placeholder={t.passwordPlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
@@ -450,7 +450,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
                 onPress={() => setAgreed(!agreed)}
               >
                 <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
-                  {agreed && <Text style={styles.checkboxTick}>✓</Text>}
+                  {agreed && <Ionicons name="checkmark" size={14} color="#0B1120" />}
                 </View>
                 <Text style={styles.termsText}>{t.agreeTerms}</Text>
               </TouchableOpacity>
@@ -527,11 +527,11 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
               <>
                 <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputIcon}>@</Text>
+                  <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                   <TextInput
                     style={styles.input}
                     placeholder={t.emailPlaceholder}
-                    placeholderTextColor="#475569"
+                    placeholderTextColor="#94A3B8"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     value={resetEmail}
@@ -561,14 +561,14 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
                 <View style={[styles.inputGroup, { marginTop: 6 }]}>
                   <View style={styles.labelRow}>
                     <Text style={styles.label}>{t.newPasswordLabel || 'NOWE HASŁO'}</Text>
-                    <Text style={styles.labelBadge}>🔒</Text>
+                    <Ionicons name="lock-closed-outline" size={12} color="#94A3B8" />
                   </View>
                   <View style={styles.inputContainer}>
-                    <Text style={styles.inputIcon}>🛡️</Text>
+                    <Ionicons name="shield-checkmark-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                     <TextInput
                       style={[styles.input, { flex: 1, paddingRight: 40 }]}
                       placeholder={t.newPasswordPlaceholder || 'Nowe hasło (min. 6 znaków)'}
-                      placeholderTextColor="#475569"
+                      placeholderTextColor="#94A3B8"
                       secureTextEntry={!showNewPassword}
                       value={newPassword}
                       onChangeText={setNewPassword}
@@ -593,14 +593,14 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
                 <View style={[styles.inputGroup, { marginTop: 6 }]}>
                   <View style={styles.labelRow}>
                     <Text style={styles.label}>{t.confirmPasswordLabel || 'POWTÓRZ NOWE HASŁO'}</Text>
-                    <Text style={styles.labelBadge}>✓</Text>
+                    <Ionicons name="checkmark" size={12} color="#94A3B8" />
                   </View>
                   <View style={styles.inputContainer}>
-                    <Text style={styles.inputIcon}>🔒</Text>
+                    <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                     <TextInput
                       style={styles.input}
                       placeholder={t.confirmPasswordPlaceholder || 'Powtórz nowe hasło'}
-                      placeholderTextColor="#475569"
+                      placeholderTextColor="#94A3B8"
                       secureTextEntry={!showNewPassword}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
@@ -761,13 +761,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   label: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.8,
   },
   labelBadge: {
-    color: '#64748B',
+    color: '#94A3B8',
     fontSize: 10,
     fontWeight: '600',
   },
@@ -784,7 +784,7 @@ const styles = StyleSheet.create({
   inputIcon: {
     fontSize: 16,
     marginRight: 10,
-    color: '#64748B',
+    color: '#94A3B8',
   },
   input: {
     flex: 1,
@@ -817,7 +817,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   termsText: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 11,
     flex: 1,
   },
@@ -844,7 +844,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   footerText: {
-    color: '#64748B',
+    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -858,7 +858,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   guestButtonText: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 1,
@@ -909,7 +909,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   modalDesc: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 13,
     lineHeight: 19,
     marginBottom: 16,

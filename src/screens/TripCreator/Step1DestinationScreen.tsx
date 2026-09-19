@@ -14,7 +14,7 @@ import {
   Keyboard,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
@@ -80,6 +80,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   const t = translations[language].tripCreatorStep1;
   const commonT = translations[language].common;
   const db = usePowerSync();
+  const insets = useSafeAreaInsets();
 
   const {
     tripName: storedName,
@@ -241,7 +242,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -251,7 +252,12 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
         <ScrollView 
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 100 }
+            { 
+              paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
+              paddingBottom: isKeyboardVisible 
+                ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) 
+                : Math.max(insets.bottom, 20) + 30 
+            }
           ]} 
           bounces={true}
           keyboardShouldPersistTaps="handled"
@@ -285,7 +291,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_originPlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   value={origin}
                   onChangeText={(val) => setOrigin(capitalizeCity(val))}
                   autoCapitalize="words"
@@ -306,7 +312,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_destinationPlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   value={destination}
                   onChangeText={(val) => setDestination(capitalizeCity(val))}
                   autoCapitalize="words"
@@ -326,7 +332,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                 <TextInput
                   style={styles.input}
                   placeholder={t.input_tripNamePlaceholder}
-                  placeholderTextColor="#475569"
+                  placeholderTextColor="#94A3B8"
                   value={tripName}
                   onChangeText={setTripName}
                   autoCapitalize="sentences"
@@ -347,7 +353,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   <TextInput
                     style={styles.input}
                     placeholder={t.date_placeholder}
-                    placeholderTextColor="#475569"
+                    placeholderTextColor="#94A3B8"
                     value={startDate}
                     onChangeText={setStartDate}
                     maxLength={10}
@@ -365,7 +371,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   <TextInput
                     style={styles.input}
                     placeholder={t.date_placeholder}
-                    placeholderTextColor="#475569"
+                    placeholderTextColor="#94A3B8"
                     value={endDate}
                     onChangeText={setEndDate}
                     maxLength={10}
@@ -426,23 +432,23 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 100, flexGrow: 1 },
+  scrollContent: { paddingHorizontal: 20, flexGrow: 1 },
   topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
   langButton: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#1E293B', borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
   langButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '700' },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+  progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
   progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 20 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   card: { backgroundColor: '#111827', borderRadius: 18, padding: 20, borderWidth: 1, borderColor: '#1E293B' },
   title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
-  subtitle: { fontSize: 14, color: '#94A3B8', marginBottom: 24, lineHeight: 20 },
+  subtitle: { fontSize: 14, color: '#CBD5E1', marginBottom: 24, lineHeight: 20 },
   inputGroup: { marginBottom: 16 },
   rowGroup: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   labelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  label: { color: '#94A3B8', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 },
-  requiredBadge: { color: '#F59E0B', fontSize: 10, fontWeight: '700' },
+  label: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginBottom: 6 },
+  requiredBadge: { color: '#F59E0B', fontSize: 11, fontWeight: '700' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, height: 48 },
   inputIcon: { marginRight: 10 },
   dateIconTouch: { justifyContent: 'center', alignItems: 'center' },
@@ -450,6 +456,6 @@ const styles = StyleSheet.create({
   primaryButton: { backgroundColor: '#F59E0B', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 16, shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 4 },
   buttonRowContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  secondaryButton: { height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+  secondaryButton: { height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10, backgroundColor: 'transparent' },
+  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
 });

@@ -130,18 +130,22 @@ export const ProfileScreen = ({ navigation }: any) => {
             </View>
             <Text style={styles.settingLabel}>{t.vault}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#475569" />
+          <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
         </TouchableOpacity>
 
         {/* USTAWIENIA: BEZPIECZEŃSTWO */}
-        <TouchableOpacity style={styles.settingRow} activeOpacity={0.7} onPress={() => navigation.navigate('AccountSecurity')}>
+        <TouchableOpacity 
+          style={styles.settingRow}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('AccountSecurity')}
+        >
           <View style={styles.settingLeft}>
             <View style={styles.iconBox}>
-              <Ionicons name="person" size={20} color="#94A3B8" />
+              <Ionicons name="lock-closed" size={18} color="#F59E0B" />
             </View>
-            <Text style={styles.settingLabel}>{t.accountPrivacy}</Text>
+            <Text style={styles.settingLabel}>{t.security}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#475569" />
+          <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
         </TouchableOpacity>
 
       </View>
@@ -196,12 +200,12 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC' },
   userInfo: { flex: 1 },
   userName: { color: '#F8FAFC', fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  userEmail: { color: '#94A3B8', fontSize: 13, fontWeight: '500', marginBottom: 8 },
+  userEmail: { color: '#CBD5E1', fontSize: 13, fontWeight: '500', marginBottom: 8 },
   
   syncBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.2)' },
   syncText: { color: '#10B981', fontSize: 10, fontWeight: '700' },
 
-  sectionTitle: { color: '#64748B', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 16, paddingLeft: 4 },
+  sectionTitle: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 16, paddingLeft: 4 },
   
   settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#111827', padding: 16, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: '#1E293B' },
   settingLeft: { flexDirection: 'row', alignItems: 'center' },
@@ -211,11 +215,11 @@ const styles = StyleSheet.create({
   languageSelector: { flexDirection: 'row', backgroundColor: '#0B1120', borderRadius: 999, borderWidth: 1, borderColor: '#334155', padding: 4, width: 100 },
   langOption: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 999, paddingVertical: 6 },
   langOptionActive: { backgroundColor: '#F59E0B' },
-  langText: { color: '#94A3B8', fontWeight: '700', fontSize: 11 },
+  langText: { color: '#CBD5E1', fontWeight: '700', fontSize: 11 },
   langTextActive: { color: '#0B1120' },
 
   footer: { padding: 24, alignItems: 'center' },
   logoutButton: { flexDirection: 'row', backgroundColor: 'rgba(239, 68, 68, 0.1)', width: '100%', paddingVertical: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   logoutText: { color: '#F87171', fontSize: 15, fontWeight: '700' },
-  versionText: { color: '#475569', fontSize: 11, fontWeight: '600' }
+  versionText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' }
 });

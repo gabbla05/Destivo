@@ -9,14 +9,14 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
-  ImageBackground,
+  Image,
   Dimensions,
   Platform,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -75,6 +75,7 @@ export const Step4AttractionsScreen = () => {
   const { language, isGuest } = useAuthStore();
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
+  const insets = useSafeAreaInsets();
   
   const {
     tripName,
@@ -97,8 +98,6 @@ export const Step4AttractionsScreen = () => {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GooglePlaceAttraction[]>([]);
   
-  // Sortowanie wg odległości (domyślnie rosnąco od najbliższych)
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Stan wybranej atrakcji na mapie / w karuzeli
   const [selectedAttractionId, setSelectedAttractionId] = useState<string | null>(null);
@@ -219,22 +218,13 @@ export const Step4AttractionsScreen = () => {
     }
   };
 
-  // Przełącznik sortowania wg odległości (rosnąco / malejąco)
-  const toggleSortOrder = () => {
-    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    setActiveCardIndex(0);
-    if (carouselScrollViewRef.current) {
-      carouselScrollViewRef.current.scrollTo({ x: 0, animated: true });
-    }
-  };
-
-  // Lista nieodznaczonych atrakcji (gdy dodasz atrakcję, znika z kolejki wyboru, a na jej miejsce wchodzi kolejna)
+  // Lista nieodznaczonych atrakcji (automatycznie posortowana rosnąco wg odległości)
   const unselectedResults = useMemo(() => {
     const unselected = results.filter((item) => !storeAttractions.selected.includes(item.name));
-    return unselected.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
-  }, [results, storeAttractions.selected, sortOrder]);
+    return unselected.sort((a, b) => a.distance - b.distance);
+  }, [results, storeAttractions.selected]);
 
-  // Lista już dodanych atrakcji (gwarantowane pobieranie wszystkich dodanych elementów)
+  // Lista już dodanych atrakcji (automatycznie posortowana rosnąco wg odległości)
   const plannedResults = useMemo(() => {
     const list: GooglePlaceAttraction[] = [];
     storeAttractions.selected.forEach((name) => {
@@ -257,8 +247,8 @@ export const Step4AttractionsScreen = () => {
         });
       }
     });
-    return list.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
-  }, [results, storeAttractions.selected, destination, lodgingCoords, sortOrder]);
+    return list.sort((a, b) => a.distance - b.distance);
+  }, [results, storeAttractions.selected, destination, lodgingCoords]);
 
   // Lista aktualnie prezentowana na kafelkach
   const displayList = activeTab === 'discover' ? unselectedResults : plannedResults;
@@ -467,7 +457,10 @@ export const Step4AttractionsScreen = () => {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* HEADER Z PASKIEM POSTĘPU */}
-      <SafeAreaView edges={['top']} style={styles.progressSafeArea}>
+      <View style={[
+        styles.progressSafeArea,
+        { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 16) + 8 }
+      ]}>
         <View style={styles.progressHeader}>
           <Text style={styles.progressText}>{t.step_indicator}</Text>
           <Text style={styles.progressStepName}>{t.step_title}</Text>
@@ -475,7 +468,7 @@ export const Step4AttractionsScreen = () => {
         <View style={styles.progressBarBg}>
           <View style={[styles.progressBarFill, { width: '100%' }]} />
         </View>
-      </SafeAreaView>
+      </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -530,11 +523,6 @@ export const Step4AttractionsScreen = () => {
             </View>
           )}
 
-          <SafeAreaView edges={['top']} style={styles.topNav} pointerEvents="box-none">
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-          </SafeAreaView>
         </View>
 
         {/* 2. SEKCJA INTERFEJSU */}
@@ -586,44 +574,27 @@ export const Step4AttractionsScreen = () => {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.navControlsRow}>
-              {/* INTERAKTYWNY PRZYCISK SORTOWANIA WG ODLEGŁOŚCI */}
-              <TouchableOpacity
-                onPress={toggleSortOrder}
-                style={styles.sortBtn}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={sortOrder === 'asc' ? "arrow-up" : "arrow-down"}
-                  size={12}
-                  color="#F59E0B"
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={styles.sortText}>{t.sort_by_distance}</Text>
-              </TouchableOpacity>
-
-              {displayList.length > 0 && (
-                <View style={styles.arrowsBox}>
-                  <TouchableOpacity
-                    onPress={() => handleScrollTo(activeCardIndex - 1)}
-                    disabled={activeCardIndex <= 0}
-                    style={[styles.arrowBtn, activeCardIndex <= 0 && { opacity: 0.3 }]}
-                  >
-                    <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
-                  </TouchableOpacity>
-                  <Text style={styles.counterText}>
-                    {activeCardIndex + 1}/{displayList.length}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => handleScrollTo(activeCardIndex + 1)}
-                    disabled={activeCardIndex >= displayList.length - 1}
-                    style={[styles.arrowBtn, activeCardIndex >= displayList.length - 1 && { opacity: 0.3 }]}
-                  >
-                    <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
+            {displayList.length > 0 && (
+              <View style={styles.arrowsBox}>
+                <TouchableOpacity
+                  onPress={() => handleScrollTo(activeCardIndex - 1)}
+                  disabled={activeCardIndex <= 0}
+                  style={[styles.arrowBtn, activeCardIndex <= 0 && { opacity: 0.3 }]}
+                >
+                  <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.counterText}>
+                  {activeCardIndex + 1}/{displayList.length}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleScrollTo(activeCardIndex + 1)}
+                  disabled={activeCardIndex >= displayList.length - 1}
+                  style={[styles.arrowBtn, activeCardIndex >= displayList.length - 1 && { opacity: 0.3 }]}
+                >
+                  <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* GŁÓWNA KARUZELA KAFELKÓW ATRAKCJI */}
@@ -684,14 +655,14 @@ export const Step4AttractionsScreen = () => {
                   return (
                     <View key={item.id} style={styles.cardWrapper}>
                       <View style={styles.card}>
-                        {/* ZDJĘCIE DOPASOWANE W 100% DO KAFELKA (bez luk) */}
-                        <ImageBackground
-                          source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
-                          style={styles.cardImage}
-                          imageStyle={styles.cardImageInner}
-                          resizeMode="cover"
-                          onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
-                        >
+                        {/* ZDJĘCIE DOPASOWANE W 100% DO KAFELKA */}
+                        <View style={styles.cardImageContainer}>
+                          <Image
+                            source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
+                            style={styles.cardImage}
+                            resizeMode="cover"
+                            onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
+                          />
                           <View style={styles.imageOverlayTop}>
                             <View style={styles.ratingBadge}>
                               <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -704,7 +675,7 @@ export const Step4AttractionsScreen = () => {
                               </Text>
                             </View>
                           </View>
-                        </ImageBackground>
+                        </View>
 
                         {/* CIAŁO KAFELKA */}
                         <View style={styles.cardBody}>
@@ -743,14 +714,23 @@ export const Step4AttractionsScreen = () => {
           </View>
         </View>
 
-        {/* DOLNY PASEK ZAPISU / POMINIĘCIA */}
-        <View style={styles.floatingFooter}>
-          <TouchableOpacity style={styles.finishButton} onPress={handleFinishPlanning} activeOpacity={0.9}>
-            <Text style={styles.finishButtonText}>{t.button_saveTrip}</Text>
+        {/* AKCJE NA DOLE EKRANU */}
+        <View style={[
+          styles.bottomActions,
+          { paddingBottom: Math.max(insets.bottom, 16) + 8 }
+        ]}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleFinishPlanning} activeOpacity={0.8}>
+            <Text style={styles.primaryButtonText}>{t.button_saveTrip}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.skipButton} onPress={handleSkip} activeOpacity={0.8}>
-            <Text style={styles.skipButtonText}>{commonT.button_skip}</Text>
-          </TouchableOpacity>
+
+          <View style={styles.actionButtonsRow}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
+              <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.7}>
+              <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -761,9 +741,9 @@ const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#0B1120' },
 
   progressSafeArea: { backgroundColor: '#0B1120', paddingHorizontal: 20 },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+  progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
   progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 8 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   
@@ -771,10 +751,6 @@ const styles = StyleSheet.create({
   mapHeader: { width: '100%', height: '34%', zIndex: 1 },
   mapFallback: { backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   
-  topNav: { position: 'absolute', top: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, zIndex: 10 },
-  backButton: { width: 44, height: 44, backgroundColor: 'rgba(11, 17, 32, 0.7)', borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-  backIcon: { color: '#FFFFFF', fontSize: 24, fontWeight: '300', lineHeight: 24 },
-
   bottomSheet: { 
     flex: 1, 
     marginTop: -16, 
@@ -782,8 +758,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24, 
     borderTopRightRadius: 24, 
     zIndex: 10, 
-    elevation: 10,
-    paddingBottom: 110,
+    elevation: 10, 
+    paddingBottom: 140,
   },
 
   // Zwarty, kompaktowy suwak promienia
@@ -805,7 +781,7 @@ const styles = StyleSheet.create({
   },
   radiusHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   radiusLabelBox: { flexDirection: 'row', alignItems: 'center' },
-  controlsLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  controlsLabel: { color: '#CBD5E1', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   radiusValue: { color: '#F59E0B', fontSize: 14, fontWeight: '800' },
 
   // Pasek zakładek i kontrolek
@@ -817,38 +793,35 @@ const styles = StyleSheet.create({
     marginTop: 10, 
     marginBottom: 8 
   },
-  tabsRow: { flexDirection: 'row', gap: 8 },
-  tabBtn: { paddingVertical: 5, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B' },
+  tabsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  tabBtn: { height: 36, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
   tabBtnActive: { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: '#F59E0B' },
-  tabText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  tabText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
   tabTextActive: { color: '#F59E0B', fontWeight: '700' },
 
-  navControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sortBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
-  sortText: { color: '#F59E0B', fontSize: 11, fontWeight: '700' },
-  arrowsBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', borderRadius: 8, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 4 },
-  arrowBtn: { padding: 4 },
-  counterText: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginHorizontal: 4 },
+  arrowsBox: { flexDirection: 'row', alignItems: 'center', height: 36, backgroundColor: '#111827', borderRadius: 10, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 6 },
+  arrowBtn: { padding: 4, justifyContent: 'center', alignItems: 'center' },
+  counterText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', marginHorizontal: 6 },
 
   // Karuzela i kafelki - IDEALNIE DOPASOWANE BEZ LUK
   carouselContainer: { flex: 1, justifyContent: 'center' },
   carouselContent: { paddingHorizontal: HORIZONTAL_PADDING, alignItems: 'center' },
-  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 255 },
+  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 260 },
   card: { flex: 1, width: '100%', backgroundColor: '#111827', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B', justifyContent: 'space-between' },
   
-  cardImage: { width: '100%', height: 145, justifyContent: 'space-between', padding: 10 },
-  cardImageInner: { width: '100%', height: '100%', resizeMode: 'cover', borderTopLeftRadius: 15, borderTopRightRadius: 15 },
-  imageOverlayTop: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
+  cardImageContainer: { width: '100%', height: 145, position: 'relative', overflow: 'hidden' },
+  cardImage: { width: '100%', height: '100%' },
+  imageOverlayTop: { position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
   ratingBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   ratingText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   distanceBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   distanceText: { color: '#38BDF8', fontSize: 11, fontWeight: '700' },
 
-  cardBody: { paddingHorizontal: 14, paddingVertical: 10, justifyContent: 'space-between', flex: 1 },
+  cardBody: { paddingHorizontal: 14, paddingVertical: 12, justifyContent: 'space-between', flex: 1 },
   cardTitleRow: { marginBottom: 2 },
   cardTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '700' },
   addressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  addressText: { color: '#94A3B8', fontSize: 12, flex: 1 },
+  addressText: { color: '#CBD5E1', fontSize: 12, flex: 1 },
 
   actionButton: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', borderRadius: 12, paddingVertical: 12 },
   actionButtonAdded: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#F59E0B' },
@@ -856,18 +829,45 @@ const styles = StyleSheet.create({
   actionButtonTextAdded: { color: '#F59E0B' },
 
   loadingBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-  loadingText: { color: '#94A3B8', marginTop: 10, fontSize: 13 },
+  loadingText: { color: '#CBD5E1', marginTop: 10, fontSize: 13 },
   emptyBox: { alignItems: 'center', justifyContent: 'center', padding: 20 },
-  emptyText: { color: '#94A3B8', textAlign: 'center', fontSize: 13 },
+  emptyText: { color: '#CBD5E1', textAlign: 'center', fontSize: 13 },
   allAddedBox: { alignItems: 'center', justifyContent: 'center', padding: 20 },
   allAddedTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
-  allAddedSubtitle: { color: '#94A3B8', fontSize: 12, textAlign: 'center', marginBottom: 12 },
+  allAddedSubtitle: { color: '#CBD5E1', fontSize: 12, textAlign: 'center', marginBottom: 12 },
   switchTabLinkBtn: { backgroundColor: 'rgba(56, 189, 248, 0.1)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.3)' },
   switchTabLinkText: { color: '#38BDF8', fontSize: 12, fontWeight: '700' },
 
-  floatingFooter: { position: 'absolute', bottom: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, backgroundColor: 'rgba(11, 17, 32, 0.96)', borderTopWidth: 1, borderTopColor: '#1E293B', zIndex: 20, elevation: 20 },
-  finishButton: { backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  finishButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '800' },
-  skipButton: { alignItems: 'center', paddingVertical: 8 },
-  skipButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' }
+  bottomActions: { 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0, 
+    right: 0, 
+    paddingHorizontal: 20, 
+    paddingTop: 12, 
+    borderTopWidth: 1, 
+    borderTopColor: '#1E293B', 
+    backgroundColor: '#0B1120', 
+    zIndex: 20, 
+    elevation: 20 
+  },
+  primaryButton: { 
+    backgroundColor: '#F59E0B', 
+    height: 48, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginBottom: 8, 
+    shadowColor: '#F59E0B', 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.25, 
+    shadowRadius: 6, 
+    elevation: 4 
+  },
+  primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
+  actionButtonsRow: { flexDirection: 'row', gap: 12 },
+  secondaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
+  tertiaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  tertiaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
 });

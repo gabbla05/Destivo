@@ -140,7 +140,7 @@ export interface TripCreatorState {
     endDate: string;
   }) => void;
 
-  setTransportOption: (option: TransportOption) => void;
+  setTransportOption: (option: TransportOption | null) => void;
   setCustomTransportCost: (cost: number) => void;
   clearCustomTransportCost: () => void;
 
@@ -241,6 +241,18 @@ export const useTripCreatorStore = create<TripCreatorState>((set) => ({
 
   setTransportOption: (option) =>
     set((state) => {
+      if (!option) {
+        return {
+          transport: {
+            ...state.transport,
+            selectedOption: null,
+            customCost: undefined,
+            priceStatus: null,
+            priceSource: undefined,
+            priceCheckedAt: undefined,
+          },
+        };
+      }
       const isPriceAvailable =
         option.price.status !== 'UNAVAILABLE';
 
