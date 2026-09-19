@@ -20,6 +20,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
+import { checkTripCollision } from '../../lib/tripCollision';
 
 // --- POMOCNICZA FUNKCJA DO AUTOMATYCZNEJ DUŻEJ LITERY W NAZWACH MIAST ---
 export const capitalizeCity = (str: string): string => {
@@ -179,6 +180,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
 
     const formattedDestination = capitalizeCity(destination.trim());
     const formattedOrigin = capitalizeCity(origin.trim());
+    setDestination(formattedDestination);
+    setOrigin(formattedOrigin);
 
     // 1. Sprawdzenie czy wpisano miejsca
     if (!formattedDestination) {
@@ -210,6 +213,19 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
       }
       if (parsedStart && parsedEnd < parsedStart) {
         Alert.alert('DESTIVO', t.error_dateOrder);
+        return;
+      }
+    }
+
+    // 2.5. Walidacja kolizji dat z istniejącymi podróżami (dwie podróże nie mogą trwać w tym samym czasie)
+    if (parsedStart) {
+      const userId = user?.id || 'guest';
+      const collidingTrip = await checkTripCollision(db, userId, startDate, endDate);
+      if (collidingTrip) {
+        const errorMsg = (t.error_overlappingTrip || 'W tym terminie masz już zaplanowaną inną podróż ({{trip}}: {{range}}). Podróże nie mogą się nakładać.')
+          .replace('{{trip}}', collidingTrip.trip_name)
+          .replace('{{range}}', collidingTrip.formattedRange);
+        Alert.alert('DESTIVO', errorMsg);
         return;
       }
     }
@@ -293,7 +309,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   placeholder={t.input_originPlaceholder}
                   placeholderTextColor="#94A3B8"
                   value={origin}
-                  onChangeText={(val) => setOrigin(capitalizeCity(val))}
+                  onChangeText={setOrigin}
+                  onBlur={() => setOrigin((prev) => capitalizeCity(prev))}
                   autoCapitalize="words"
                 />
               </View>
@@ -314,7 +331,8 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
                   placeholder={t.input_destinationPlaceholder}
                   placeholderTextColor="#94A3B8"
                   value={destination}
-                  onChangeText={(val) => setDestination(capitalizeCity(val))}
+                  onChangeText={setDestination}
+                  onBlur={() => setDestination((prev) => capitalizeCity(prev))}
                   autoCapitalize="words"
                 />
               </View>

@@ -12,6 +12,9 @@ import {
   Image,
   ImageBackground,
   TextInput,
+  RefreshControl,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePowerSync } from '@powersync/react-native';
@@ -22,6 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations } from '../i18n/translations';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import { capitalizeCity } from './TripCreator/Step1DestinationScreen';
 
 interface TripRecord {
   id: string;
@@ -65,16 +69,55 @@ const CURATED_CITY_PHOTOS: { [key: string]: string } = {
 
 const DEFAULT_TRIP_PHOTO = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=800';
 
+export { parseTripDate } from '../lib/tripCollision';
+import { parseTripDate } from '../lib/tripCollision';
+
+export const isTripExpired = (trip: { start_date?: string; end_date?: string }, referenceDate: Date): boolean => {
+  const endDate = parseTripDate(trip.end_date);
+  if (endDate) {
+    return endDate.getTime() < referenceDate.getTime();
+  }
+  const startDate = parseTripDate(trip.start_date);
+  if (startDate) {
+    return startDate.getTime() < referenceDate.getTime();
+  }
+  return false;
+};
+
 export const TripsListScreen = ({ navigation }: any) => {
   const { user, language } = useAuthStore();
   const t = translations[language].trips;
   const commonT = translations[language].common;
   const db = usePowerSync();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [trips, setTrips] = useState<TripRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cityPhotos, setCityPhotos] = useState<{ [cityKey: string]: string }>({});
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const cityPhotoCache = useRef<Map<string, string>>(new Map());
 
@@ -88,69 +131,150 @@ export const TripsListScreen = ({ navigation }: any) => {
     try {
       setLoading(true);
       const userId = user?.id || 'guest';
-      const result = await db.execute(
-        `SELECT id, trip_name, origin, destination, start_date, end_date
-         FROM trips WHERE user_id = ? ORDER BY start_date ASC`,
-        [userId]
-      );
-      const localRows = ((result as any).array?.length > 0
-        ? (result as any).array
-        : (result.rows as any)?._array || (result.rows as any) || []) as any[];
-      const localTrips = localRows.map((trip: any) => ({
-        id: trip.id,
-        title: trip.trip_name || trip.title || t.untitled,
-        origin: trip.origin || '',
-        destination: trip.destination || '',
-        start_date: trip.start_date || '',
-        end_date: trip.end_date || '',
-      }));
+      const tripsById = new Map<string, TripRecord>();
 
-      const tripsById = new Map(localTrips.map((trip) => [trip.id, trip]));
-
+      // 1. Najpierw pobieramy z lokalnej bazy PowerSync SQLite (dostępne natychmiast offline)
       try {
-        const { data } = await supabase
-          .from('trips')
-          .select('id, title, trip_name, origin, destination, start_date, end_date')
-          .eq('user_id', userId)
-          .order('start_date', { ascending: true });
-        (data || []).forEach((trip: any) => {
-          if (!tripsById.has(trip.id)) {
-            tripsById.set(trip.id, {
-              id: trip.id,
-              title: trip.title || trip.trip_name || t.untitled,
-              origin: trip.origin || '',
-              destination: trip.destination || '',
-              start_date: trip.start_date || '',
-              end_date: trip.end_date || '',
-            });
-          }
+        const result = await db.execute(
+          `SELECT id, trip_name, origin, destination, start_date, end_date
+           FROM trips WHERE user_id = ? OR (user_id IN ('guest', 'guest-session') AND ?)
+           ORDER BY start_date ASC`,
+          [userId, user && !user.isGuest ? 1 : 0]
+        );
+        const localRows = ((result as any).array?.length > 0
+          ? (result as any).array
+          : (result.rows as any)?._array || (result.rows as any) || []) as any[];
+        localRows.forEach((trip: any) => {
+          tripsById.set(trip.id, {
+            id: trip.id,
+            title: trip.trip_name || trip.title || t.untitled,
+            origin: trip.origin || '',
+            destination: trip.destination || '',
+            start_date: trip.start_date || '',
+            end_date: trip.end_date || '',
+          });
         });
-      } catch {
-        // Local PowerSync data remains available when the network is offline.
+      } catch (localErr) {
+        console.warn('TripsList: lokalny odczyt SQLite:', localErr);
       }
 
+      // 2. Wczytujemy z trwałego cache AsyncStorage (odporność na brak bazy i restarty)
+      try {
+        const cachedStr = await AsyncStorage.getItem(`destivo_cached_trips_${userId}`);
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          if (Array.isArray(cached)) {
+            cached.forEach((trip: any) => {
+              if (!tripsById.has(trip.id)) {
+                tripsById.set(trip.id, {
+                  id: trip.id,
+                  title: trip.title || trip.trip_name || t.untitled,
+                  origin: trip.origin || '',
+                  destination: trip.destination || '',
+                  start_date: trip.start_date || '',
+                  end_date: trip.end_date || '',
+                });
+              }
+            });
+          }
+        }
+      } catch {}
+
+      // 3. Wczytujemy z chmury Supabase dla zalogowanego konta (zapewniając odświeżoną sesję)
+      if (user && !user.isGuest && user.id) {
+        try {
+          let queryUserId = user.id;
+          try {
+            if (supabase?.auth?.getSession) {
+              const sessionRes = await supabase.auth.getSession();
+              if (sessionRes?.data?.session?.user?.id) {
+                queryUserId = sessionRes.data.session.user.id;
+              }
+            }
+          } catch {}
+
+          const { data, error } = await supabase
+            .from('trips')
+            .select('*')
+            .eq('user_id', queryUserId)
+            .order('start_date', { ascending: true });
+
+          if (!error && Array.isArray(data)) {
+            for (const trip of data) {
+              const tripTitle = trip.title || trip.trip_name || t.untitled;
+              tripsById.set(trip.id, {
+                id: trip.id,
+                title: tripTitle,
+                origin: trip.origin || '',
+                destination: trip.destination || '',
+                start_date: trip.start_date || '',
+                end_date: trip.end_date || '',
+              });
+
+              // Zapisujemy podróż z chmury do lokalnej bazy PowerSync, by była trwale dostępna
+              try {
+                await db.execute(
+                  `INSERT OR REPLACE INTO trips (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    trip.id,
+                    queryUserId,
+                    tripTitle,
+                    trip.origin || '',
+                    trip.destination || '',
+                    trip.start_date || '',
+                    trip.end_date || '',
+                    trip.transport_data || JSON.stringify({ selectedOption: { type: trip.transport_type || 'flight' } }),
+                    trip.lodging_data || JSON.stringify({ lodgingAddress: trip.accommodation_address || '' }),
+                    trip.attractions_data || '{}',
+                    trip.created_at || new Date().toISOString(),
+                  ]
+                );
+              } catch {}
+            }
+          }
+        } catch (supErr) {
+          console.warn('TripsList: błąd synchronizacji z Supabase:', supErr);
+        }
+      }
+
+      // 4. Obsługa podróży gościa
       if (user?.isGuest || !user) {
-        const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
-        (storedTrips ? JSON.parse(storedTrips) : []).forEach((trip: any) => {
-          if (!tripsById.has(trip.id)) {
-            tripsById.set(trip.id, {
-              id: trip.id,
-              title: trip.title || trip.trip_name || t.untitled,
-              origin: trip.origin || '',
-              destination: trip.destination || '',
-              start_date: trip.start_date || '',
-              end_date: trip.end_date || '',
-            });
-          }
-        });
+        try {
+          const storedTrips = await AsyncStorage.getItem('destivo-trips-guest');
+          (storedTrips ? JSON.parse(storedTrips) : []).forEach((trip: any) => {
+            if (!tripsById.has(trip.id)) {
+              tripsById.set(trip.id, {
+                id: trip.id,
+                title: trip.title || trip.trip_name || t.untitled,
+                origin: trip.origin || '',
+                destination: trip.destination || '',
+                start_date: trip.start_date || '',
+                end_date: trip.end_date || '',
+              });
+            }
+          });
+        } catch {}
       }
 
-      setTrips(Array.from(tripsById.values()));
+      const mergedTrips = Array.from(tripsById.values());
+      setTrips(mergedTrips);
+
+      // 5. Zapisujemy w trwałym cache, aby nigdy nie znikały
+      try {
+        await AsyncStorage.setItem(`destivo_cached_trips_${userId}`, JSON.stringify(mergedTrips));
+      } catch {}
     } catch (e) {
       Alert.alert(commonT.label_error, t.loadError);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchTrips();
   };
 
   useFocusEffect(
@@ -225,12 +349,46 @@ export const TripsListScreen = ({ navigation }: any) => {
     navigation.navigate('Timeline', { tripId });
   };
 
+  const handleDeleteTrip = (tripId: string) => {
+    Alert.alert(
+      t.deleteTripTitle || 'Usuwanie podróży',
+      t.deleteTripMessage || 'Czy na pewno chcesz bezpowrotnie usunąć tę podróż i wszystkie jej dane?',
+      [
+        { text: commonT.button_cancel || 'Anuluj', style: 'cancel' },
+        {
+          text: t.deleteTrip || 'Usuń podróż',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const userId = user?.id || 'guest';
+              await db.execute('DELETE FROM trips WHERE id = ?', [tripId]);
+
+              if (user && !user.isGuest) {
+                await supabase.from('trips').delete().eq('id', tripId);
+              }
+
+              setTrips((prev) => {
+                const updated = prev.filter((item) => item.id !== tripId);
+                AsyncStorage.setItem(`destivo_cached_trips_${userId}`, JSON.stringify(updated)).catch(() => {});
+                return updated;
+              });
+            } catch (err) {
+              Alert.alert(commonT.label_error || 'Błąd', t.deleteTripError || 'Nie udało się usunąć podróży.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const formatDisplayDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const parts = dateStr.replace(/\./g, '-').split('-');
-    if (parts.length === 3) {
-      if (parts[0].length === 4) return `${parts[2]}.${parts[1]}.${parts[0]}`;
-      return `${parts[0]}.${parts[1]}.${parts[2]}`;
+    const d = parseTripDate(dateStr);
+    if (d) {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      return `${dd}.${mm}.${yyyy}`;
     }
     return dateStr;
   };
@@ -238,21 +396,8 @@ export const TripsListScreen = ({ navigation }: any) => {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  const upcomingTrips = trips.filter((t) => {
-    if (!t.end_date) return true;
-    const [first, second, third] = t.end_date.replace(/\./g, '-').split('-');
-    const [y, m, d] = first.length === 4 ? [first, second, third] : [third, second, first];
-    const endDate = new Date(Number(y), Number(m) - 1, Number(d));
-    return endDate >= now;
-  });
-
-  const pastTrips = trips.filter((t) => {
-    if (!t.end_date) return false;
-    const [first, second, third] = t.end_date.replace(/\./g, '-').split('-');
-    const [y, m, d] = first.length === 4 ? [first, second, third] : [third, second, first];
-    const endDate = new Date(Number(y), Number(m) - 1, Number(d));
-    return endDate < now;
-  });
+  const upcomingTrips = trips.filter((t) => !isTripExpired(t, now));
+  const pastTrips = trips.filter((t) => isTripExpired(t, now));
 
   // Filtrowanie podróży wyszukiwarką po nazwie i destynacji
   const filterTrips = (list: TripRecord[]) => {
@@ -272,17 +417,11 @@ export const TripsListScreen = ({ navigation }: any) => {
   // Obliczanie statystyk dla archiwalnych podróży
   const uniquePlacesCount = new Set(pastTrips.map((t) => t.destination)).size;
   const totalDaysTraveled = pastTrips.reduce((total, trip) => {
-    if (!trip.start_date || !trip.end_date) return total;
-    const startParts = trip.start_date.split('-');
-    const endParts = trip.end_date.split('-');
-    const start = startParts[0].length === 4
-      ? new Date(Number(startParts[0]), Number(startParts[1]) - 1, Number(startParts[2]))
-      : new Date(Number(startParts[2]), Number(startParts[1]) - 1, Number(startParts[0]));
-    const end = endParts[0].length === 4
-      ? new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]))
-      : new Date(Number(endParts[2]), Number(endParts[1]) - 1, Number(endParts[0]));
+    const start = parseTripDate(trip.start_date);
+    const end = parseTripDate(trip.end_date);
+    if (!start || !end) return total;
     const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
     return total + (diffDays > 0 ? diffDays : 1);
   }, 0);
 
@@ -366,7 +505,23 @@ export const TripsListScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 40 }
+          ]} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#F59E0B"
+              colors={['#F59E0B']}
+            />
+          }
+        >
           
           {/* ZAKŁADKA NADCHODZĄCE */}
           {activeTab === 'upcoming' && (
@@ -374,6 +529,18 @@ export const TripsListScreen = ({ navigation }: any) => {
               {upcomingTrips.length === 0 ? (
                 <View style={styles.centerBox}>
                   <Text style={styles.emptyText}>{t.noUpcoming}</Text>
+                  {pastTrips.length > 0 && (
+                    <TouchableOpacity 
+                      style={styles.goToArchivedBtn}
+                      onPress={() => setActiveTab('past')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="archive-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                      <Text style={styles.goToArchivedBtnText}>
+                        {t.hasArchivedNotice?.replace('{{count}}', String(pastTrips.length)) || `${t.archived} (${pastTrips.length})`}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : displayedUpcoming.length === 0 ? (
                 <View style={styles.noResultsBox}>
@@ -400,18 +567,28 @@ export const TripsListScreen = ({ navigation }: any) => {
                       <View style={styles.cardScrim} />
 
                       <View style={styles.cardContent}>
-                        {/* Pigułki na zdjęciu */}
+                        {/* Pigułki na zdjęciu oraz przycisk usuwania */}
                         <View style={styles.cardTopRow}>
-                          <View style={styles.destinationPill}>
-                            <Ionicons name="location" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                            <Text style={styles.destinationPillText} numberOfLines={1}>{trip.destination}</Text>
+                          <View style={styles.cardTopLeft}>
+                            <View style={styles.destinationPill}>
+                              <Ionicons name="location" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                              <Text style={styles.destinationPillText} numberOfLines={1}>{capitalizeCity(trip.destination)}</Text>
+                            </View>
+                            <View style={styles.datePill}>
+                              <Ionicons name="calendar-outline" size={12} color="#E2E8F0" style={{ marginRight: 4 }} />
+                              <Text style={styles.datePillText}>
+                                {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
+                              </Text>
+                            </View>
                           </View>
-                          <View style={styles.datePill}>
-                            <Ionicons name="calendar-outline" size={12} color="#E2E8F0" style={{ marginRight: 4 }} />
-                            <Text style={styles.datePillText}>
-                              {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
-                            </Text>
-                          </View>
+                          <TouchableOpacity
+                            style={styles.cardDeleteBtn}
+                            onPress={() => handleDeleteTrip(trip.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="trash-outline" size={15} color="#F87171" />
+                          </TouchableOpacity>
                         </View>
 
                         {/* Treść kafelka */}
@@ -420,7 +597,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                           <View style={styles.routeContainer}>
                             <Ionicons name="navigate-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
                             <Text style={styles.cardRoute}>
-                              {trip.origin || t.home} ➔ {trip.destination}
+                              {(trip.origin ? capitalizeCity(trip.origin) : t.home)} ➔ {capitalizeCity(trip.destination)}
                             </Text>
                           </View>
                           <View style={styles.cardFooter}>
@@ -490,16 +667,26 @@ export const TripsListScreen = ({ navigation }: any) => {
 
                       <View style={styles.cardContent}>
                         <View style={styles.cardTopRow}>
-                          <View style={styles.destinationPill}>
-                            <Ionicons name="location" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                            <Text style={styles.destinationPillText} numberOfLines={1}>{trip.destination}</Text>
+                          <View style={styles.cardTopLeft}>
+                            <View style={styles.destinationPill}>
+                              <Ionicons name="location" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                              <Text style={styles.destinationPillText} numberOfLines={1}>{capitalizeCity(trip.destination)}</Text>
+                            </View>
+                            <View style={styles.datePill}>
+                              <Ionicons name="checkmark-circle-outline" size={12} color="#10B981" style={{ marginRight: 4 }} />
+                              <Text style={styles.datePillText}>
+                                {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
+                              </Text>
+                            </View>
                           </View>
-                          <View style={styles.datePill}>
-                            <Ionicons name="checkmark-circle-outline" size={12} color="#10B981" style={{ marginRight: 4 }} />
-                            <Text style={styles.datePillText}>
-                              {formatDisplayDate(trip.start_date)} - {formatDisplayDate(trip.end_date)}
-                            </Text>
-                          </View>
+                          <TouchableOpacity
+                            style={styles.cardDeleteBtn}
+                            onPress={() => handleDeleteTrip(trip.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="trash-outline" size={15} color="#F87171" />
+                          </TouchableOpacity>
                         </View>
 
                         <View style={styles.cardBottomRow}>
@@ -507,7 +694,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                           <View style={styles.routeContainer}>
                             <Ionicons name="navigate-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
                             <Text style={styles.cardRoute}>
-                              {trip.origin || t.home} ➔ {trip.destination}
+                              {(trip.origin ? capitalizeCity(trip.origin) : t.home)} ➔ {capitalizeCity(trip.destination)}
                             </Text>
                           </View>
                           <View style={styles.cardActionRow}>
@@ -614,7 +801,55 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
+  tabContentRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabCountPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  tabCountPillActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.25)',
+  },
+  tabCountText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  tabCountTextActive: {
+    color: '#38BDF8',
+  },
+
+  goToArchivedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginTop: 14,
+  },
+  goToArchivedBtnText: {
+    color: '#F59E0B',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 },
+  cardTopLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap' },
+  cardDeleteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.35)',
+    marginLeft: 6,
+  },
   destinationPill: { 
     flexDirection: 'row', 
     alignItems: 'center', 

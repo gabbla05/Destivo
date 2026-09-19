@@ -15,6 +15,8 @@ import {
   ImageBackground,
   Image,
   Platform,
+  Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +25,7 @@ import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
@@ -95,13 +98,26 @@ const CURATED_CITY_PHOTOS: { [key: string]: string } = {
   'new york': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&q=80&w=800',
 };
 
+export const sanitizeTimeStr = (timeStr?: string): string => {
+  if (!timeStr || !timeStr.trim()) return '12:00';
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '12:00';
+  let hour = parseInt(match[1], 10);
+  let min = parseInt(match[2], 10);
+  if (isNaN(hour) || isNaN(min)) return '12:00';
+  hour = ((hour % 24) + 24) % 24;
+  min = Math.max(0, Math.min(59, min));
+  return `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+};
+
 const parseDate = (dateStr: string | null, timeStr?: string): Date => {
   if (!dateStr) return new Date();
   const clean = dateStr.replace(/\./g, '-');
   const [year, month, day] = clean.split('-');
   const date = new Date(Number(year), Number(month) - 1, Number(day));
   if (timeStr) {
-    const [hours, minutes] = timeStr.split(':');
+    const safeTime = sanitizeTimeStr(timeStr);
+    const [hours, minutes] = safeTime.split(':');
     date.setHours(Number(hours) || 0, Number(minutes) || 0);
   }
   return date;
@@ -182,6 +198,29 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   // Logika 3 kafelków atrakcji
   const [visibleAttractions, setVisibleAttractions] = useState<PoolAttraction[]>([]);
   const [reserveAttractions, setReserveAttractions] = useState<PoolAttraction[]>([]);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const itemLayouts = useRef<{ [key: string]: number }>({});
@@ -664,6 +703,20 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           if (!isUserGuest) {
             await supabase.from('trips').delete().eq('id', tripData.id);
           }
+
+          try {
+            const userId = user?.id || 'guest';
+            const cacheKey = `destivo_cached_trips_${userId}`;
+            const cachedStr = await AsyncStorage.getItem(cacheKey);
+            if (cachedStr) {
+              const cached = JSON.parse(cachedStr);
+              if (Array.isArray(cached)) {
+                const filtered = cached.filter((t: any) => t.id !== tripData.id);
+                await AsyncStorage.setItem(cacheKey, JSON.stringify(filtered));
+              }
+            }
+          } catch {}
+
           navigation.goBack();
         } catch (e) {
           Alert.alert(commonT.error, t.deleteTripError);
@@ -801,11 +854,24 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           <Text style={styles.emptyText}>{t.empty}</Text>
         </View>
       ) : (
-        <>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+          style={{ flex: 1 }}
+        >
           <ScrollView 
             ref={scrollViewRef} 
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              {
+                paddingBottom: isKeyboardVisible
+                  ? (Platform.OS === 'android' ? 260 : keyboardHeight + 60)
+                  : 140,
+              }
+            ]}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             <View style={styles.timelineLine} />
 
@@ -820,7 +886,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                   onLayout={(e) => { itemLayouts.current[evt.id] = e.nativeEvent.layout.y; }}
                 >
                   <View style={styles.dateTimeColumn}>
-                    <Text style={[styles.timeText, evt.isPast && styles.textPast]}>{evt.timeStr}</Text>
+                    <Text style={[styles.timeText, evt.isPast && styles.textPast]}>{sanitizeTimeStr(evt.timeStr)}</Text>
                     <Text style={[styles.dateText, evt.isPast && styles.textPast]}>{evt.dateStr}</Text>
                   </View>
 
@@ -959,20 +1025,23 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           >
             <Text style={styles.fabIcon}>+</Text>
           </TouchableOpacity>
-        </>
-      )}
 
-      {hasUnsavedChanges && (
-        <View style={styles.saveFooter}>
-          <TouchableOpacity style={styles.saveButton} onPress={saveTimelineChanges} activeOpacity={0.8}>
-            <Text style={styles.saveButtonText}>{t.saveLayout}</Text>
-          </TouchableOpacity>
-        </View>
+          {hasUnsavedChanges && (
+            <View style={styles.saveFooter}>
+              <TouchableOpacity style={styles.saveButton} onPress={saveTimelineChanges} activeOpacity={0.8}>
+                <Text style={styles.saveButtonText}>{t.saveLayout}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </KeyboardAvoidingView>
       )}
 
       {/* MODAL DODAWANIA NOWEGO PUNKTU */}
       <Modal visible={isAddModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{t.addTitle}</Text>
@@ -981,7 +1050,12 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={{ paddingBottom: 50 }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               
               <Text style={styles.modalSectionTitle}>{t.suggestions}</Text>
               <Text style={styles.modalHint}>{t.suggestionsHint}</Text>
@@ -1079,7 +1153,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* NATYWNY SELEKTOR DATY I CZASU */}

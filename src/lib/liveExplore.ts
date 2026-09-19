@@ -41,6 +41,7 @@ export interface LiveDestination {
   nearestAirport?: string;
   hasPredefinedPlan: boolean;
   flightDate?: string;
+  isOffTheBeatenPath?: boolean;
 }
 
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
@@ -170,21 +171,158 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     coverImage: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&q=80&w=600', 
     shortDescription: 'Miasto setek mostów i krasnali. Tętniący życiem wrocławski rynek to jedno z najpiękniejszych miejsc w Polsce.', transportCode: 'WRO'
   },
-  // --- OKAZJE LOTNICZE BEZ PREDEFINIOWANEGO SZABLONU (WŁASNY PLAN) ---
+  // --- OKAZJE LOTNICZE I POŁUDNIE EUROPY ---
   {
     id: 'bri_01', city: 'Bari', country: 'Włochy', lat: 41.1171, lon: 16.8719, 
     coverImage: 'https://images.unsplash.com/photo-1596484552834-6a58f850e0a1?auto=format&fit=crop&q=80&w=600', 
-    shortDescription: 'Słoneczna stolica Apulii nad Adriatykiem, słynąca ze średniowiecznego starego miasta Bari Vecchia i świeżych owoców morza.', transportCode: 'BRI'
+    shortDescription: 'Słoneczna stolica Apulii nad Adriatykiem, słynąca ze średniowiecznego starego miasta Bari Vecchia i świeżych owoców morza.', transportCode: 'BRI',
+    isOffTheBeatenPath: true
   },
   {
     id: 'zad_01', city: 'Zadar', country: 'Chorwacja', lat: 44.1194, lon: 15.2314, 
     coverImage: 'https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?auto=format&fit=crop&q=80&w=600', 
-    shortDescription: 'Niezwykłe Morskie Organy, rzymskie fora i zachwycające zachody słońca na wybrzeżu Dalmacji.', transportCode: 'ZAD'
+    shortDescription: 'Niezwykłe Morskie Organy, rzymskie fora i zachwycające zachody słońca na wybrzeżu Dalmacji.', transportCode: 'ZAD',
+    isOffTheBeatenPath: true
   },
   {
     id: 'blq_01', city: 'Bolonia', country: 'Włochy', lat: 44.4949, lon: 11.3426, 
     coverImage: 'https://images.unsplash.com/photo-1568084680786-a84f91d1153c?auto=format&fit=crop&q=80&w=600', 
-    shortDescription: 'Kulinarna stolica Włoch, słynąca z kilometrów zabytkowych arkad, uniwersyteckiej tradycji i wież Asinelli.', transportCode: 'BLQ'
+    shortDescription: 'Kulinarna stolica Włoch, słynąca z kilometrów zabytkowych arkad, uniwersyteckiej tradycji i wież Asinelli.', transportCode: 'BLQ',
+    isOffTheBeatenPath: true
+  },
+
+  // --- MNIEJ OCZYWISTE KIERUNKI I UKRYTE PEREŁKI (OFF THE BEATEN PATH) ---
+  {
+    id: 'aho_01', city: 'Alghero', country: 'Włochy', lat: 40.5579, lon: 8.3193,
+    coverImage: 'https://images.unsplash.com/photo-1598977123418-454555aa1376?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
+    transportCode: 'AHO', isOffTheBeatenPath: true
+  },
+  {
+    id: 'kotor_01', city: 'Kotor', country: 'Czarnogóra', lat: 42.4247, lon: 18.7712,
+    coverImage: 'https://images.unsplash.com/photo-1568853862744-e2213765e94b?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
+    transportCode: 'TIV', isOffTheBeatenPath: true
+  },
+  {
+    id: 'lju_01', city: 'Lublana', country: 'Słowenia', lat: 46.0569, lon: 14.5058,
+    coverImage: 'https://images.unsplash.com/photo-1584467541268-b040f83be3fd?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
+    transportCode: 'LJU', isOffTheBeatenPath: true
+  },
+  {
+    id: 'bgo_01', city: 'Bergen', country: 'Norwegia', lat: 60.3913, lon: 5.3221,
+    coverImage: 'https://images.unsplash.com/photo-1517411032315-54ef2cb783bb?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Brama do norweskich fiordów. Drewniane domy Bryggen z listy UNESCO i spektakularna kolejka linowa na górę Fløyen.',
+    transportCode: 'BGO', isOffTheBeatenPath: true
+  },
+  {
+    id: 'col_01', city: 'Colmar', country: 'Francja', lat: 48.0794, lon: 7.3585,
+    coverImage: 'https://images.unsplash.com/photo-1528728329032-2972f65dfb3f?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Bajkowa stolica alzackich win z kanałami Małej Wenecji i zachwycającymi domami z muru pruskiego.',
+    transportCode: 'SXB', isOffTheBeatenPath: true
+  },
+  {
+    id: 'sin_01', city: 'Sintra', country: 'Portugalia', lat: 38.8029, lon: -9.3817,
+    coverImage: 'https://images.unsplash.com/photo-1588614959060-4d144f28b207?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Mistyczna rezydencja królów ukryta w zielonych wzgórzach – baśniowy Pałac Pena i tajemnicza Quinta da Regaleira.',
+    transportCode: 'LIS', isOffTheBeatenPath: true
+  },
+  {
+    id: 'eas_01', city: 'San Sebastián', country: 'Hiszpania', lat: 43.3183, lon: -1.9812,
+    coverImage: 'https://images.unsplash.com/photo-1536663815808-535e2280d2c2?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Światowa stolica smaku w Kraju Basków ze zjawiskową plażą La Concha i legendarną kulturą pintxos.',
+    transportCode: 'EAS', isOffTheBeatenPath: true
+  },
+  {
+    id: 'tll_01', city: 'Tallinn', country: 'Estonia', lat: 59.4370, lon: 24.7536,
+    coverImage: 'https://images.unsplash.com/photo-1587974928442-77dc3e0dba72?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Najlepiej zachowane średniowieczne miasto północnej Europy, gdzie gotyckie baszty spotykają się z technologicznym duchem.',
+    transportCode: 'TLL', isOffTheBeatenPath: true
+  },
+  {
+    id: 'mat_01', city: 'Matera', country: 'Włochy', lat: 40.6664, lon: 16.6043,
+    coverImage: 'https://images.unsplash.com/photo-1584646098378-0874589d76b1?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Unikatowe miasto w całości wykute w skałach wapiennych (Sassi) – jedno z najstarszych i najbardziej fascynujących miejsc globu.',
+    transportCode: 'BRI', isOffTheBeatenPath: true
+  },
+  {
+    id: 'tos_01', city: 'Tromsø', country: 'Norwegia', lat: 69.6492, lon: 18.9553,
+    coverImage: 'https://images.unsplash.com/photo-1579033461380-adb47c3eb938?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Brama Arktyki za kołem podbiegunowym – zorza polarna, potężne fiordy i spektakularna Katedra Arktyczna.',
+    transportCode: 'TOS', isOffTheBeatenPath: true
+  },
+  {
+    id: 'ohd_01', city: 'Ochryda', country: 'Macedonia Północna', lat: 41.1172, lon: 20.8016,
+    coverImage: 'https://images.unsplash.com/photo-1565008447742-97f6f38c985c?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Starożytne jezioro z krystaliczną wodą i ikoniczną cerkwią św. Jana zawieszoną na urwisku skalnym nad taflą wody.',
+    transportCode: 'OHD', isOffTheBeatenPath: true
+  },
+  {
+    id: 'gro_01', city: 'Girona', country: 'Hiszpania', lat: 41.9794, lon: 2.8214,
+    coverImage: 'https://images.unsplash.com/photo-1582234372722-50d7ccc30ebd?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Kataloński klejnot z kolorowymi kamienicami nad rzeką Onyar, monumentalną katedrą i zabytkową dzielnicą żydowską.',
+    transportCode: 'GRO', isOffTheBeatenPath: true
+  },
+  {
+    id: 'hal_01', city: 'Hallstatt', country: 'Austria', lat: 47.5622, lon: 13.6493,
+    coverImage: 'https://images.unsplash.com/photo-1508672019048-805b876b67e2?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Malownicza alpejska wioska przeglądająca się w tafli jeziora, z najstarszą kopalnią soli i drewnianą architekturą.',
+    transportCode: 'SZG', isOffTheBeatenPath: true
+  },
+  {
+    id: 'brq_01', city: 'Brno', country: 'Czechy', lat: 49.1951, lon: 16.6068,
+    coverImage: 'https://images.unsplash.com/photo-1596436889106-be35e843f974?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Klimatyczna stolica Moraw z modernistyczną Willą Tugendhat (UNESCO), podziemnym labiryntem i lokalnymi winiarniami.',
+    transportCode: 'BRQ', isOffTheBeatenPath: true
+  },
+  {
+    id: 'snd_01', city: 'Sandomierz', country: 'Polska', lat: 50.6800, lon: 21.7500,
+    coverImage: 'https://images.unsplash.com/photo-1590486803833-1c5dc8ddd4c8?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
+    transportCode: 'Sandomierz', isOffTheBeatenPath: true
+  },
+  {
+    id: 'szc_01', city: 'Szczawnica', country: 'Polska', lat: 49.4278, lon: 20.4856,
+    coverImage: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Klimatyczne uzdrowisko w sercu Pienin – spływ Przełomem Dunajca, widok na Trzy Korony i pijalnie wód mineralnych.',
+    transportCode: 'Szczawnica'
+  },
+  {
+    id: 'zak_01', city: 'Zakopane', country: 'Polska', lat: 49.2992, lon: 19.9496,
+    coverImage: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Zimowa i letnia stolica Tatr. Wyrusz na szlaki Morskiego Oka, Kasprowego Wierchu i poczuj góralski klimat Krupówek.',
+    transportCode: 'Zakopane'
+  },
+  {
+    id: 'tor_01', city: 'Toruń', country: 'Polska', lat: 53.0138, lon: 18.5984,
+    coverImage: 'https://images.unsplash.com/photo-1541845157-a6d2d100c931?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Gotycka perła UNESCO nad Wisłą. Miasto Mikołaja Kopernika, pachnące tradycyjnymi toruńskimi piernikami.',
+    transportCode: 'Toruń Główny'
+  },
+  {
+    id: 'poz_01', city: 'Poznań', country: 'Polska', lat: 52.4064, lon: 16.9252,
+    coverImage: 'https://images.unsplash.com/photo-1517840901100-8179e982acb7?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Kolorowy Stary Rynek ze słynnymi koziołkami, kolebka polskiej państwowości na Ostrowie Tumskim i rogaliki świętomarcińskie.',
+    transportCode: 'POZ'
+  },
+  {
+    id: 'szg_01', city: 'Salzburg', country: 'Austria', lat: 47.8095, lon: 13.0550,
+    coverImage: 'https://images.unsplash.com/photo-1527631746610-bca00a040d60?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Barokowe miasto Mozarta u podnóża Alp, z majestatyczną twierdzą Hohensalzburg i ogrodami pałacu Mirabell.',
+    transportCode: 'SZG'
+  },
+  {
+    id: 'pmo_01', city: 'Palermo', country: 'Włochy', lat: 38.1157, lon: 13.3615,
+    coverImage: 'https://images.unsplash.com/photo-1523906834658-6e2522d42e9d?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Fascynująca stolica Sycylii z bizantyjsko-arabską architekturą, gwarnymi targami i widokiem na Zatokę Palermo.',
+    transportCode: 'PMO'
+  },
+  {
+    id: 'svq_01', city: 'Sewilla', country: 'Hiszpania', lat: 37.3891, lon: -5.9845,
+    coverImage: 'https://images.unsplash.com/photo-1509840841025-9088ba78a826?auto=format&fit=crop&q=80&w=600',
+    shortDescription: 'Gorąca stolica Andaluzji. Zachwycający plac Plaza de España, pałac Alcázar i ojczyzna pasjonującego flamenco.',
+    transportCode: 'SVQ'
   }
 ];
 
@@ -203,6 +341,23 @@ export const CITIES_WITH_PREDEFINED_PLANS = new Set([
   'Mediolan',
   'Gdańsk',
   'Wrocław',
+  'Lizbona',
+  'Madryt',
+  'Amsterdam',
+  'Kopenhaga',
+  'Wenecja',
+  'Dubrownik',
+  'Zurych',
+  'Edynburg',
+  'Dublin',
+  'Walencja',
+  'Neapol',
+  'Porto',
+  'Stambuł',
+  'Nicea',
+  'Monachium',
+  'Valletta',
+  'Reykjavik',
 ]);
 
 // ETAP 1: Polskie lotniska wylotowe
@@ -347,6 +502,66 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       icon: 'https://openweathermap.org/img/wn/03d@2x.png',
       attractions: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame'],
     },
+    {
+      id: 'aho_01',
+      city: 'Alghero',
+      country: 'Włochy',
+      lat: 40.5579,
+      lon: 8.3193,
+      coverImage: 'https://images.unsplash.com/photo-1598977123418-454555aa1376?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
+      transportCode: 'AHO',
+      temp: 23,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Stare Miasto z katalońskimi murami', 'Klify Capo Caccia', 'Grota Neptuna'],
+      isOffTheBeatenPath: true,
+    },
+    {
+      id: 'kotor_01',
+      city: 'Kotor',
+      country: 'Czarnogóra',
+      lat: 42.4247,
+      lon: 18.7712,
+      coverImage: 'https://images.unsplash.com/photo-1568853862744-e2213765e94b?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
+      transportCode: 'TIV',
+      temp: 21,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Starówka w Kotorze i Katedra św. Tryfona', 'Mury twierdzy San Giovanni', 'Zatoka Boka Kotorska'],
+      isOffTheBeatenPath: true,
+    },
+    {
+      id: 'lju_01',
+      city: 'Lublana',
+      country: 'Słowenia',
+      lat: 46.0569,
+      lon: 14.5058,
+      coverImage: 'https://images.unsplash.com/photo-1584467541268-b040f83be3fd?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
+      transportCode: 'LJU',
+      temp: 20,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/02d@2x.png',
+      attractions: ['Zamek w Lublanie (Ljubljanski grad)', 'Potrójny Most i Smoczy Most', 'Park Tivoli'],
+      isOffTheBeatenPath: true,
+    },
+    {
+      id: 'snd_01',
+      city: 'Sandomierz',
+      country: 'Polska',
+      lat: 50.6800,
+      lon: 21.7500,
+      coverImage: 'https://images.unsplash.com/photo-1590486803833-1c5dc8ddd4c8?auto=format&fit=crop&q=80&w=600',
+      shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
+      transportCode: 'Sandomierz',
+      temp: 19,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi'],
+      isOffTheBeatenPath: true,
+    },
   ];
 
   const validFallbackCities = fallbackCities.filter(
@@ -372,6 +587,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       hasPredefinedPlan: true,
       nearestAirport: 'WAW',
       flightDate: `${startStr} - ${endStr}`,
+      isOffTheBeatenPath: (c as any).isOffTheBeatenPath || false,
       weather: {
         temp: c.temp,
         condition: c.condition,
@@ -573,6 +789,48 @@ export async function fetchCityWeather(
       Berlin: ['Brama Brandenburska', 'Wyspa Muzeów', 'Reichstag', 'East Side Gallery'],
       Gdańsk: ['Długi Targ i Fontanna Neptuna', 'Żuraw nad Motławą', 'Bazylika Mariacka', 'Europejskie Centrum Solidarności'],
       Wrocław: ['Rynek i Ratusz', 'Ostrów Tumski', 'Panorama Racławicka', 'Szlak Krasnali'],
+      Lizbona: ['Klasztor Hieronimitów', 'Wieża Belém', 'Dzielnica Alfama', 'Punkt widokowy Miradouro da Senhora do Monte'],
+      Madryt: ['Muzeum Prado', 'Pałac Królewski', 'Park Retiro', 'Plaza Mayor'],
+      Amsterdam: ['Rijksmuseum', 'Muzeum Van Gogha', 'Kanały Prinsengracht', 'Dzielnica Jordaan'],
+      Kopenhaga: ['Port Nyhavn', 'Ogrody Tivoli', 'Pałac Amalienborg', 'Syrenka Kopenhaska'],
+      Mediolan: ['Katedra Duomo', 'Galeria Vittorio Emanuele II', 'Zamek Sforzów', 'Dzielnica Navigli'],
+      Wenecja: ['Plac i Bazylika św. Marka', 'Most Rialto', 'Pałac Dożów', 'Wyspa Burano'],
+      Dubrownik: ['Średniowieczne mury obronne', 'Ulica Stradun', 'Fort Lovrijenac', 'Wzgórze Srđ'],
+      Zurych: ['Jezioro Zuryskie', 'Stare Miasto Altstadt', 'Kościół Grossmünster', 'Ulica Bahnhofstrasse'],
+      Edynburg: ['Zamek w Edynburgu', 'Ulica Royal Mile', 'Wzgórze Calton Hill', 'Wygasły wulkan Arthur\'s Seat'],
+      Dublin: ['Kolegium Trójcy Świętej (Book of Kells)', 'Dzielnica Temple Bar', 'Katedra św. Patryka', 'Browar Guinness Storehouse'],
+      Walencja: ['Miasto Sztuki i Nauki', 'Plaża Malvarrosa', 'Katedra w Walencji', 'Targ Mercado Central'],
+      Neapol: ['Spaccanapoli', 'Zamek Castel dell\'Ovo', 'Podziemny Neapol (Napoli Sotterranea)', 'Wypad pod Wezuwiusz'],
+      Porto: ['Dzielnica Ribeira', 'Most Dom Luís I', 'Księgarnia Livraria Lello', 'Dolina rzeki Douro'],
+      Stambuł: ['Hagia Sophia', 'Błękitny Meczet', 'Pałac Topkapi', 'Wielki Bazar (Grand Bazaar)'],
+      Nicea: ['Promenada Anglików', 'Wzgórze Zamkowe (Colline du Château)', 'Stare Miasto Vieux Nice', 'Targ Cours Saleya'],
+      Monachium: ['Plac Marienplatz', 'Ogród Angielski (Englischer Garten)', 'Pałac Nymphenburg', 'Kościół Frauenkirche'],
+      Valletta: ['Konkatedra św. Jana', 'Górne Ogrody Barrakka', 'Fort św. Elma', 'Pałac Wielkich Mistrzów'],
+      Reykjavik: ['Kościół Hallgrímskirkja', 'Błękitna Laguna (Blue Lagoon)', 'Koncertowa Harpa', 'Trasa Złotego Kręgu (Gullfoss i Geysir)'],
+      Alghero: ['Stare Miasto z katalońskimi murami', 'Klify Capo Caccia', 'Grota Neptuna', 'Plaża Spiaggia delle Bombarde'],
+      Kotor: ['Starówka w Kotorze i Katedra św. Tryfona', 'Mury twierdzy San Giovanni', 'Wyspa Matki Boskiej na Skale', 'Zatoka Boka Kotorska'],
+      Lublana: ['Zamek w Lublanie (Ljubljanski grad)', 'Potrójny Most i Smoczy Most', 'Park Tivoli', 'Wypad nad Jezioro Bled'],
+      Bergen: ['Zabytkowa dzielnica Bryggen (UNESCO)', 'Wjazd kolejką linową na górę Fløyen', 'Targ Rybny Fisketorget', 'Fiord Hardangerfjord'],
+      Colmar: ['Dzielnica Mała Wenecja (La Petite Venise)', 'Zabytkowy dom Maison des Têtes', 'Muzeum Unterlinden', 'Winiarski Szlak Alzacji'],
+      Sintra: ['Baśniowy Pałac Pena', 'Posiadłość Quinta da Regaleira', 'Zamek Maurów', 'Przylądek Cabo da Roca'],
+      'San Sebastián': ['Plaża La Concha', 'Stare Miasto Parte Vieja (bary pintxos)', 'Wzgórze Monte Urgull', 'Pałac Miramar'],
+      Tallinn: ['Średniowieczny Rynek Raekoja plats', 'Wzgórze Toompea i Zamek', 'Baszta Gruba Małgorzata', 'Kreatywna dzielnica Telliskivi'],
+      Matera: ['Dzielnice skalne Sassi di Matera', 'Katedra w Materze', 'Kościoły rupestralne w skałach', 'Park Murgia Materana'],
+      Tromsø: ['Katedra Arktyczna', 'Kolejka Fjellheisen z panoramą fiordu', 'Muzeum Polarne', 'Wyprawa na zorzę polarną'],
+      Ochryda: ['Cerkiew św. Jana w Kaneo nad jeziorem', 'Twierdza Samuela', 'Starożytny teatr w Ochrydzie', 'Klasztor św. Nauma'],
+      Girona: ['Katedra w Gironie i monumentalne schody', 'Kolorowe domy nad rzeką Onyar', 'Dzielnica żydowska El Call', 'Średniowieczne mury miejskie'],
+      Hallstatt: ['Punkt widokowy nad jeziorem Hallstatt', 'Kopalnia soli Salzwelten', 'Kostnica Beinhaus', 'Platforma widokowa Skywalk'],
+      Brno: ['Modernistyczna Willa Tugendhat (UNESCO)', 'Zamek Špilberk', 'Katedra św. Piotra i Pawła', 'Labirynt podziemny pod Targiem Warzywnym'],
+      Sandomierz: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi', 'Brama Opatowska'],
+      Szczawnica: ['Spływ Przełomem Dunajca', 'Wjazd kolejką na Palenicę', 'Pijalnia wód mineralnych', 'Wąwóz Homole i Pieniny'],
+      Zadar: ['Morskie Organy', 'Instalacja Pozdrowienie Słońca', 'Rzymskie Forum i Kościół św. Donata', 'Katedra św. Anastazji'],
+      Bolonia: ['Piazza Maggiore i Bazylika św. Petroniusza', 'Dwie Krzywe Wieże (Due Torri)', 'Słynne bolońskie arkady (portyki)', 'Dzielnica uniwersytecka'],
+      Zakopane: ['Dolina Kościeliska i Morskie Oko', 'Wjazd kolejką na Kasprowy Wierch', 'Krupówki i Muzeum Tatrzańskie', 'Gubałówka'],
+      Toruń: ['Ratusz Staromiejski i Rynek', 'Żywe Muzeum Piernika', 'Dom Mikołaja Kopernika', 'Krzywa Wieża w Toruniu'],
+      Poznań: ['Stary Rynek i poznańskie koziołki', 'Ostrów Tumski i Brama Poznania', 'Park Cytadela', 'Jezioro Maltańskie'],
+      Salzburg: ['Twierdza Hohensalzburg', 'Ogrody Pałacu Mirabell', 'Ulica Getreidegasse (Dom Mozarta)', 'Katedra w Salzburgu'],
+      Palermo: ['Katedra w Palermo', 'Pałac Normanów i Cappella Palatina', 'Targ Ballarò', 'Teatro Massimo'],
+      Sewilla: ['Plaza de España i Park Marii Luizy', 'Katedra w Sewilli i wieża Giralda', 'Pałac Królewski Real Alcázar', 'Dzielnica Santa Cruz'],
     };
 
     const itinerary: TripDay[] = [];
@@ -614,6 +872,7 @@ export async function fetchCityWeather(
       hasPredefinedPlan,
       nearestAirport: nearestAirportCode,
       flightDate: `${formatDateStr(startStr)} - ${formatDateStr(endStr)}`,
+      isOffTheBeatenPath: dest.isOffTheBeatenPath,
       proposedTrip,
       weather: {
         temp: Math.round(firstDayMaxTemp),
@@ -661,19 +920,25 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
     (dest) => calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) >= 20
   );
 
-  // Dzielimy na destynacje regionalne (pociąg / auto, <= 550 km) oraz lotnicze (> 550 km),
-  // gwarantując użytkownikowi realistyczny wybór między wypadem autem/pociągiem a lotem.
+  // Dzielimy pulę na zrównoważone kategorie:
+  // 1. Destynacje spoza gotowych szablonów (do samodzielnego zaplanowania)
+  // 2. Klasyczne gotowce lotnicze z predefiniowanym planem
+  // 3. Regionalne wypady blisko domu (pociąg / auto, <= 550 km)
+  const nonTemplatePool = validPool.filter((dest) => !CITIES_WITH_PREDEFINED_PLANS.has(dest.city));
+  const readyFlightPool = validPool.filter(
+    (dest) => CITIES_WITH_PREDEFINED_PLANS.has(dest.city) && calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) > 550
+  );
   const regionalPool = validPool.filter(
     (dest) => calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) <= 550
   );
-  const flightPool = validPool.filter(
-    (dest) => calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) > 550
-  );
 
-  // Wybieramy zrównoważoną pulę kandydatów do weryfikacji pogodowej
+  const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
+
+  // Dobieramy bogatą pulę kandydatów do weryfikacji pogodowej (~22-24 miast)
   const candidateBatch = [
-    ...regionalPool.slice(0, 4),
-    ...flightPool.slice(0, 8),
+    ...shuffle(nonTemplatePool).slice(0, 10), // 10 propozycji spoza gotowych szablonów
+    ...shuffle(readyFlightPool).slice(0, 8),   // 8 klasyków lotniczych z gotowym planem
+    ...shuffle(regionalPool).slice(0, 6),      // 6 propozycji na weekend / blisko domu
   ];
 
   // ETAP 2: Równoległa weryfikacja pogody i wykluczenie anomalii atmosferycznych
@@ -703,7 +968,7 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
   });
 
   // ETAP 3: Wzbogacenie komponentu o autentyczne zdjęcia z Google Places i szczegóły planu
-  const topCities = weatherPassed.slice(0, 6);
+  const topCities = weatherPassed.slice(0, 14); // Zwiększamy liczbę proponowanych destynacji z 6 do 14!
   const finalRecommendations: LiveDestination[] = [];
 
   for (const dest of topCities) {

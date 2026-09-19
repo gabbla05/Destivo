@@ -1,7 +1,7 @@
 /// <reference types="jest" />
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { HomeScreen } from '../src/screens/HomeScreen';
+import { HomeScreen, getEmergencyNumber, sanitizeTimeStr } from '../src/screens/HomeScreen';
 import { generateLiveRecommendations } from '../src/lib/liveExplore';
 
 jest.mock('../src/store/authStore', () => ({
@@ -81,6 +81,29 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
         condition: 'Bez opadów, idealnie na zwiedzanie',
         crowdLevel: 'Spokojnie',
         itinerary: [],
+      },
+    },
+    {
+      id: 'sandomierz_01',
+      city: 'Sandomierz',
+      country: 'Polska',
+      lat: 50.6823,
+      lon: 21.7494,
+      coverImage: 'https://images.unsplash.com/photo-sandomierz.jpg',
+      shortDescription: 'Królewskie miasto na siedmiu wzgórzach.',
+      transportCode: 'SND',
+      distanceKm: 210,
+      recommendedTransport: 'car' as const,
+      isOffTheBeatenPath: true,
+      hasPredefinedPlan: true,
+      proposedTrip: {
+        startDate: '20.09.2026',
+        endDate: '22.09.2026',
+        durationDays: 2,
+        estimatedTemp: 19,
+        condition: 'Bez opadów, idealnie na zwiedzanie',
+        crowdLevel: 'Spokojnie',
+        itinerary: [{ day: 1, title: 'Dzień 1', attractions: ['Brama Opatowska'] }],
       },
     },
   ];
@@ -276,4 +299,81 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
       expect(screen.getByText('Fontanna di Trevi')).toBeTruthy();
     });
   });
+
+  test('9. nie wyświetla plakietki Nieoczywisty kierunek (czysty interfejs)', async () => {
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sandomierz')).toBeTruthy();
+    });
+
+    expect(screen.queryByText(/Nieoczywisty kierunek/i)).toBeNull();
+  });
+
+  test('10. filtruje rekomendacje po kliknięciu chipów filtrów (Blisko/Weekend, Samolotem, Wszystkie)', async () => {
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Rzym')).toBeTruthy();
+      expect(screen.getByText('Bari')).toBeTruthy();
+      expect(screen.getByText('Sandomierz')).toBeTruthy();
+    });
+
+    // Filtruj po "Blisko / Weekend"
+    fireEvent.press(screen.getByText(/Blisko \/ Weekend/i));
+    expect(screen.getByText('Sandomierz')).toBeTruthy();
+    expect(screen.queryByText('Rzym')).toBeNull();
+
+    // Filtruj po "Samolotem"
+    fireEvent.press(screen.getByText(/Samolotem/i));
+    expect(screen.getByText('Rzym')).toBeTruthy();
+    expect(screen.getByText('Bari')).toBeTruthy();
+    expect(screen.queryByText('Sandomierz')).toBeNull();
+
+    // Powrót do "Wszystkie"
+    fireEvent.press(screen.getByText(/Wszystkie/i));
+    expect(screen.getByText('Rzym')).toBeTruthy();
+    expect(screen.getByText('Bari')).toBeTruthy();
+    expect(screen.getByText('Sandomierz')).toBeTruthy();
+  });
+
+  test('11. sanitizeTimeStr normalizuje niepoprawne godziny (np. 26:00 -> 02:00)', () => {
+    expect(sanitizeTimeStr('26:00')).toBe('02:00');
+    expect(sanitizeTimeStr('24:00')).toBe('00:00');
+    expect(sanitizeTimeStr('25:30')).toBe('01:30');
+    expect(sanitizeTimeStr('15:00')).toBe('15:00');
+    expect(sanitizeTimeStr('09:45')).toBe('09:45');
+    expect(sanitizeTimeStr('')).toBe('12:00');
+    expect(sanitizeTimeStr(undefined)).toBe('12:00');
+  });
+
+  test('12. getEmergencyNumber poprawnie przypisuje numer alarmowy do kraju i miasta', () => {
+    // Wielka Brytania
+    expect(getEmergencyNumber('Londyn')).toBe('999');
+    expect(getEmergencyNumber('Edynburg')).toBe('999');
+    expect(getEmergencyNumber('United Kingdom')).toBe('999');
+    expect(getEmergencyNumber('Wielka Brytania')).toBe('999');
+
+    // USA / Kanada
+    expect(getEmergencyNumber('Nowy Jork')).toBe('911');
+    expect(getEmergencyNumber('USA')).toBe('911');
+    expect(getEmergencyNumber('Kanada')).toBe('911');
+
+    // Australia
+    expect(getEmergencyNumber('Sydney')).toBe('000');
+    expect(getEmergencyNumber('Australia')).toBe('000');
+
+    // Japonia
+    expect(getEmergencyNumber('Tokio')).toBe('110');
+    expect(getEmergencyNumber('Japonia')).toBe('110');
+
+    // Kraje europejskie (domyślnie 112)
+    expect(getEmergencyNumber('Rzym')).toBe('112');
+    expect(getEmergencyNumber('Włochy')).toBe('112');
+    expect(getEmergencyNumber('Warszawa')).toBe('112');
+    expect(getEmergencyNumber('Paryż')).toBe('112');
+    expect(getEmergencyNumber('Barcelona')).toBe('112');
+    expect(getEmergencyNumber('Chorwacja')).toBe('112');
+  });
 });
+

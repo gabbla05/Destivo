@@ -207,7 +207,7 @@ export const VaultPinScreen = () => {
             </TouchableOpacity>
           ))}
           <TouchableOpacity style={styles.keyAction} onPress={handleClear} activeOpacity={0.7}>
-            <Text style={styles.keyActionText}>{t.clear}</Text>
+            <Text style={styles.keyActionText} numberOfLines={1} adjustsFontSizeToFit>{t.clear}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.keyButton} onPress={() => handlePress('0')} activeOpacity={0.7}>
             <Text style={styles.keyText}>0</Text>
@@ -266,7 +266,12 @@ export const VaultPinScreen = () => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: 30 }}
+            >
               <Text style={styles.modalDesc}>
                 {user?.isGuest || !user?.email
                   ? (t.guestForgotPinDesc || 'Dla konta gościa możesz zresetować kod PIN Sejfu bezpośrednio.')

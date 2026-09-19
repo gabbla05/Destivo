@@ -5,7 +5,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Importy testowanych ekranów
-import { TripsListScreen } from '../src/screens/TripsListScreen';
+import { TripsListScreen, parseTripDate, isTripExpired } from '../src/screens/TripsListScreen';
 import { TimelineScreen } from '../src/screens/TimelineScreen';
 import { QuickSetupScreen } from '../src/screens/QuickSetupScreen';
 import { Step4AttractionsScreen } from '../src/screens/TripCreator/Step4AttractionsScreen';
@@ -258,6 +258,65 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(screen.getByText('12')).toBeTruthy();
       });
     });
+
+    test('funkcja parseTripDate powinna poprawnie rozpoznawać różnorodne formaty dat', () => {
+      const d1 = parseTripDate('2026-09-18');
+      expect(d1?.getFullYear()).toBe(2026);
+      expect(d1?.getMonth()).toBe(8);
+      expect(d1?.getDate()).toBe(18);
+
+      const d2 = parseTripDate('18-09-2026');
+      expect(d2?.getFullYear()).toBe(2026);
+      expect(d2?.getMonth()).toBe(8);
+      expect(d2?.getDate()).toBe(18);
+
+      const d3 = parseTripDate('18.09.2026');
+      expect(d3?.getFullYear()).toBe(2026);
+
+      const d4 = parseTripDate('2026-09-18T14:30:00.000Z');
+      expect(d4?.getFullYear()).toBe(2026);
+
+      expect(parseTripDate('')).toBeNull();
+      expect(parseTripDate(null)).toBeNull();
+      expect(parseTripDate('niepoprawna_data')).toBeNull();
+    });
+
+    test('funkcja isTripExpired powinna przenieść zakończoną podróż do archiwum i chronić przed przypadkowym zniknięciem', () => {
+      const refDate = new Date('2026-09-02T00:00:00Z');
+
+      // Podróż z przeszłości -> wygasła (archiwum)
+      expect(isTripExpired({ end_date: '2023-07-24' }, refDate)).toBe(true);
+
+      // Podróż nadchodząca -> niewygasła
+      expect(isTripExpired({ end_date: '2026-09-05' }, refDate)).toBe(false);
+
+      // Brak end_date, ale start_date w przeszłości -> wygasła (archiwum)
+      expect(isTripExpired({ start_date: '2022-01-01' }, refDate)).toBe(true);
+
+      // Brak jakiejkolwiek daty -> nie wygasa (nigdy nie znika z konta)
+      expect(isTripExpired({}, refDate)).toBe(false);
+    });
+
+    test('powinien wywołać Alert z potwierdzeniem i usunąć podróż tylko na żądanie użytkownika', async () => {
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      render(<TripsListScreen navigation={{ navigate: mockNavigate }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Paryż 2026')).toBeTruthy();
+      });
+
+      const deleteButtons = screen.getAllByText('');
+      if (deleteButtons.length > 0) {
+        fireEvent.press(deleteButtons[0]);
+        expect(alertSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/Usuwanie podróży|Delete trip/i),
+          expect.any(String),
+          expect.any(Array)
+        );
+      }
+    });
   });
 
   describe('2. Zapis Podróży - QuickSetupScreen i Step4AttractionsScreen', () => {
@@ -282,8 +341,9 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       fireEvent.press(screen.getByText('Zapisz i zakończ'));
 
       await waitFor(() => {
-        expect(mockDbExecute).toHaveBeenCalled();
-        const callArgs = mockDbExecute.mock.calls[0][1];
+        const insertCall = mockDbExecute.mock.calls.find((call: any[]) => call[0]?.includes('INSERT INTO trips'));
+        expect(insertCall).toBeTruthy();
+        const callArgs = insertCall[1];
         const attractionsJsonString = callArgs[9];
         const attractionsData = JSON.parse(attractionsJsonString);
         

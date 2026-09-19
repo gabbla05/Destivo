@@ -14,6 +14,7 @@ import {
   StatusBar,
   Modal,
   Linking,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -68,6 +69,29 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [isRecoverySessionActive, setIsRecoverySessionActive] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleDeepLink = async (url: string | null) => {
     if (!url || !url.includes('destivo://')) return;
@@ -302,9 +326,13 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
         style={{ flex: 1 }}
       >
         <ScrollView 
-          contentContainerStyle={styles.scrollContent} 
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 140 }
+          ]} 
           bounces={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           
           <View style={styles.topBar}>
@@ -523,117 +551,124 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {forgotStage === 'EMAIL' ? (
-              <>
-                <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
-                <View style={styles.inputContainer}>
-                  <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={t.emailPlaceholder}
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={resetEmail}
-                    onChangeText={setResetEmail}
-                  />
-                </View>
-                <TouchableOpacity
-                  style={[styles.primaryButton, { marginTop: 16 }, resetLoading && { opacity: 0.7 }]}
-                  onPress={handleSendOtpCode}
-                  disabled={resetLoading}
-                  activeOpacity={0.8}
-                >
-                  {resetLoading ? (
-                    <ActivityIndicator color="#0B1120" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>{t.sendResetLink} ➔</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalDesc}>
-                  {t.setNewPasswordDesc || 'Wprowadź nowe hasło do swojego konta Destivo.'}
-                </Text>
-
-                {/* Nowe hasło */}
-                <View style={[styles.inputGroup, { marginTop: 6 }]}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.label}>{t.newPasswordLabel || 'NOWE HASŁO'}</Text>
-                    <Ionicons name="lock-closed-outline" size={12} color="#94A3B8" />
-                  </View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
+              {forgotStage === 'EMAIL' ? (
+                <>
+                  <Text style={styles.modalDesc}>{t.forgotPasswordDesc}</Text>
                   <View style={styles.inputContainer}>
-                    <Ionicons name="shield-checkmark-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
-                    <TextInput
-                      style={[styles.input, { flex: 1, paddingRight: 40 }]}
-                      placeholder={t.newPasswordPlaceholder || 'Nowe hasło (min. 6 znaków)'}
-                      placeholderTextColor="#94A3B8"
-                      secureTextEntry={!showNewPassword}
-                      value={newPassword}
-                      onChangeText={setNewPassword}
-                      testID="new-password-input"
-                    />
-                    <TouchableOpacity
-                      onPress={() => setShowNewPassword(!showNewPassword)}
-                      style={styles.eyeBtn}
-                      activeOpacity={0.7}
-                      testID="toggle-new-password-visibility"
-                    >
-                      <Ionicons
-                        name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={20}
-                        color="#94A3B8"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Powtórz nowe hasło */}
-                <View style={[styles.inputGroup, { marginTop: 6 }]}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.label}>{t.confirmPasswordLabel || 'POWTÓRZ NOWE HASŁO'}</Text>
-                    <Ionicons name="checkmark" size={12} color="#94A3B8" />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
+                    <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
                     <TextInput
                       style={styles.input}
-                      placeholder={t.confirmPasswordPlaceholder || 'Powtórz nowe hasło'}
+                      placeholder={t.emailPlaceholder}
                       placeholderTextColor="#94A3B8"
-                      secureTextEntry={!showNewPassword}
-                      value={confirmPassword}
-                      onChangeText={setConfirmPassword}
-                      testID="confirm-password-input"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      value={resetEmail}
+                      onChangeText={setResetEmail}
                     />
                   </View>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.primaryButton, { marginTop: 14 }, resetLoading && { opacity: 0.7 }]}
-                  onPress={handleVerifyOtpAndSetPassword}
-                  disabled={resetLoading}
-                  activeOpacity={0.8}
-                  testID="submit-new-password-btn"
-                >
-                  {resetLoading ? (
-                    <ActivityIndicator color="#0B1120" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>{t.setNewPasswordBtn || 'Ustaw nowe hasło'} ➔</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{ marginTop: 12, alignItems: 'center' }}
-                  onPress={() => setForgotStage('EMAIL')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ color: '#F59E0B', fontSize: 13, fontWeight: '600' }}>
-                    {t.backToEmailStage || '← Zmień e-mail / Wyślij ponownie'}
+                  <TouchableOpacity
+                    style={[styles.primaryButton, { marginTop: 16 }, resetLoading && { opacity: 0.7 }]}
+                    onPress={handleSendOtpCode}
+                    disabled={resetLoading}
+                    activeOpacity={0.8}
+                  >
+                    {resetLoading ? (
+                      <ActivityIndicator color="#0B1120" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>{t.sendResetLink} ➔</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalDesc}>
+                    {t.setNewPasswordDesc || 'Wprowadź nowe hasło do swojego konta Destivo.'}
                   </Text>
-                </TouchableOpacity>
-              </>
-            )}
+
+                  {/* Nowe hasło */}
+                  <View style={[styles.inputGroup, { marginTop: 6 }]}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.label}>{t.newPasswordLabel || 'NOWE HASŁO'}</Text>
+                      <Ionicons name="lock-closed-outline" size={12} color="#94A3B8" />
+                    </View>
+                    <View style={styles.inputContainer}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
+                      <TextInput
+                        style={[styles.input, { flex: 1, paddingRight: 40 }]}
+                        placeholder={t.newPasswordPlaceholder || 'Nowe hasło (min. 6 znaków)'}
+                        placeholderTextColor="#94A3B8"
+                        secureTextEntry={!showNewPassword}
+                        value={newPassword}
+                        onChangeText={setNewPassword}
+                        testID="new-password-input"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowNewPassword(!showNewPassword)}
+                        style={styles.eyeBtn}
+                        activeOpacity={0.7}
+                        testID="toggle-new-password-visibility"
+                      >
+                        <Ionicons
+                          name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={20}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Powtórz nowe hasło */}
+                  <View style={[styles.inputGroup, { marginTop: 6 }]}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.label}>{t.confirmPasswordLabel || 'POWTÓRZ NOWE HASŁO'}</Text>
+                      <Ionicons name="checkmark" size={12} color="#94A3B8" />
+                    </View>
+                    <View style={styles.inputContainer}>
+                      <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder={t.confirmPasswordPlaceholder || 'Powtórz nowe hasło'}
+                        placeholderTextColor="#94A3B8"
+                        secureTextEntry={!showNewPassword}
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        testID="confirm-password-input"
+                      />
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.primaryButton, { marginTop: 14 }, resetLoading && { opacity: 0.7 }]}
+                    onPress={handleVerifyOtpAndSetPassword}
+                    disabled={resetLoading}
+                    activeOpacity={0.8}
+                    testID="submit-new-password-btn"
+                  >
+                    {resetLoading ? (
+                      <ActivityIndicator color="#0B1120" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>{t.setNewPasswordBtn || 'Ustaw nowe hasło'} ➔</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ marginTop: 12, alignItems: 'center' }}
+                    onPress={() => setForgotStage('EMAIL')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: '#F59E0B', fontSize: 13, fontWeight: '600' }}>
+                      {t.backToEmailStage || '← Zmień e-mail / Wyślij ponownie'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>

@@ -1,5 +1,4 @@
-// src/screens/TripCreator/Step3LodgingScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,7 +10,8 @@ import {
   StyleSheet, 
   KeyboardAvoidingView, 
   Platform, 
-  StatusBar 
+  StatusBar,
+  Keyboard
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -31,6 +31,29 @@ export const Step3LodgingScreen = () => {
   const setLodgingAddress = useTripCreatorStore((state) => state.setLodgingAddress);
 
   const [localAddress, setLocalAddress] = useState(lodgingAddress || '');
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleOpenBooking = async () => {
     try {
@@ -66,16 +89,24 @@ export const Step3LodgingScreen = () => {
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
         style={{ flex: 1 }}
       >
         <View style={styles.container}>
           <ScrollView 
             contentContainerStyle={[
               styles.scrollContent,
-              { paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16) }
+              { 
+                paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
+                paddingBottom: isKeyboardVisible
+                  ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60)
+                  : Math.max(insets.bottom, 16) + 40
+              }
             ]} 
-            bounces={false}
+            bounces={true}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
           >
             {/* PASEK POSTĘPU */}
             <View style={styles.progressHeader}>
@@ -125,28 +156,28 @@ export const Step3LodgingScreen = () => {
                 />
               </View>
             </View>
-          </ScrollView>
 
-          {/* AKCJE NA DOLE EKRANU */}
-          <View style={[styles.bottomActions, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-            <TouchableOpacity 
-              style={[styles.primaryButton, localAddress.trim().length === 0 && { opacity: 0.5 }]}
-              disabled={localAddress.trim().length === 0}
-              onPress={handleNext}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryButtonText}>{commonT.button_nextStep}</Text>
-            </TouchableOpacity>
+            {/* AKCJE NA DOLE EKRANU */}
+            <View style={styles.bottomActions}>
+              <TouchableOpacity 
+                style={[styles.primaryButton, localAddress.trim().length === 0 && { opacity: 0.5 }]}
+                disabled={localAddress.trim().length === 0}
+                onPress={handleNext}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>{commonT.button_nextStep}</Text>
+              </TouchableOpacity>
 
-            <View style={styles.actionButtonsRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
-                <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.7}>
-                <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
-              </TouchableOpacity>
+              <View style={styles.actionButtonsRow}>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
+                  <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.7}>
+                  <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

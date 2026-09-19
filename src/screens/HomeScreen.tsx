@@ -13,7 +13,10 @@ import {
   Dimensions,
   TextInput,
   Modal,
-  Linking
+  Linking,
+  Keyboard,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
@@ -23,6 +26,7 @@ import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
+import { parseTripDate } from './TripsListScreen';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
@@ -207,12 +211,65 @@ const parseEventDateTime = (dateStr?: string, timeStr?: string): Date => {
   return new Date(year, month, day, hours, minutes, 0, 0);
 };
 
-const getEmergencyNumber = (dest: string): string => {
+export const sanitizeTimeStr = (timeStr?: string): string => {
+  if (!timeStr || !timeStr.trim()) return '12:00';
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '12:00';
+  let hour = parseInt(match[1], 10);
+  let min = parseInt(match[2], 10);
+  if (isNaN(hour) || isNaN(min)) return '12:00';
+  hour = ((hour % 24) + 24) % 24;
+  min = Math.max(0, Math.min(59, min));
+  return `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+};
+
+export const getEmergencyNumber = (dest: string): string => {
   if (!dest) return '112';
-  const d = dest.toLowerCase();
-  if (['nowy jork', 'new york', 'usa', 'stany'].some(c => d.includes(c))) return '911';
-  if (['londyn', 'london', 'edynburg', 'edinburgh', 'uk'].some(c => d.includes(c))) return '999';
-  if (['tokio', 'tokyo', 'japan', 'japonia'].some(c => d.includes(c))) return '110';
+  const d = dest.toLowerCase().trim();
+
+  // USA i Kanada -> 911
+  const northAmericaKeywords = [
+    'usa', 'stany zjednoczone', 'united states', 'u.s.', 'america', 'ameryka',
+    'kanada', 'canada', 'nowy jork', 'new york', 'los angeles', 'chicago',
+    'miami', 'san francisco', 'las vegas', 'waszyngton', 'washington',
+    'toronto', 'vancouver', 'montreal', 'boston', 'seattle'
+  ];
+  if (northAmericaKeywords.some(kw => d.includes(kw))) return '911';
+
+  // Wielka Brytania (UK) -> 999
+  const ukKeywords = [
+    'uk', 'wielka brytania', 'united kingdom', 'anglia', 'england',
+    'szkocja', 'scotland', 'walia', 'wales', 'irlandia północna', 'northern ireland',
+    'londyn', 'london', 'edynburg', 'edinburgh', 'manchester', 'liverpool',
+    'birmingham', 'belfast', 'glasgow', 'bristol'
+  ];
+  if (ukKeywords.some(kw => d.includes(kw))) return '999';
+
+  // Australia -> 000
+  const australiaKeywords = [
+    'australia', 'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', 'canberra'
+  ];
+  if (australiaKeywords.some(kw => d.includes(kw))) return '000';
+
+  // Nowa Zelandia -> 111
+  const nzKeywords = [
+    'nowa zelandia', 'new zealand', 'auckland', 'wellington', 'christchurch'
+  ];
+  if (nzKeywords.some(kw => d.includes(kw))) return '111';
+
+  // Japonia -> 110 (policja)
+  const japanKeywords = [
+    'japonia', 'japan', 'tokio', 'tokyo', 'kioto', 'kyoto', 'osaka', 'yokohama', 'sapporo'
+  ];
+  if (japanKeywords.some(kw => d.includes(kw))) return '110';
+
+  // ZEA -> 999
+  const uaeKeywords = [
+    'emiraty', 'zea', 'uae', 'dubaj', 'dubai', 'abu zabi', 'abu dhabi'
+  ];
+  if (uaeKeywords.some(kw => d.includes(kw))) return '999';
+
+  // Unia Europejska i większość krajów Europy -> 112
   return '112';
 };
 
@@ -246,11 +303,23 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { isGuest, user, language } = useAuthStore();
   const t = translations[language].homeScreen;
   const commonT = translations[language].common;
-  const destinationNames = t.destinationNames as Record<string, string>;
+  const destinationNames = (t.destinationNames || {}) as Record<string, string>;
+  const countryNames = (t.countryNames || {}) as Record<string, string>;
   const db = usePowerSync();
 
   const [recommendations, setRecommendations] = useState<LiveDestination[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'regional' | 'flights'>('all');
+
+  const displayedRecommendations = useMemo(() => {
+    if (selectedFilter === 'regional') {
+      return recommendations.filter((dest) => dest.recommendedTransport === 'car' || dest.recommendedTransport === 'train');
+    }
+    if (selectedFilter === 'flights') {
+      return recommendations.filter((dest) => dest.recommendedTransport === 'flight');
+    }
+    return recommendations;
+  }, [recommendations, selectedFilter]);
   
   // Stany dla Aktywnej Podróży
   const [activeTrip, setActiveTrip] = useState<any | null>(null);
@@ -272,6 +341,29 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [toAmount, setToAmount] = useState('430.00');
   const [isCurrencyModalVisible, setIsCurrencyModalVisible] = useState(false);
   const [currencySelectingSide, setCurrencySelectingSide] = useState<'FROM' | 'TO'>('FROM');
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Fallback z tłumaczeń w razie braku imienia
   const userName = isGuest
@@ -302,6 +394,23 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             ? (result as any).array 
             : (result.rows as any)?._array || (result.rows as any) || []) as any[];
 
+          // Fallback do Supabase, jeśli lokalna baza SQLite nie ma jeszcze zsynchronizowanej podróży
+          if (rows.length === 0 && user && !user.isGuest && user.id) {
+            try {
+              let queryUserId = user.id;
+              if (supabase?.auth?.getSession) {
+                const sessionRes = await supabase.auth.getSession();
+                if (sessionRes?.data?.session?.user?.id) {
+                  queryUserId = sessionRes.data.session.user.id;
+                }
+              }
+              const { data } = await supabase.from('trips').select('*').eq('user_id', queryUserId);
+              if (data && data.length > 0) {
+                rows.push(...data);
+              }
+            } catch {}
+          }
+
           const now = new Date();
           now.setHours(0, 0, 0, 0);
 
@@ -309,18 +418,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
           for (const trip of rows) {
             if (!trip.start_date || !trip.end_date) continue;
-            
-            const parseDate = (d: string) => {
-              const parts = d.replace(/\./g, '-').split('-');
-              if (parts.length !== 3) return new Date(0);
-              if (parts[0].length === 4) return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-              return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-            };
 
-            const startDate = parseDate(trip.start_date);
-            const endDate = parseDate(trip.end_date);
+            const startDate = parseTripDate(trip.start_date);
+            const endDate = parseTripDate(trip.end_date);
             
-            if (now >= startDate && now <= endDate) {
+            if (startDate && endDate && now >= startDate && now <= endDate) {
               currentFound = trip;
               break;
             }
@@ -353,7 +455,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               const fallbackAttractionName = t.defaultAttractionFallback || (language === 'pl' ? 'Atrakcja' : 'Attraction');
               selectedAttrs.forEach((attr: any, idx: number) => {
                 const attrTitle = typeof attr === 'string' ? attr : (attr.name || attr.title || `${fallbackAttractionName} ${idx + 1}`);
-                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attrTitle, timeStr: `${15 + idx}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
+                const attractionHour = 10 + ((idx * 2) % 12);
+                const formattedHour = String(attractionHour).padStart(2, '0');
+                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attrTitle, timeStr: `${formattedHour}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
               });
             }
             setActiveTimeline(events);
@@ -679,7 +783,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     return (
       <SafeAreaView edges={['top']} style={styles.activeContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#0B1120" />
-        <ScrollView bounces={false} contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+          style={{ flex: 1 }}
+        >
+          <ScrollView 
+            bounces={true} 
+            contentContainerStyle={{ 
+              paddingBottom: isKeyboardVisible 
+                ? (Platform.OS === 'android' ? 260 : keyboardHeight + 60) 
+                : 110 
+            }} 
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
           
           {/* LOGO DESTIVO NA GÓRZE NA ŚRODKU */}
           <View style={styles.topLogoContainer}>
@@ -739,7 +858,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 const isPast = index < activeEventIndex;
                 const isInProgress = index === activeEventIndex;
                 const isFuture = index > activeEventIndex;
-                const eventTime = item.timeStr || item.time || '12:00';
+                const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
                 const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
 
                 return (
@@ -1024,7 +1143,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           animationType="slide"
           onRequestClose={() => setIsAddModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.modalOverlay}
+          >
             <View style={styles.addModalDialog}>
               <View style={styles.modalHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -1036,7 +1158,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
+              <ScrollView 
+                style={{ maxHeight: 480 }} 
+                contentContainerStyle={{ paddingBottom: 40 }}
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
                 {/* SEKCJA 1: PROPOZYCJE Z OKOLICY */}
                 <View style={styles.addSectionWrap}>
                   <Text style={styles.addSectionTitle}>{t.suggestions || 'Propozycje z okolicy'}</Text>
@@ -1135,7 +1263,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 </View>
               </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* MODAL WYBORU WALUTY */}
@@ -1194,6 +1322,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             </TouchableOpacity>
           </View>
         )}
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -1239,6 +1368,61 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
           <Text style={styles.sectionSubtitle}>{t.section_liveSubtitle}</Text>
           
+          {/* Filter Chips */}
+          {!loading && recommendations.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterChipsContainer}
+            >
+              <TouchableOpacity
+                style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
+                onPress={() => setSelectedFilter('all')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="globe-outline"
+                  size={14}
+                  color={selectedFilter === 'all' ? '#0F172A' : '#94A3B8'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
+                  {t.filterAll || 'Wszystkie'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filterChip, selectedFilter === 'regional' && styles.filterChipActive]}
+                onPress={() => setSelectedFilter('regional')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="car-outline"
+                  size={14}
+                  color={selectedFilter === 'regional' ? '#0F172A' : '#94A3B8'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.filterChipText, selectedFilter === 'regional' && styles.filterChipTextActive]}>
+                  {t.filterWeekend || 'Blisko / Weekend'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filterChip, selectedFilter === 'flights' && styles.filterChipActive]}
+                onPress={() => setSelectedFilter('flights')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="airplane-outline"
+                  size={14}
+                  color={selectedFilter === 'flights' ? '#0F172A' : '#94A3B8'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.filterChipText, selectedFilter === 'flights' && styles.filterChipTextActive]}>
+                  {t.filterFlights || 'Samolotem'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+
           {loading ? (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#F59E0B" />
@@ -1246,7 +1430,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             </View>
           ) : (
             <View style={styles.exploreProjectsContainer}>
-              {recommendations.length > 0 ? recommendations.map((dest) => (
+              {displayedRecommendations.length > 0 ? displayedRecommendations.map((dest) => (
                 <TouchableOpacity
                   key={dest.id}
                   activeOpacity={0.92}
@@ -1306,7 +1490,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                         <View style={{ flex: 1, marginRight: 8 }}>
                           <Text style={styles.cardCity}>{destinationNames[dest.city] || dest.city}</Text>
                           <Text style={styles.cardCountry}>
-                            {dest.country} • {dest.distanceKm} {t.distanceFromYou}
+                            {(countryNames[dest.country] || dest.country)} • {dest.distanceKm} {t.distanceFromYou}
                           </Text>
                         </View>
                         {/* Transport Pill zamiast ceny */}
@@ -1329,7 +1513,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                                 <Ionicons name="train-outline" size={13} color="#818CF8" style={{ marginRight: 4 }} />
                                 <Text style={styles.transportPillMode}>{t.transportPill_train || 'Pociąg'}</Text>
                               </View>
-                              <Text style={styles.transportPillDetail}>Koleo</Text>
+                              <Text style={styles.transportPillDetail}>{t.transportTrainDetail || 'PKP / Koleo'}</Text>
                             </>
                           ) : (
                             <>
@@ -1434,6 +1618,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
+  },
+
+  filterChipsContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  filterChipActive: {
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
+  },
+  filterChipText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#0F172A',
+    fontWeight: '800',
   },
   planBadge: {
     paddingHorizontal: 10,

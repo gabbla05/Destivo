@@ -183,6 +183,27 @@ describe('Moduł Sejfu Offline (Vault)', () => {
         expect(useVaultStore.getState().isUnlocked).toBe(false);
       });
     });
+
+    test('Powinien wyświetlać przetłumaczony przycisk WYCZYŚĆ w języku polskim i czyścić wpisany PIN', async () => {
+      render(<VaultScreen />);
+      
+      // Sprawdzamy czy przycisk CLEAR jest przetłumaczony na WYCZYŚĆ w języku polskim
+      const clearBtn = screen.getByText('WYCZYŚĆ');
+      expect(clearBtn).toBeTruthy();
+
+      // Wpisujemy cyfry
+      fireEvent.press(screen.getByText('1'));
+      fireEvent.press(screen.getByText('2'));
+
+      // Klikamy WYCZYŚĆ
+      fireEvent.press(clearBtn);
+
+      // Po kliknięciu 2 kolejnych cyfr PIN nie powinien się zatwierdzić, ponieważ poprzednie zostały wyczyszczone
+      fireEvent.press(screen.getByText('3'));
+      fireEvent.press(screen.getByText('4'));
+      act(() => { jest.advanceTimersByTime(150); });
+      expect(screen.queryByText('Potwierdź kod PIN')).toBeNull();
+    });
   });
 
   describe('2. Dashboard i Szufladki (VaultDashboardScreen)', () => {

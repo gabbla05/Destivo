@@ -194,12 +194,12 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
 
     await waitFor(() => {
       // 1. Weryfikacja wykonania zapytania SQL w PowerSync
-      expect(mockDbExecute).toHaveBeenCalledTimes(1);
+      const insertCall = mockDbExecute.mock.calls.find((call: any[]) => call[0]?.includes('INSERT INTO trips'));
+      expect(insertCall).toBeTruthy();
       
       // Wyciągamy argumenty z jakimi wywołano zapytanie do bazy
-      const dbArgs = mockDbExecute.mock.calls[0];
-      const sqlQuery = dbArgs[0];
-      const sqlParams = dbArgs[1];
+      const sqlQuery = insertCall[0];
+      const sqlParams = insertCall[1];
 
       expect(sqlQuery).toContain('INSERT INTO trips');
       

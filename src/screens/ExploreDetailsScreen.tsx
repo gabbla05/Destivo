@@ -15,7 +15,9 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
   const t = translations[language].exploreDetails;
   const homeT = translations[language].homeScreen;
   const destinationNames = homeT.destinationNames as Record<string, string> | undefined;
+  const countryNames = (homeT.countryNames || {}) as Record<string, string>;
   const localizedCity = (destinationNames && destinationNames[destData.city]) || destData.city;
+  const localizedCountry = countryNames[destData.country] || destData.country;
 
   const translateCondition = (condition?: string) => {
     if (!condition || language === 'pl') return condition || '';
@@ -93,7 +95,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         <View style={styles.heroOverlay}>
           <Text style={styles.cityTitle}>{localizedCity}</Text>
           <Text style={styles.countryTitle}>
-            {destData.country} • {t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
+            {localizedCountry} • {t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
           </Text>
         </View>
       </ImageBackground>

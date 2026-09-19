@@ -28,6 +28,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
+import { checkTripCollision } from '../../lib/tripCollision';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as Crypto from 'expo-crypto';
 
@@ -399,6 +401,18 @@ export const Step4AttractionsScreen = () => {
         }
       }
 
+      // Walidacja kolizji dat z istniejącymi podróżami (dwie podróże nie mogą trwać w tym samym czasie)
+      if (startDate) {
+        const collidingTrip = await checkTripCollision(db, userId, startDate, endDate);
+        if (collidingTrip) {
+          const errorMsg = (t.error_overlappingTrip || 'W tym terminie masz już zaplanowaną inną podróż ({{trip}}: {{range}}). Podróże nie mogą się nakładać.')
+            .replace('{{trip}}', collidingTrip.trip_name)
+            .replace('{{range}}', collidingTrip.formattedRange);
+          Alert.alert('DESTIVO', errorMsg);
+          throw new Error(errorMsg);
+        }
+      }
+
       await db.execute(
         `INSERT INTO trips
         (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
@@ -423,19 +437,38 @@ export const Step4AttractionsScreen = () => {
           .insert([{
             id: tripId,
             user_id: userId,
-            trip_name: tripName || t.defaultTripName.replace('{{destination}}', destination),
+            title: tripName || t.defaultTripName.replace('{{destination}}', destination),
             origin: origin || '',
             destination,
             start_date: formatToDBDate(startDate),
             end_date: formatToDBDate(endDate),
-            transport_data: transportJson,
-            lodging_data: lodgingJson,
+            transport_type: transport?.selectedOption?.type || 'flight',
+            accommodation_address: lodgingAddress || '',
             attractions_data: attractionsJson,
           }]);
 
         if (supabaseError) {
           console.warn('Błąd bezpośredniego zapisu do Supabase w Step4:', supabaseError);
         }
+      }
+
+      // Zapisujemy kopię w AsyncStorage (aby podróże nigdy nie znikały offline ani po restarcie)
+      try {
+        const cacheKey = `destivo_cached_trips_${userId}`;
+        const existingCacheStr = await AsyncStorage.getItem(cacheKey);
+        const existingCache = existingCacheStr ? JSON.parse(existingCacheStr) : [];
+        const newTripRecord = {
+          id: tripId,
+          title: tripName || t.defaultTripName.replace('{{destination}}', destination),
+          origin: origin || '',
+          destination,
+          start_date: formatToDBDate(startDate),
+          end_date: formatToDBDate(endDate),
+        };
+        const updatedCache = [newTripRecord, ...existingCache.filter((t: any) => t.id !== tripId)];
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCache));
+      } catch (cacheErr) {
+        console.warn('Błąd zapisu do cache AsyncStorage:', cacheErr);
       }
 
       Alert.alert('DESTIVO', t.saveSuccess);

@@ -336,12 +336,12 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
     fireEvent.press(screen.getByText(/Dalej/i));
 
     await waitFor(() => {
-      expect(mockDbExecute).not.toHaveBeenCalled();
+      expect(mockDbExecute).not.toHaveBeenCalledWith(expect.stringContaining('LIMIT 1'), expect.anything());
       expect(mockNavigate).toHaveBeenCalledWith('Step2Transport');
     });
   });
 
-  test('13. powinien automatycznie przekształcać wpisywane miasta na wielką literę (np. rzym -> Rzym, warszawa -> Warszawa)', async () => {
+  test('13. powinien poprawnie formatować i zapisywać miasta z wielkiej litery (np. rzym -> Rzym, warszawa -> Warszawa) bez uciążliwego dublowania liter podczas pisania', async () => {
     render(<Step1DestinationScreen navigation={mockNavigation} />);
 
     const destInput = screen.getByPlaceholderText('np. Rzym');
@@ -350,6 +350,13 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
     fireEvent.changeText(destInput, 'rzym');
     fireEvent.changeText(originInput, 'warszawa');
 
+    // W trakcie pisania nie podmieniamy wartości na siłę (zapobiega to dublowaniu liter np. Wwarszawa)
+    expect(destInput.props.value).toBe('rzym');
+    expect(originInput.props.value).toBe('warszawa');
+
+    // Po opuszczeniu pola (onBlur) następuje eleganckie formatowanie z wielkich liter
+    fireEvent(destInput, 'blur');
+    fireEvent(originInput, 'blur');
     expect(destInput.props.value).toBe('Rzym');
     expect(originInput.props.value).toBe('Warszawa');
 
@@ -377,5 +384,41 @@ describe('Step1DestinationScreen - Testy walidacji i nawigacji', () => {
     expect(capitalizeCity('zielona góra')).toBe('Zielona Góra');
     expect(capitalizeCity('łódź')).toBe('Łódź');
     expect(capitalizeCity('')).toBe('');
+  });
+
+  test('15. powinien zablokować przejście do Step2 i pokazać Alert, gdy daty nakładają się na inną podróż', async () => {
+    mockAuthState.user = { id: 'test-user-1', isGuest: false };
+    mockAuthState.isGuest = false;
+
+    // Mockujemy istniejącą podróż w bazie od 10-08-2027 do 20-08-2027
+    mockDbExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'existing-trip-1',
+          trip_name: 'Wyprawa do Paryża',
+          start_date: '2027-08-10',
+          end_date: '2027-08-20',
+        },
+      ],
+    });
+
+    render(<Step1DestinationScreen navigation={mockNavigation} />);
+
+    fireEvent.changeText(screen.getByPlaceholderText('np. Rzym'), 'Rzym');
+    fireEvent.changeText(screen.getByPlaceholderText('np. Warszawa'), 'Warszawa');
+    const dateInputs = screen.getAllByPlaceholderText('DD-MM-YYYY');
+    // Nowa podróż nakładająca się: 15-08-2027 do 25-08-2027
+    fireEvent.changeText(dateInputs[0], '15-08-2027');
+    fireEvent.changeText(dateInputs[1], '25-08-2027');
+
+    fireEvent.press(screen.getByText(/Dalej/i));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'DESTIVO',
+        expect.stringContaining('Wyprawa do Paryża')
+      );
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
   });
 });

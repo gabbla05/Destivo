@@ -12,6 +12,7 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -348,63 +349,73 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         animationType="slide"
         onRequestClose={() => setNamingModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>{t.nameFileTitle || 'Nazwij plik w Sejfie'}</Text>
-              <TouchableOpacity onPress={() => setNamingModalVisible(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={22} color="#94A3B8" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.modalDesc}>
-              {t.nameFileDesc || 'Wprowadź czytelną nazwę, aby łatwo rozpoznać dokument w Sejfie:'}
-            </Text>
-
-            {/* SZYBKIE TAGI SUGESTII */}
-            <View style={styles.quickTagsRow}>
-              {[
-                t.quickTagFlight || 'Bilet lotniczy',
-                t.quickTagHotel || 'Rezerwacja hotelu',
-                t.quickTagInsurance || 'Ubezpieczenie',
-                t.quickTagBoarding || 'Karta pokładowa',
-              ].map((tag) => (
-                <TouchableOpacity
-                  key={tag}
-                  style={styles.quickTagPill}
-                  onPress={() => setNewFileName(tag)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.quickTagText}>{tag}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Ionicons name="bookmark-outline" size={18} color="#F59E0B" style={{ marginRight: 10 }} />
-              <TextInput
-                style={styles.textInput}
-                value={newFileName}
-                onChangeText={setNewFileName}
-                placeholder={t.fileNamePlaceholder || 'np. Bilet lotniczy'}
-                placeholderTextColor="#94A3B8"
-                autoFocus
-              />
-            </View>
-
-            <TouchableOpacity style={styles.primaryModalBtn} onPress={handleSaveFileName} activeOpacity={0.8}>
-              <Text style={styles.primaryModalBtnText}>{t.saveName || 'Zapisz nazwę'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryModalBtn}
-              onPress={() => setNamingModalVisible(false)}
-              activeOpacity={0.7}
+            <ScrollView 
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: 10 }}
             >
-              <Text style={styles.secondaryModalBtnText}>{t.skipName || 'Zostaw oryginalną'}</Text>
-            </TouchableOpacity>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>{t.nameFileTitle || 'Nazwij plik w Sejfie'}</Text>
+                <TouchableOpacity onPress={() => setNamingModalVisible(false)} style={styles.modalCloseBtn}>
+                  <Ionicons name="close" size={22} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalDesc}>
+                {t.nameFileDesc || 'Wprowadź czytelną nazwę, aby łatwo rozpoznać dokument w Sejfie:'}
+              </Text>
+
+              {/* SZYBKIE TAGI SUGESTII */}
+              <View style={styles.quickTagsRow}>
+                {[
+                  t.quickTagFlight || 'Bilet lotniczy',
+                  t.quickTagHotel || 'Rezerwacja hotelu',
+                  t.quickTagInsurance || 'Ubezpieczenie',
+                  t.quickTagBoarding || 'Karta pokładowa',
+                ].map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={styles.quickTagPill}
+                    onPress={() => setNewFileName(tag)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.quickTagText}>{tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons name="bookmark-outline" size={18} color="#F59E0B" style={{ marginRight: 10 }} />
+                <TextInput
+                  style={styles.textInput}
+                  value={newFileName}
+                  onChangeText={setNewFileName}
+                  placeholder={t.fileNamePlaceholder || 'np. Bilet lotniczy'}
+                  placeholderTextColor="#94A3B8"
+                  autoFocus
+                />
+              </View>
+
+              <TouchableOpacity style={styles.primaryModalBtn} onPress={handleSaveFileName} activeOpacity={0.8}>
+                <Text style={styles.primaryModalBtnText}>{t.saveName || 'Zapisz nazwę'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryModalBtn}
+                onPress={() => setNamingModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.secondaryModalBtnText}>{t.skipName || 'Zostaw oryginalną'}</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* MODAL BEZPOŚREDNIEGO PODGLĄDU PLIKU W APLIKACJI (IN-APP VIEWER) */}
