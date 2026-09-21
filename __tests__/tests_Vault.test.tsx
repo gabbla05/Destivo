@@ -14,12 +14,12 @@ import { useVaultStore } from '../src/store/vaultStore';
 // MOCKOWANIE ZALEŻNOŚCI I BIBLIOTEK NATYWNYCH
 // --------------------------------------------------------------------------
 
-// 1. Mock Auth Store
+let mockLanguage = 'pl';
 jest.mock('../src/store/authStore', () => ({
   useAuthStore: () => ({
     user: { id: 'test-user-id', email: 'test@destivo.io', isGuest: false },
     isGuest: false,
-    language: 'pl',
+    language: mockLanguage,
   }),
 }));
 
@@ -308,6 +308,35 @@ describe('Moduł Sejfu Offline (Vault)', () => {
       });
     });
 
+    test('Drukowanie zapisanego pliku bezpośrednio z karty pliku', async () => {
+      const tripWithFiles = [{
+        ...mockTripsData[0],
+        lodging_data: JSON.stringify({
+          vaultFiles: [{
+            id: 'file-123',
+            name: 'bilet.pdf',
+            type: 'PDF',
+            uri: 'file://mock_docs/destivo_vault/mock.pdf'
+          }]
+        })
+      }];
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: tripWithFiles } });
+
+      render(<VaultDashboardScreen />);
+      
+      await waitFor(() => expect(screen.getByText('Paryż 2026')).toBeTruthy());
+      fireEvent.press(screen.getByText('Paryż 2026'));
+
+      await waitFor(() => expect(screen.getByTestId('print-file-file-123')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('print-file-file-123'));
+
+      await waitFor(() => {
+        expect(require('expo-print').printAsync).toHaveBeenCalledWith({
+          uri: 'file://mock_docs/destivo_vault/mock.pdf'
+        });
+      });
+    });
+
     test('Powinien automatycznie otworzyć szufladkę podróży po przekazaniu tripId w parametrach route', async () => {
       mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
 
@@ -318,6 +347,92 @@ describe('Moduł Sejfu Offline (Vault)', () => {
         expect(screen.getByText('Wgraj plik (PDF)')).toBeTruthy();
         expect(screen.getByText('Ten sejf jest pusty.')).toBeTruthy();
       });
+    });
+
+    test('Powinien renderować banner Offline Travel Briefing i generować dokument PDF po kliknięciu', async () => {
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
+
+      render(<VaultDashboardScreen route={{ params: { tripId: 'trip-1' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Offline Travel Briefing')).toBeTruthy();
+        expect(screen.getByText('100% OFFLINE')).toBeTruthy();
+        expect(screen.getByTestId('generate-briefing-btn')).toBeTruthy();
+      });
+
+      // Klikamy generowanie briefingu
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('generate-briefing-btn'));
+      });
+
+      // Powinien pojawić się modal z opcjami udostępnienia, druku, zapisu w sejfie i podglądu
+      await waitFor(() => {
+        expect(screen.getByText('Dokument PDF gotowy!')).toBeTruthy();
+        expect(screen.getByText('Udostępnij / Wyślij bliskim (PDF)')).toBeTruthy();
+        expect(screen.getByText('Drukuj (AirPrint / Drukarka)')).toBeTruthy();
+        expect(screen.getByText('Zapisz w tej szufladce Sejfu')).toBeTruthy();
+        expect(screen.getByText('Podgląd w aplikacji')).toBeTruthy();
+      });
+
+      // Test opcji Udostępnij
+      await act(async () => {
+        fireEvent.press(screen.getByText('Udostępnij / Wyślij bliskim (PDF)'));
+      });
+      expect(require('expo-sharing').shareAsync).toHaveBeenCalledWith(
+        expect.stringContaining('destivo_briefing.pdf'),
+        expect.objectContaining({ mimeType: 'application/pdf' })
+      );
+
+      // Test opcji Drukuj
+      await act(async () => {
+        fireEvent.press(screen.getByText('Drukuj (AirPrint / Drukarka)'));
+      });
+      expect(require('expo-print').printAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ html: expect.any(String) })
+      );
+
+      // Test opcji Zapisz w Sejfie
+      await act(async () => {
+        fireEvent.press(screen.getByText('Zapisz w tej szufladce Sejfu'));
+      });
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'DESTIVO',
+        'Travel Briefing został zapisany w Sejfie tej podróży!'
+      );
+    });
+
+    test('Powinien renderować wszystkie teksty i podpisy po angielsku gdy język to EN', async () => {
+      mockLanguage = 'en';
+      mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
+
+      render(<VaultDashboardScreen route={{ params: { tripId: 'trip-1' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Offline Travel Briefing')).toBeTruthy();
+        expect(screen.getByText('Generate PDF document ➔')).toBeTruthy();
+        expect(screen.getByText('One-click PDF with trip essentials, lodging address, and day-by-day itinerary.')).toBeTruthy();
+      });
+
+      // Klikamy generowanie po angielsku
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('generate-briefing-btn'));
+      });
+
+      // Sprawdzamy modal po angielsku
+      await waitFor(() => {
+        expect(screen.getByText('PDF document ready!')).toBeTruthy();
+        expect(screen.getByText('Share / Send to loved ones (PDF)')).toBeTruthy();
+        expect(screen.getByText('WhatsApp, email, AirDrop or Cloud drive')).toBeTruthy();
+        expect(screen.getByText('Print (AirPrint / Printer)')).toBeTruthy();
+        expect(screen.getByText('Print and keep in backpack')).toBeTruthy();
+        expect(screen.getByText('Save to this Vault drawer')).toBeTruthy();
+        expect(screen.getByText('Will be accessible in trip files list')).toBeTruthy();
+        expect(screen.getByText('Preview in app')).toBeTruthy();
+        expect(screen.getByText('Review the generated document')).toBeTruthy();
+        expect(screen.getByText('Close')).toBeTruthy();
+      });
+
+      mockLanguage = 'pl';
     });
   });
 });

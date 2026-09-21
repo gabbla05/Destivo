@@ -640,5 +640,60 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(screen.getByText('2 zabezpieczonych plików')).toBeTruthy();
       });
     });
+
+    test('Powinien wyrenderować przycisk optymalizacji trasy TSP i otworzyć modal po kliknięciu', async () => {
+      const tripWithMultipleAttractions = [{
+        id: 'trip-tsp-demo',
+        title: 'Rzym 2026',
+        origin: 'Warszawa',
+        destination: 'Rzym',
+        start_date: '2026-09-01',
+        end_date: '2026-09-05',
+        user_id: 'test-user-id',
+        accommodation_address: 'Hotel Colosseum',
+        attractions_data: JSON.stringify({
+          selected: ['Watykan', 'Koloseum', 'Panteon'],
+          pool: [
+            { id: 'a1', name: 'Watykan', lat: 41.9022, lon: 12.4539 },
+            { id: 'a2', name: 'Koloseum', lat: 41.8902, lon: 12.4922 },
+            { id: 'a3', name: 'Panteon', lat: 41.8986, lon: 12.4769 },
+          ],
+        }),
+      }];
+
+      mockSupabaseSelect.mockImplementationOnce(() => ({
+        eq: jest.fn().mockImplementationOnce(() => ({
+          eq: jest.fn().mockResolvedValueOnce({ data: tripWithMultipleAttractions, error: null }),
+          order: jest.fn().mockImplementationOnce(() => ({
+            limit: jest.fn().mockResolvedValueOnce({ data: tripWithMultipleAttractions, error: null }),
+          })),
+          then: (resolve: any) => resolve({ data: tripWithMultipleAttractions, error: null }),
+        })),
+        order: jest.fn().mockImplementationOnce(() => ({
+          limit: jest.fn().mockResolvedValueOnce({ data: tripWithMultipleAttractions, error: null }),
+        })),
+        then: (resolve: any) => resolve({ data: tripWithMultipleAttractions, error: null }),
+      }));
+
+      render(<TimelineScreen route={{ params: { tripId: 'trip-tsp-demo' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('optimize-route-btn')).toBeTruthy();
+        expect(screen.getByText(/Ułóż trasę|Zoptymalizuj trasę/i)).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('optimize-route-btn'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Plan dnia|Zoptymalizowany plan dnia/i)).toBeTruthy();
+        expect(screen.getByText(/Zapisz kolejność|Zastosuj optymalizację/i)).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByText(/Zapisz kolejność|Zastosuj optymalizację/i));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', expect.stringMatching(/pomyślnie/i));
+      });
+    });
   });
 });

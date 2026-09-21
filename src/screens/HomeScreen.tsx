@@ -27,6 +27,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
 import { parseTripDate } from './TripsListScreen';
+import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
+import { insertTimelineEventIntelligently } from '../lib/routeOptimization';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
@@ -302,6 +304,7 @@ const convertCurrency = (val: string, from: string, to: string) => {
 export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { isGuest, user, language } = useAuthStore();
   const t = translations[language].homeScreen;
+  const timelineT = translations[language].timeline;
   const commonT = translations[language].common;
   const destinationNames = (t.destinationNames || {}) as Record<string, string>;
   const countryNames = (t.countryNames || {}) as Record<string, string>;
@@ -327,7 +330,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Stany dla Modala Dodawania Atrakcji
+  // Stany dla Modali
+  const [isOptimizeModalVisible, setIsOptimizeModalVisible] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [manualTitle, setManualTitle] = useState('');
   const [manualSubtitle, setManualSubtitle] = useState('');
@@ -554,17 +558,26 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   const handleAddSuggestedAttraction = async (item: { name: string; subtitle?: string; imageUrl?: string }) => {
     const newId = 'attr_' + Date.now();
-    const nextHour = Math.min(22, 10 + (activeTimeline.length % 11));
-    const formattedHour = nextHour < 10 ? `0${nextHour}:00` : `${nextHour}:00`;
-    const newEvent = {
+    const currentAttractions = JSON.parse(activeTrip?.attractions_data || '{}');
+    const rawPool = currentAttractions.pool || [];
+
+    const newEventCandidate = {
       id: newId,
       type: 'ATTRACTION',
       title: item.name,
-      timeStr: formattedHour,
-      dateStr: activeTrip?.start_date || '',
       subtitle: item.subtitle || t.defaultAttractionSubtitle || (language === 'pl' ? 'Polecane miejsce' : 'Recommended attraction'),
     };
-    const updated = [...activeTimeline, newEvent];
+
+    const updated = insertTimelineEventIntelligently(
+      activeTimeline || [],
+      newEventCandidate,
+      rawPool,
+      activeTrip?.destination,
+      activeTrip?.accommodation_address,
+      activeTrip?.transport_type,
+      activeTrip?.start_date
+    );
+
     setActiveTimeline(updated);
     setExpandedEventId(newId);
     setHasUnsavedChanges(true);
@@ -572,7 +585,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
     try {
       const isUserGuest = user?.isGuest || !user;
-      const currentAttractions = JSON.parse(activeTrip?.attractions_data || '{}');
       const updatedAttractions = {
         ...currentAttractions,
         customTimeline: updated,
@@ -592,6 +604,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           .update({ attractions_data: JSON.stringify(updatedAttractions) })
           .eq('id', activeTrip.id);
       }
+      setActiveTrip((prev: any) => ({
+        ...prev,
+        attractions_data: JSON.stringify(updatedAttractions),
+      }));
     } catch (err) {
       console.warn('Błąd zapisu nowej atrakcji:', err);
     }
@@ -643,6 +659,36 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       }
     } catch (err) {
       console.warn('Błąd zapisu własnej atrakcji:', err);
+    }
+  };
+
+  const handleApplyOptimization = async (optimizedEvents: any[]) => {
+    setActiveTimeline(optimizedEvents);
+    if (!activeTrip) return;
+    try {
+      const isUserGuest = user?.isGuest || !user;
+      const currentAttractions = JSON.parse(activeTrip.attractions_data || '{}');
+      const updatedAttractions = {
+        ...currentAttractions,
+        customTimeline: optimizedEvents,
+      };
+      await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+        JSON.stringify(updatedAttractions),
+        activeTrip.id,
+      ]);
+      if (!isUserGuest) {
+        await supabase
+          .from('trips')
+          .update({ attractions_data: JSON.stringify(updatedAttractions) })
+          .eq('id', activeTrip.id);
+      }
+      setActiveTrip((prev: any) => ({
+        ...prev,
+        attractions_data: JSON.stringify(updatedAttractions),
+      }));
+      Alert.alert('DESTIVO', timelineT.optimizationApplied);
+    } catch (err) {
+      console.warn('Błąd zapisu zoptymalizowanej osi na HomeScreen:', err);
     }
   };
 
@@ -846,8 +892,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           {/* OŚ CZASU (DAILY ITINERARY) */}
           <View style={styles.itinerarySection}>
             <View style={styles.sectionHeaderRow}>
-              <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
-              <Text style={styles.sectionHeaderTitle}>{t.dailyItineraryTitle || 'Plan Dnia'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                <Text style={styles.sectionHeaderTitle}>{t.dailyItineraryTitle || 'Plan Dnia'}</Text>
+              </View>
+
+              {activeTimeline.filter(e => e.type === 'ATTRACTION').length >= 2 && (
+                <TouchableOpacity
+                  style={styles.optimizeHomeBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setIsOptimizeModalVisible(true)}
+                  testID="home-optimize-btn"
+                >
+                  <Ionicons name="map-outline" size={12} color="#0F172A" style={{ marginRight: 4 }} />
+                  <Text style={styles.optimizeHomeBtnText}>{timelineT.optimizeRouteBtn || 'Ułóż trasę'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
             
             <View style={styles.timelineWrapper}>
@@ -1314,6 +1374,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
         </Modal>
 
+        {/* MODAL INTELIGENTNEJ OPTYMALIZACJI TRASY (TSP) */}
+        <RouteOptimizationModal
+          visible={isOptimizeModalVisible}
+          onClose={() => setIsOptimizeModalVisible(false)}
+          onApply={handleApplyOptimization}
+          events={activeTimeline}
+          poolAttractions={(() => {
+            try {
+              return JSON.parse(activeTrip?.attractions_data || '{}')?.pool || [];
+            } catch {
+              return [];
+            }
+          })()}
+          destinationCity={activeTrip?.destination || 'Rome'}
+        />
+
         {/* PRZYCISK ZAPISU OSI CZASU */}
         {hasUnsavedChanges && (
           <View style={styles.saveFooter}>
@@ -1778,7 +1854,25 @@ const styles = StyleSheet.create({
 
   // Itinerary & Timeline
   itinerarySection: { paddingHorizontal: 20, paddingTop: 10, marginTop: 6 },
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 4 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4 },
+  optimizeHomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  optimizeHomeBtnText: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   sectionHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
   timelineWrapper: { position: 'relative' },
   timelineLineAbsolute: { position: 'absolute', left: 21, top: 20, bottom: 20, width: 2, backgroundColor: '#1E293B', zIndex: 0 },

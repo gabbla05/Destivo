@@ -23,6 +23,13 @@ import { supabase } from '../../lib/supabase';
 import { VaultManager } from '../../lib/vaultManager';
 import { translations } from '../../i18n/translations';
 import * as Sharing from 'expo-sharing';
+import {
+  generateOfflineTravelBriefingPdf,
+  shareTravelBriefingPdf,
+  printTravelBriefingDirectly,
+  saveBriefingToVaultStorage,
+  printVaultFile,
+} from '../../lib/offlineTravelBriefing';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -37,6 +44,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   const [trips, setTrips] = useState<any[]>([]);
   const [selectedTrip, setSelectedTrip] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Stan generatora Offline Travel Briefing
+  const [generatingBriefing, setGeneratingBriefing] = useState(false);
+  const [briefingResult, setBriefingResult] = useState<{ uri: string; html: string } | null>(null);
+  const [briefingModalVisible, setBriefingModalVisible] = useState(false);
 
   // Stan podglądu pliku w aplikacji (In-App File Viewer)
   const [previewFile, setPreviewFile] = useState<any | null>(null);
@@ -209,6 +221,16 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     }
   };
 
+  const handlePrintFile = async (file: any) => {
+    if (!file?.uri) return;
+    try {
+      await printVaultFile(file);
+    } catch (e) {
+      console.error('Błąd drukowania pliku:', e);
+      Alert.alert(t.error || 'Błąd', t.printFileError || 'Nie udało się uruchomić drukowania pliku.');
+    }
+  };
+
   const getFilesForSelectedTrip = () => {
     if (!selectedTrip) return [];
     const lodgingData = JSON.parse(selectedTrip.lodging_data || '{}');
@@ -220,6 +242,64 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     if (file.type === 'IMAGE') return true;
     const uri = (file.uri || file.name || '').toLowerCase();
     return uri.endsWith('.jpg') || uri.endsWith('.jpeg') || uri.endsWith('.png') || uri.endsWith('.webp');
+  };
+
+  // Generator Offline Travel Briefing (Jednoklikowy PDF z planem i biletami)
+  const handleGenerateBriefing = async () => {
+    if (!selectedTrip) return;
+    try {
+      setGeneratingBriefing(true);
+      const result = await generateOfflineTravelBriefingPdf(selectedTrip, { language });
+      setBriefingResult(result);
+      setBriefingModalVisible(true);
+    } catch (error) {
+      console.error('Error generating briefing PDF:', error);
+      Alert.alert(t.error || 'Błąd', t.briefingGenerateError || 'Nie udało się wygenerować dokumentu PDF.');
+    } finally {
+      setGeneratingBriefing(false);
+    }
+  };
+
+  const handleShareBriefing = async () => {
+    if (!briefingResult || !selectedTrip) return;
+    await shareTravelBriefingPdf(briefingResult.uri, selectedTrip.trip_name);
+  };
+
+  const handlePrintBriefing = async () => {
+    if (!briefingResult) return;
+    await printTravelBriefingDirectly(briefingResult.html);
+  };
+
+  const handleSaveBriefingToVault = async () => {
+    if (!briefingResult || !selectedTrip) return;
+    try {
+      const savedFile = await saveBriefingToVaultStorage(
+        briefingResult.uri,
+        selectedTrip.id,
+        selectedTrip.trip_name
+      );
+      if (savedFile) {
+        const currentFiles = getFilesForSelectedTrip();
+        const updated = [savedFile, ...currentFiles];
+        await updateTripFiles(updated);
+        Alert.alert('DESTIVO', t.briefingSavedSuccess || 'Travel Briefing został zapisany w Sejfie tej podróży!');
+        setBriefingModalVisible(false);
+      }
+    } catch (e) {
+      console.error(e);
+      Alert.alert(t.error || 'Błąd', t.saveError || 'Nie udało się zapisać pliku w sejfie.');
+    }
+  };
+
+  const handlePreviewBriefing = () => {
+    if (!briefingResult || !selectedTrip) return;
+    setBriefingModalVisible(false);
+    setPreviewFile({
+      id: `briefing_${selectedTrip.id}`,
+      name: `Briefing_${selectedTrip.trip_name}.pdf`,
+      uri: briefingResult.uri,
+      type: 'PDF',
+    });
   };
 
   return (
@@ -265,6 +345,47 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               <Text style={styles.tripTitleLabel}>{t.folderLabel}</Text>
               <Text style={styles.tripTitle}>{selectedTrip.trip_name}</Text>
               
+              {/* BANNER GENERATORA OFFLINE TRAVEL BRIEFING */}
+              <View style={styles.briefingBannerCard}>
+                <View style={styles.briefingBannerHeader}>
+                  <View style={styles.briefingIconBubble}>
+                    <Ionicons name="document-attach" size={24} color="#38BDF8" />
+                  </View>
+                  <View style={styles.briefingHeaderTextCol}>
+                    <View style={styles.briefingBadgeRow}>
+                      <Text style={styles.briefingBadgeText}>{t.briefingBadgeOffline || '100% OFFLINE'}</Text>
+                      <Text style={styles.briefingDot}>•</Text>
+                      <Text style={styles.briefingBadgeSub}>{t.briefingBadgePass || 'A4 PDF & QR PASS'}</Text>
+                    </View>
+                    <Text style={styles.briefingTitle}>{t.travelBriefingTitle || 'Offline Travel Briefing'}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.briefingDesc}>
+                  {t.travelBriefingSubtitle || 'Jednoklikowy PDF z planem, biletami i kodami QR na wypadek braku baterii, roamingu lub kontroli na granicy.'}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.briefingGenerateBtn}
+                  onPress={handleGenerateBriefing}
+                  activeOpacity={0.85}
+                  disabled={generatingBriefing}
+                  testID="generate-briefing-btn"
+                >
+                  {generatingBriefing ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <ActivityIndicator size="small" color="#0B1120" style={{ marginRight: 8 }} />
+                      <Text style={styles.briefingGenerateBtnText}>{t.generatingBriefing || 'Generowanie dokumentu PDF...'}</Text>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="print-outline" size={18} color="#0B1120" style={{ marginRight: 8 }} />
+                      <Text style={styles.briefingGenerateBtnText}>{t.briefingGenerateAction || 'Generuj dokument PDF ➔'}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.actionButtons}>
                 <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => handleAddFile('DOC')}>
                   <Ionicons name="document-text" size={20} color="#0B1120" style={{ marginRight: 8 }} />
@@ -306,11 +427,24 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                       </Text>
                     </View>
                     
+                    {/* PRZYCISK DRUKOWANIA PLIKU */}
+                    <TouchableOpacity
+                      style={styles.fileActionBtn}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        handlePrintFile(file);
+                      }}
+                      activeOpacity={0.7}
+                      testID={`print-file-${file.id}`}
+                    >
+                      <Ionicons name="print-outline" size={18} color="#38BDF8" />
+                    </TouchableOpacity>
+
                     {/* PRZYCISK ZMIANY NAZWY */}
                     <TouchableOpacity
                       style={styles.fileActionBtn}
                       onPress={(e) => {
-                        e.stopPropagation?.();
+                        e?.stopPropagation?.();
                         setTargetFile(file);
                         setNewFileName(file.name);
                         setNamingModalVisible(true);
@@ -324,7 +458,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                     <TouchableOpacity
                       style={styles.fileActionBtn}
                       onPress={(e) => {
-                        e.stopPropagation?.();
+                        e?.stopPropagation?.();
                         handleDeleteFile(file.id, file.name);
                       }}
                       activeOpacity={0.7}
@@ -439,23 +573,45 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               </Text>
             </View>
 
-            <TouchableOpacity
-              onPress={() => previewFile && handleShareExternal(previewFile.uri)}
-              style={styles.previewShareBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="share-outline" size={20} color="#38BDF8" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity
+                onPress={() => previewFile && handlePrintFile(previewFile)}
+                style={[styles.previewShareBtn, { marginRight: 8 }]}
+                activeOpacity={0.7}
+                testID="preview-print-btn"
+              >
+                <Ionicons name="print-outline" size={20} color="#F59E0B" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => previewFile && handleShareExternal(previewFile.uri)}
+                style={styles.previewShareBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={20} color="#38BDF8" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* ZAWARTOŚĆ PLIKU */}
           <View style={styles.previewBody}>
             {isImageFile(previewFile) ? (
-              <Image
-                source={{ uri: previewFile?.uri }}
-                style={styles.previewImage}
-                resizeMode="contain"
-              />
+              <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                <Image
+                  source={{ uri: previewFile?.uri }}
+                  style={styles.previewImage}
+                  resizeMode="contain"
+                />
+                <TouchableOpacity
+                  style={styles.imagePrintBtn}
+                  onPress={() => previewFile && handlePrintFile(previewFile)}
+                  activeOpacity={0.8}
+                  testID="image-print-btn"
+                >
+                  <Ionicons name="print" size={18} color="#0B1120" style={{ marginRight: 8 }} />
+                  <Text style={styles.imagePrintBtnText}>{t.printFileTitle || 'Drukuj ten plik'}</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <View style={styles.pdfDocCard}>
                 <View style={styles.pdfIconBig}>
@@ -466,6 +622,16 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                   <Ionicons name="shield-checkmark" size={14} color="#10B981" style={{ marginRight: 6 }} />
                   <Text style={styles.pdfSecurityText}>{t.pdfSecuredNotice || 'Zabezpieczony plik PDF w Sejfie Offline'}</Text>
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.openExternalBtn, { backgroundColor: '#38BDF8', marginBottom: 12 }]}
+                  onPress={() => previewFile && handlePrintFile(previewFile)}
+                  activeOpacity={0.8}
+                  testID="preview-body-print-btn"
+                >
+                  <Ionicons name="print" size={18} color="#0B1120" style={{ marginRight: 8 }} />
+                  <Text style={styles.openExternalBtnText}>{t.printFileTitle || 'Drukuj dokument / bilet'}</Text>
+                </TouchableOpacity>
                 
                 <TouchableOpacity
                   style={styles.openExternalBtn}
@@ -480,6 +646,91 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* MODAL AKCJI DLA OFFLINE TRAVEL BRIEFING */}
+      <Modal
+        visible={briefingModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setBriefingModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.briefingModalTitleRow}>
+                <Ionicons name="checkmark-circle" size={24} color="#10B981" style={styles.briefingSuccessIcon} />
+                <Text style={styles.modalTitle}>{t.briefingSuccess || 'Dokument PDF gotowy!'}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setBriefingModalVisible(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={22} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalDesc}>
+              {t.travelBriefingSubtitle || 'Jednoklikowy PDF z planem, biletami i kodami QR na wypadek braku baterii, roamingu lub kontroli na granicy.'}
+            </Text>
+
+            <View style={styles.briefingActionsList}>
+              {/* OPCJA 1: Udostępnij / Wyślij */}
+              <TouchableOpacity style={styles.briefingActionRow} onPress={handleShareBriefing} activeOpacity={0.8}>
+                <View style={[styles.briefingActionIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <Ionicons name="share-social" size={20} color="#38BDF8" />
+                </View>
+                <View style={styles.briefingActionTextCol}>
+                  <Text style={styles.briefingActionTitle}>{t.briefingShareOption || 'Udostępnij / Wyślij bliskim (PDF)'}</Text>
+                  <Text style={styles.briefingActionSub}>{t.briefingShareSub || 'WhatsApp, e-mail, AirDrop lub Dysk'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#64748B" />
+              </TouchableOpacity>
+
+              {/* OPCJA 2: Drukuj */}
+              <TouchableOpacity style={styles.briefingActionRow} onPress={handlePrintBriefing} activeOpacity={0.8}>
+                <View style={[styles.briefingActionIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                  <Ionicons name="print" size={20} color="#F59E0B" />
+                </View>
+                <View style={styles.briefingActionTextCol}>
+                  <Text style={styles.briefingActionTitle}>{t.briefingPrintOption || 'Drukuj (AirPrint / Drukarka)'}</Text>
+                  <Text style={styles.briefingActionSub}>{t.briefingPrintSub || 'Wydrukuj i schowaj do plecaka'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#64748B" />
+              </TouchableOpacity>
+
+              {/* OPCJA 3: Zapisz kopię w Sejfie */}
+              <TouchableOpacity style={styles.briefingActionRow} onPress={handleSaveBriefingToVault} activeOpacity={0.8}>
+                <View style={[styles.briefingActionIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                  <Ionicons name="download-outline" size={20} color="#10B981" />
+                </View>
+                <View style={styles.briefingActionTextCol}>
+                  <Text style={styles.briefingActionTitle}>{t.briefingSaveVaultOption || 'Zapisz w tej szufladce Sejfu'}</Text>
+                  <Text style={styles.briefingActionSub}>{t.briefingSaveVaultSub || 'Będzie dostępny na liście plików podróży'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#64748B" />
+              </TouchableOpacity>
+
+              {/* OPCJA 4: Podgląd w aplikacji */}
+              <TouchableOpacity style={styles.briefingActionRow} onPress={handlePreviewBriefing} activeOpacity={0.8}>
+                <View style={[styles.briefingActionIconBox, { backgroundColor: 'rgba(148, 163, 184, 0.15)' }]}>
+                  <Ionicons name="eye" size={20} color="#94A3B8" />
+                </View>
+                <View style={styles.briefingActionTextCol}>
+                  <Text style={styles.briefingActionTitle}>{t.briefingPreviewOption || 'Podgląd w aplikacji'}</Text>
+                  <Text style={styles.briefingActionSub}>{t.briefingPreviewSub || 'Sprawdź wygenerowany dokument'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.secondaryModalBtn}
+              onPress={() => setBriefingModalVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.secondaryModalBtnText}>{t.close || commonT.button_close || 'Zamknij'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 };
@@ -746,4 +997,151 @@ const styles = StyleSheet.create({
     elevation: 4 
   },
   openExternalBtnText: { color: '#0B1120', fontSize: 14, fontWeight: '800' },
+  imagePrintBtn: {
+    position: 'absolute',
+    bottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  imagePrintBtnText: {
+    color: '#0B1120',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+
+  // Style Generatora Offline Travel Briefing
+  briefingBannerCard: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.4)',
+    padding: 16,
+    marginBottom: 16,
+    marginTop: 6,
+    shadowColor: '#38BDF8',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  briefingBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  briefingIconBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+  },
+  briefingHeaderTextCol: {
+    flex: 1,
+  },
+  briefingBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  briefingBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#38BDF8',
+    letterSpacing: 0.8,
+  },
+  briefingDot: {
+    color: '#64748B',
+    marginHorizontal: 6,
+    fontSize: 10,
+  },
+  briefingBadgeSub: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  briefingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#F8FAFC',
+  },
+  briefingDesc: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  briefingGenerateBtn: {
+    backgroundColor: '#38BDF8',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    shadowColor: '#38BDF8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  briefingGenerateBtnText: {
+    color: '#0B1120',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  briefingModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  briefingSuccessIcon: {
+    marginRight: 8,
+  },
+  briefingActionsList: {
+    marginVertical: 12,
+  },
+  briefingActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0B1120',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  briefingActionIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  briefingActionTextCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  briefingActionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#F8FAFC',
+  },
+  briefingActionSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
 });

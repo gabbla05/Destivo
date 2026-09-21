@@ -17,6 +17,7 @@ import {
   Platform,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,18 @@ import { translations } from '../i18n/translations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
+import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
+import {
+  resolvePointCoordinates,
+  resolvePointCoordinatesAsync,
+  calculateTransitEstimates,
+  fetchRealRouteInfo,
+  buildGoogleMapsDirectionsUrl,
+  buildGoogleMapsFullRouteUrl,
+  normalizeAttractionTitle,
+  insertTimelineEventIntelligently,
+  type StreetRouteInfo,
+} from '../lib/routeOptimization';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -43,12 +56,16 @@ interface TimelineEvent {
   parsedDate: Date;
   isPast?: boolean;
   isCurrent?: boolean;
+  lat?: number;
+  lon?: number;
 }
 
 interface PoolAttraction {
   id: string;
   name: string;
   imageUrl?: string;
+  lat?: number;
+  lon?: number;
 }
 
 interface TripRecord {
@@ -198,8 +215,18 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   // Logika 3 kafelków atrakcji
   const [visibleAttractions, setVisibleAttractions] = useState<PoolAttraction[]>([]);
   const [reserveAttractions, setReserveAttractions] = useState<PoolAttraction[]>([]);
+  const [attractionsPool, setAttractionsPool] = useState<any[]>([]);
+  const [isOptimizeModalVisible, setIsOptimizeModalVisible] = useState(false);
+  const [timelineRouteInfo, setTimelineRouteInfo] = useState<Record<string, StreetRouteInfo>>({});
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+  const tripDataRef = useRef(tripData);
+  tripDataRef.current = tripData;
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -345,7 +372,13 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           if (r.photos && r.photos.length > 0 && r.photos[0].photo_reference) {
             photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${r.photos[0].photo_reference}&key=${googleApiKey}`;
           }
-          return { id: r.place_id, name: r.name, imageUrl: photoUrl };
+          return {
+            id: r.place_id,
+            name: r.name,
+            imageUrl: photoUrl,
+            lat: r.geometry?.location?.lat,
+            lon: r.geometry?.location?.lng,
+          };
         });
 
         // 3. Odrzucenie tych, które już są na Osi Czasu i zasilenie kafelków
@@ -353,6 +386,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         const shuffled = filtered.sort(() => 0.5 - Math.random());
         setVisibleAttractions(shuffled.slice(0, 3));
         setReserveAttractions(shuffled.slice(3));
+        setAttractionsPool((prev) => {
+          const existingNames = new Set(prev.map((p) => p.name));
+          const toAdd = fetchedPool.filter((p) => !existingNames.has(p.name));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
       }
     } catch (e) {
       console.warn("Błąd pobierania atrakcji z Google na Osi Czasu:", e);
@@ -440,9 +478,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
       if (trip) {
         setTripData(trip);
+        tripDataRef.current = trip;
         
         const attractions = JSON.parse(trip.attractions_data || '{}');
         const rawPool: PoolAttraction[] = attractions.pool || [];
+        setAttractionsPool(rawPool);
         
         let currentEvents: TimelineEvent[] = [];
 
@@ -481,6 +521,10 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             attrDate.setDate(attrDate.getDate() + 1);
             const formattedAttrDate = `${String(attrDate.getDate()).padStart(2, '0')}-${String(attrDate.getMonth() + 1).padStart(2, '0')}-${attrDate.getFullYear()}`;
             
+            const poolItem = rawPool.find(
+              (p) => p.name === attr || normalizeAttractionTitle(p.name || '') === normalizeAttractionTitle(attr)
+            );
+
             currentEvents.push({
               id: `evt_attr_${idx}_${Date.now()}`,
               type: 'ATTRACTION',
@@ -489,6 +533,8 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               dateStr: formattedAttrDate,
               timeStr: `${10 + (idx % 8)}:00`,
               parsedDate: parseDate(trip!.start_date, `${10 + (idx % 8)}:00`),
+              lat: poolItem?.lat,
+              lon: poolItem?.lon,
             });
           });
 
@@ -522,9 +568,43 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         }
 
         processAndSetEvents(currentEvents);
+
+        // Asynchroniczne dociąganie precyzyjnych koordynatów GPS z Google Places na żywo
+        if (trip && process.env.NODE_ENV !== 'test') {
+          setTimeout(async () => {
+            let hasNewCoords = false;
+            const updated = await Promise.all(
+              currentEvents.map(async (evt) => {
+                if (evt.lat && evt.lon) return evt;
+                let query = evt.title;
+                if (evt.type === 'LODGING' && trip.accommodation_address) {
+                  query = trip.accommodation_address;
+                } else if (evt.type === 'DEPARTURE' || evt.type === 'RETURN') {
+                  query = trip.transport_type === 'flight'
+                    ? `Airport, ${trip.destination}`
+                    : `Central Station, ${trip.destination}`;
+                }
+                const coords = await resolvePointCoordinatesAsync(
+                  query,
+                  rawPool,
+                  trip.destination,
+                  null,
+                  { lat: evt.lat, lon: evt.lon }
+                );
+                if (coords && !coords.isFallback && (coords.lat !== evt.lat || coords.lon !== evt.lon)) {
+                  hasNewCoords = true;
+                  return { ...evt, lat: coords.lat, lon: coords.lon };
+                }
+                return evt;
+              })
+            );
+            if (hasNewCoords) {
+              processAndSetEvents(updated);
+            }
+          }, 60);
+        }
       }
     } catch (e) {
-      console.error('Błąd pobierania osi czasu:', e);
     } finally {
       setLoading(false);
     }
@@ -533,6 +613,30 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   useFocusEffect(
     React.useCallback(() => {
       fetchTimelineData();
+      return () => {
+        if (hasUnsavedChangesRef.current && tripDataRef.current) {
+          const trip = tripDataRef.current;
+          const evts = eventsRef.current;
+          const isUserGuest = user?.isGuest || !user;
+          const currentAttractions = JSON.parse(trip.attractions_data || '{}');
+          const updatedAttractions = {
+            ...currentAttractions,
+            customTimeline: evts,
+          };
+          const serialized = JSON.stringify(updatedAttractions);
+          db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+            serialized,
+            trip.id,
+          ]).catch(() => {});
+          if (!isUserGuest) {
+            supabase
+              .from('trips')
+              .update({ attractions_data: serialized })
+              .eq('id', trip.id)
+              .then(() => {}, () => {});
+          }
+        }
+      };
     }, [user?.id])
   );
 
@@ -567,6 +671,64 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
     }
   }, [loading, events, hasUnsavedChanges]);
 
+  // Asynchroniczne dociąganie precyzyjnych tras z siatki ulic OSRM / Google dla osi czasu
+  useEffect(() => {
+    if (events.length < 2 || process.env.NODE_ENV === 'test') return;
+    let isMounted = true;
+
+    const prefetchRoutes = async () => {
+      const newInfos: Record<string, StreetRouteInfo> = {};
+      for (let i = 0; i < events.length - 1; i++) {
+        const evt = events[i];
+        const nextEvt = events[i + 1];
+        const getPointQuery = (item: TimelineEvent) => {
+          if (item.type === 'LODGING' && tripData?.accommodation_address) {
+            return tripData.accommodation_address;
+          }
+          if (item.type === 'DEPARTURE' || item.type === 'RETURN') {
+            return tripData?.transport_type === 'flight'
+              ? `Airport, ${tripData?.destination || ''}`
+              : `Central Station, ${tripData?.destination || ''}`;
+          }
+          return item.title;
+        };
+
+        const fromC = resolvePointCoordinates(
+          getPointQuery(evt),
+          attractionsPool,
+          tripData?.destination,
+          null,
+          { lat: evt.lat, lon: evt.lon }
+        );
+        const toC = resolvePointCoordinates(
+          getPointQuery(nextEvt),
+          attractionsPool,
+          tripData?.destination,
+          null,
+          { lat: nextEvt.lat, lon: nextEvt.lon }
+        );
+
+        const legKey = `${evt.id}_${nextEvt.id}`;
+        try {
+          const info = await fetchRealRouteInfo(fromC, toC);
+          newInfos[legKey] = info;
+        } catch {
+          // ignore
+        }
+      }
+
+      if (isMounted && Object.keys(newInfos).length > 0) {
+        setTimelineRouteInfo((prev) => ({ ...prev, ...newInfos }));
+      }
+    };
+
+    prefetchRoutes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [events, attractionsPool, tripData?.destination, tripData?.accommodation_address, tripData?.transport_type]);
+
   // --- ZARZĄDZANIE OŚKĄ CZASU ---
   
   const handleEventEdit = (id: string, field: keyof TimelineEvent, value: string) => {
@@ -598,44 +760,145 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const deleteEvent = (id: string) => {
     Alert.alert(t.deletePointTitle, t.deletePointMessage, [
       { text: t.cancel, style: "cancel" },
-      { text: t.delete, style: "destructive", onPress: () => {
-        const newEvents = events.filter(e => e.id !== id);
-        setEvents(newEvents);
-        setHasUnsavedChanges(true);
+      { text: t.delete, style: "destructive", onPress: async () => {
+        const newEvents = events.filter((e) => e.id !== id);
+        processAndSetEvents(newEvents);
+        await persistTimeline(newEvents);
       }}
     ]);
   };
 
-  // --- DODAWANIE Z PULI PRAWDZIWYCH ATRAKCJI ---
-  const handleAddNewEvent = (isFromPool: boolean, poolAttr?: PoolAttraction) => {
+  const persistTimeline = async (
+    updatedEvents: TimelineEvent[],
+    addedPoolAttr?: PoolAttraction
+  ) => {
+    const currentTrip = tripDataRef.current || tripData;
+    if (!currentTrip) return;
+    try {
+      const isUserGuest = user?.isGuest || !user;
+      const currentAttractions = JSON.parse(currentTrip.attractions_data || '{}');
+      const existingPool: PoolAttraction[] = currentAttractions.pool || [];
+      const poolHasItem = addedPoolAttr
+        ? existingPool.some(
+            (p) =>
+              p.name === addedPoolAttr.name ||
+              (addedPoolAttr.id && p.id === addedPoolAttr.id)
+          )
+        : true;
+      const updatedPool =
+        addedPoolAttr && !poolHasItem
+          ? [...existingPool, addedPoolAttr]
+          : existingPool;
+
+      const updatedAttractions = {
+        ...currentAttractions,
+        pool: updatedPool,
+        customTimeline: updatedEvents,
+      };
+
+      const serialized = JSON.stringify(updatedAttractions);
+
+      // 1. Zapis lokalny do PowerSync SQLite (zarówno dla gościa, jak i zalogowanego)
+      await db.execute(
+        'UPDATE trips SET attractions_data = ? WHERE id = ?',
+        [serialized, currentTrip.id]
+      );
+
+      // 2. Zapis w chmurze Supabase dla zalogowanego
+      if (!isUserGuest) {
+        const { error } = await supabase
+          .from('trips')
+          .update({ attractions_data: serialized })
+          .eq('id', currentTrip.id);
+        if (error) {
+          console.warn('Supabase update warning:', error);
+        }
+      }
+
+      setTripData((prev) => (prev ? { ...prev, attractions_data: serialized } : null));
+      tripDataRef.current = { ...currentTrip, attractions_data: serialized };
+      if (addedPoolAttr && !poolHasItem) {
+        setAttractionsPool(updatedPool);
+      }
+      setHasUnsavedChanges(false);
+      hasUnsavedChangesRef.current = false;
+    } catch (err) {
+      console.error('Błąd zapisu osi czasu do bazy:', err);
+    }
+  };
+
+  // --- DODAWANIE Z PULI PRAWDZIWYCH ATRAKCJI (INTELIGENTNE WG LOKALIZACJI) ---
+  const handleAddNewEvent = async (isFromPool: boolean, poolAttr?: PoolAttraction) => {
     if (!newDateStr && !isFromPool) {
       Alert.alert(commonT.error, t.dateRequired);
       return;
     }
     
-    const theDate = newDateStr || formatForDisplay(tripData!.start_date, t.noDate);
     const theTitle = poolAttr ? poolAttr.name : (newTitle || t.newEvent);
-    const theTime = newTimeStr || '12:00';
+    const theSubtitle = newSubtitle || (isFromPool ? t.recommendedPlace : t.addedManually);
+    const userDate = newDateStr ? newDateStr.trim() : undefined;
+    const userTime = newTimeStr ? newTimeStr.trim() : undefined;
 
-    const newEvent: TimelineEvent = {
+    // Wyznaczamy współrzędne atrakcji
+    let targetLat = poolAttr?.lat;
+    let targetLon = poolAttr?.lon;
+    if (
+      typeof targetLat !== 'number' ||
+      typeof targetLon !== 'number' ||
+      (targetLat === 0 && targetLon === 0)
+    ) {
+      const resolved = resolvePointCoordinates(theTitle, attractionsPool, tripData?.destination);
+      targetLat = resolved.lat;
+      targetLon = resolved.lon;
+    }
+
+    const newEventCandidate = {
       id: `evt_custom_${Date.now()}`,
-      type: 'ATTRACTION',
+      type: 'ATTRACTION' as TimelineEventType,
       title: theTitle,
-      subtitle: newSubtitle || (isFromPool ? t.recommendedPlace : t.addedManually),
-      dateStr: theDate,
-      timeStr: theTime,
-      parsedDate: parseDate(theDate.split('-').reverse().join('-'), theTime),
+      subtitle: theSubtitle,
+      lat: targetLat,
+      lon: targetLon,
+      dateStr: userDate,
+      timeStr: userTime,
     };
 
-    const newEvents = [...events, newEvent];
-    newEvents.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
-    
+    const newEvents = insertTimelineEventIntelligently(
+      events,
+      newEventCandidate,
+      attractionsPool,
+      tripData?.destination,
+      tripData?.accommodation_address,
+      tripData?.transport_type,
+      formatForDisplay(tripData?.start_date || null, t.noDate)
+    );
+
     processAndSetEvents(newEvents);
-    setHasUnsavedChanges(true);
+
+    // Błyskawiczny zapis do bazy (PowerSync SQLite + Supabase)
+    // Zapewnia trwałość: po wyjściu z karty i ponownym wejściu atrakcja nie zniknie!
+    await persistTimeline(newEvents, poolAttr);
+
+    if ((!targetLat || !targetLon) && process.env.NODE_ENV !== 'test') {
+      resolvePointCoordinatesAsync(theTitle, attractionsPool, tripData?.destination).then((c) => {
+        if (c) {
+          setEvents((prev) => {
+            const updated = prev.map((e) =>
+              e.id === newEventCandidate.id ? { ...e, lat: c.lat, lon: c.lon } : e
+            );
+            persistTimeline(
+              updated,
+              poolAttr ? { ...poolAttr, lat: c.lat, lon: c.lon } : undefined
+            );
+            return updated;
+          });
+        }
+      });
+    }
 
     if (isFromPool && poolAttr) {
       const currentVisibles = [...visibleAttractions];
-      const poolIndex = currentVisibles.findIndex(a => a.id === poolAttr.id);
+      const poolIndex = currentVisibles.findIndex((a) => a.id === poolAttr.id);
       
       if (poolIndex > -1) {
         if (reserveAttractions.length > 0) {
@@ -661,29 +924,10 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   };
 
   const saveTimelineChanges = async () => {
-    if (!tripData) return;
+    const currentTrip = tripDataRef.current || tripData;
+    if (!currentTrip) return;
     try {
-      const isUserGuest = user?.isGuest || !user;
-      const currentAttractions = JSON.parse(tripData.attractions_data || '{}');
-      const updatedAttractions = {
-        ...currentAttractions,
-        customTimeline: events
-      };
-
-      if (isUserGuest) {
-        await db.execute(
-          'UPDATE trips SET attractions_data = ? WHERE id = ?',
-          [JSON.stringify(updatedAttractions), tripData.id]
-        );
-      } else {
-        const { error } = await supabase
-          .from('trips')
-          .update({ attractions_data: JSON.stringify(updatedAttractions) })
-          .eq('id', tripData.id);
-        if (error) throw error;
-      }
-      
-      setHasUnsavedChanges(false);
+      await persistTimeline(events);
       Alert.alert(commonT.success, t.saveSuccess);
       processAndSetEvents(events); 
     } catch (e) {
@@ -845,6 +1089,57 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         </View>
       )}
 
+      {/* KARTA INTELIGENTNEJ OPTYMALIZACJI TRASY (TSP) */}
+      {tripData && events.some(e => e.type === 'ATTRACTION') && (
+        <View style={styles.optimizeCardContainer}>
+          <TouchableOpacity
+            style={styles.optimizeCard}
+            activeOpacity={0.8}
+            onPress={() => setIsOptimizeModalVisible(true)}
+            testID="optimize-route-btn"
+          >
+            <View style={styles.optimizeCardLeft}>
+              <View style={styles.optimizeIconBox}>
+                <Ionicons name="map-outline" size={18} color="#F59E0B" />
+              </View>
+              <View style={styles.optimizeInfo}>
+                <Text style={styles.optimizeTitle}>{t.optimizeRouteBtn}</Text>
+                <Text style={styles.optimizeSubtitle}>{t.optimizeRouteSubtitle}</Text>
+              </View>
+            </View>
+            <View style={styles.optimizeActionBadge}>
+              <Ionicons name="arrow-forward" size={14} color="#F59E0B" />
+            </View>
+          </TouchableOpacity>
+
+          {events.filter(e => e.type === 'ATTRACTION').length >= 2 && (
+            <TouchableOpacity
+              style={styles.fullRouteTimelineBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                const attractionEvents = events.filter(e => e.type === 'ATTRACTION');
+                const fullUrl = buildGoogleMapsFullRouteUrl(
+                  attractionEvents.map(e => ({
+                    id: e.id,
+                    title: e.title,
+                    subtitle: e.subtitle,
+                    lat: e.lat,
+                    lon: e.lon,
+                  })),
+                  tripData?.destination
+                );
+                Linking.openURL(fullUrl).catch(err => console.warn('Cannot open full route:', err));
+              }}
+              testID="timeline-full-route-btn"
+            >
+              <Ionicons name="map-outline" size={13} color="#38BDF8" style={{ marginRight: 6 }} />
+              <Text style={styles.fullRouteTimelineBtnText}>{t.viewEntireRouteInMaps}</Text>
+              <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {loading ? (
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color="#F59E0B" />
@@ -987,6 +1282,115 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                             onChangeText={(val) => handleEventEdit(evt.id, 'subtitle', val)}
                           />
                         </View>
+
+                        {/* DOJAZD DO NASTĘPNEGO PUNKTU (GOOGLE MAPS) */}
+                        {events[index + 1] && (
+                          <View style={styles.expandedTransitBox}>
+                            <View style={styles.expandedTransitHeader}>
+                              <Ionicons name="navigate-outline" size={12} color="#38BDF8" style={{ marginRight: 4 }} />
+                              <Text style={styles.expandedTransitHeaderText} numberOfLines={1}>
+                                {t.transitBetweenPoints} {events[index + 1].title}
+                              </Text>
+                            </View>
+                            {(() => {
+                              const nextEvt = events[index + 1];
+                              const getPointQuery = (item: TimelineEvent) => {
+                                if (item.type === 'LODGING' && tripData?.accommodation_address) {
+                                  return tripData.accommodation_address;
+                                }
+                                if (item.type === 'DEPARTURE' || item.type === 'RETURN') {
+                                  return tripData?.transport_type === 'flight'
+                                    ? `Airport, ${tripData?.destination || ''}`
+                                    : `Central Station, ${tripData?.destination || ''}`;
+                                }
+                                return item.title;
+                              };
+                              const fromC = resolvePointCoordinates(
+                                getPointQuery(evt),
+                                attractionsPool,
+                                tripData?.destination,
+                                null,
+                                { lat: evt.lat, lon: evt.lon }
+                              );
+                              const toC = resolvePointCoordinates(
+                                getPointQuery(nextEvt),
+                                attractionsPool,
+                                tripData?.destination,
+                                null,
+                                { lat: nextEvt.lat, lon: nextEvt.lon }
+                              );
+                              const legKey = `${evt.id}_${nextEvt.id}`;
+                              const est = timelineRouteInfo[legKey] || calculateTransitEstimates(fromC, toC);
+                              const city = tripData?.destination;
+                              const fromPoint = { ...fromC, title: getPointQuery(evt), subtitle: evt.subtitle };
+                              const toPoint = { ...toC, title: getPointQuery(nextEvt), subtitle: nextEvt.subtitle };
+
+                              return (
+                                <View style={styles.expandedTransitModes}>
+                                  <View style={styles.expandedTransitAdvice}>
+                                    <Ionicons
+                                      name={est.recommendedMode === 'walking' ? 'walk-outline' : 'bus-outline'}
+                                      size={12}
+                                      color={est.recommendedMode === 'walking' ? '#F59E0B' : '#38BDF8'}
+                                      style={{ marginRight: 5 }}
+                                    />
+                                    <Text style={styles.expandedTransitAdviceText}>
+                                      {est.recommendedMode === 'walking'
+                                        ? t.recommendedWalkNotice
+                                        : t.recommendedTransitNotice}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.expandedTransitChipsRow}>
+                                    <TouchableOpacity
+                                      style={[
+                                        styles.transitChip,
+                                        est.recommendedMode === 'walking' && styles.transitChipRecommended,
+                                      ]}
+                                      activeOpacity={0.7}
+                                      onPress={() => Linking.openURL(buildGoogleMapsDirectionsUrl(fromPoint, toPoint, 'walking', city))}
+                                      testID={`timeline-transit-walk-${index}`}
+                                    >
+                                      <Ionicons name="walk-outline" size={11} color="#F59E0B" style={{ marginRight: 3 }} />
+                                      <Text style={styles.transitChipText}>{t.modeWalk}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                      style={[
+                                        styles.transitChip,
+                                        est.recommendedMode === 'transit' && styles.transitChipRecommended,
+                                      ]}
+                                      activeOpacity={0.7}
+                                      onPress={() => Linking.openURL(buildGoogleMapsDirectionsUrl(fromPoint, toPoint, 'transit', city))}
+                                      testID={`timeline-transit-public-${index}`}
+                                    >
+                                      <Ionicons name="bus-outline" size={11} color="#38BDF8" style={{ marginRight: 3 }} />
+                                      <Text style={styles.transitChipText}>{t.modeTransit}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                      style={styles.transitChip}
+                                      activeOpacity={0.7}
+                                      onPress={() => Linking.openURL(buildGoogleMapsDirectionsUrl(fromPoint, toPoint, 'driving', city))}
+                                      testID={`timeline-transit-drive-${index}`}
+                                    >
+                                      <Ionicons name="car-outline" size={11} color="#10B981" style={{ marginRight: 3 }} />
+                                      <Text style={styles.transitChipText}>{t.modeDrive}</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                      style={styles.mapsQuickIconBtn}
+                                      activeOpacity={0.7}
+                                      onPress={() => Linking.openURL(buildGoogleMapsDirectionsUrl(fromPoint, toPoint, est.recommendedMode || 'transit', city))}
+                                      testID={`timeline-transit-maps-${index}`}
+                                    >
+                                      <Text style={styles.mapsQuickIconBtnText}>Maps ➔</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              );
+                            })()}
+                          </View>
+                        )}
 
                         <View style={styles.cardActionsRow}>
                           <View style={styles.moveActions}>
@@ -1174,6 +1578,21 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           onChange={onPickerChange}
         />
       )}
+
+      {/* MODAL INTELIGENTNEJ OPTYMALIZACJI TRASY (TSP) */}
+      <RouteOptimizationModal
+        visible={isOptimizeModalVisible}
+        onClose={() => setIsOptimizeModalVisible(false)}
+        onApply={async (optimizedEvents) => {
+          const evts = optimizedEvents as TimelineEvent[];
+          processAndSetEvents(evts);
+          await persistTimeline(evts);
+          Alert.alert('DESTIVO', t.optimizationApplied);
+        }}
+        events={events}
+        poolAttractions={attractionsPool}
+        destinationCity={tripData?.destination || 'Rome'}
+      />
     </SafeAreaView>
   );
 };
@@ -1407,6 +1826,82 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.3)' 
   },
   deleteBtnText: { color: '#F87171', fontSize: 12, fontWeight: '700' },
+  expandedTransitBox: {
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    marginBottom: 10,
+  },
+  expandedTransitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  expandedTransitHeaderText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+    flex: 1,
+  },
+  expandedTransitModes: {
+    flexDirection: 'column',
+    gap: 6,
+  },
+  expandedTransitAdvice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  expandedTransitAdviceText: {
+    color: '#E2E8F0',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  expandedTransitChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  transitChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingVertical: 4,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+  },
+  transitChipRecommended: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  },
+  transitChipText: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  mapsQuickIconBtn: {
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+  },
+  mapsQuickIconBtnText: {
+    color: '#38BDF8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
   
   saveFooter: { 
     position: 'absolute', 
@@ -1556,6 +2051,113 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   vaultDrawerActionText: {
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Karta optymalizacji trasy TSP
+  optimizeCardContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 6,
+    backgroundColor: 'transparent',
+    zIndex: 5,
+  },
+  optimizeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(17, 24, 39, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: 14,
+    padding: 12,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  optimizeCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  optimizeIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  optimizeInfo: {
+    flex: 1,
+  },
+  optimizeTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  optimizeSubtitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  onlineBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  onlineDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
+    marginRight: 3,
+  },
+  onlineBadgeTextSmall: {
+    color: '#10B981',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  optimizeActionBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  optimizeActionText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  fullRouteTimelineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginTop: 6,
+  },
+  fullRouteTimelineBtnText: {
     color: '#38BDF8',
     fontSize: 12,
     fontWeight: '700',
