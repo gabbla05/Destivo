@@ -26,6 +26,7 @@ import { translations } from '../i18n/translations';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { capitalizeCity } from './TripCreator/Step1DestinationScreen';
+import { SmartPackingModal } from '../components/SmartPackingModal';
 
 interface TripRecord {
   id: string;
@@ -34,6 +35,7 @@ interface TripRecord {
   destination: string;
   start_date: string;
   end_date: string;
+  transport_type?: string;
 }
 
 // Baza sprawdzonych, reprezentacyjnych zdjęć miast (fallback)
@@ -95,6 +97,7 @@ export const TripsListScreen = ({ navigation }: any) => {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cityPhotos, setCityPhotos] = useState<{ [cityKey: string]: string }>({});
+  const [packingTrip, setPackingTrip] = useState<TripRecord | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -136,7 +139,7 @@ export const TripsListScreen = ({ navigation }: any) => {
       // 1. Najpierw pobieramy z lokalnej bazy PowerSync SQLite (dostępne natychmiast offline)
       try {
         const result = await db.execute(
-          `SELECT id, trip_name, origin, destination, start_date, end_date
+          `SELECT id, trip_name, origin, destination, start_date, end_date, transport_data
            FROM trips WHERE user_id = ? OR (user_id IN ('guest', 'guest-session') AND ?)
            ORDER BY start_date ASC`,
           [userId, user && !user.isGuest ? 1 : 0]
@@ -145,6 +148,12 @@ export const TripsListScreen = ({ navigation }: any) => {
           ? (result as any).array
           : (result.rows as any)?._array || (result.rows as any) || []) as any[];
         localRows.forEach((trip: any) => {
+          let transportType = 'flight';
+          try {
+            const raw = typeof trip.transport_data === 'string' ? JSON.parse(trip.transport_data || '{}') : (trip.transport_data || {});
+            transportType = raw?.selectedOption?.type || trip.transport_type || 'flight';
+          } catch {}
+
           tripsById.set(trip.id, {
             id: trip.id,
             title: trip.trip_name || trip.title || t.untitled,
@@ -152,6 +161,7 @@ export const TripsListScreen = ({ navigation }: any) => {
             destination: trip.destination || '',
             start_date: trip.start_date || '',
             end_date: trip.end_date || '',
+            transport_type: transportType,
           });
         });
       } catch (localErr) {
@@ -173,6 +183,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                   destination: trip.destination || '',
                   start_date: trip.start_date || '',
                   end_date: trip.end_date || '',
+                  transport_type: trip.transport_type || 'flight',
                 });
               }
             });
@@ -202,6 +213,12 @@ export const TripsListScreen = ({ navigation }: any) => {
           if (!error && Array.isArray(data)) {
             for (const trip of data) {
               const tripTitle = trip.title || trip.trip_name || t.untitled;
+              let transportType = 'flight';
+              try {
+                const raw = typeof trip.transport_data === 'string' ? JSON.parse(trip.transport_data || '{}') : (trip.transport_data || {});
+                transportType = raw?.selectedOption?.type || trip.transport_type || 'flight';
+              } catch {}
+
               tripsById.set(trip.id, {
                 id: trip.id,
                 title: tripTitle,
@@ -209,6 +226,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                 destination: trip.destination || '',
                 start_date: trip.start_date || '',
                 end_date: trip.end_date || '',
+                transport_type: transportType,
               });
 
               // Zapisujemy podróż z chmury do lokalnej bazy PowerSync, by była trwale dostępna
@@ -581,14 +599,32 @@ export const TripsListScreen = ({ navigation }: any) => {
                               </Text>
                             </View>
                           </View>
-                          <TouchableOpacity
-                            style={styles.cardDeleteBtn}
-                            onPress={() => handleDeleteTrip(trip.id)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons name="trash-outline" size={15} color="#F87171" />
-                          </TouchableOpacity>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <TouchableOpacity
+                              style={styles.cardPackingBtn}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                setPackingTrip(trip);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              activeOpacity={0.7}
+                              testID={`trip-packing-btn-${trip.id}`}
+                            >
+                              <Ionicons name="briefcase-outline" size={15} color="#10B981" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.cardDeleteBtn}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                handleDeleteTrip(trip.id);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="trash-outline" size={15} color="#F87171" />
+                            </TouchableOpacity>
+                          </View>
                         </View>
 
                         {/* Treść kafelka */}
@@ -679,14 +715,32 @@ export const TripsListScreen = ({ navigation }: any) => {
                               </Text>
                             </View>
                           </View>
-                          <TouchableOpacity
-                            style={styles.cardDeleteBtn}
-                            onPress={() => handleDeleteTrip(trip.id)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons name="trash-outline" size={15} color="#F87171" />
-                          </TouchableOpacity>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <TouchableOpacity
+                              style={styles.cardPackingBtn}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                setPackingTrip(trip);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              activeOpacity={0.7}
+                              testID={`trip-packing-btn-${trip.id}`}
+                            >
+                              <Ionicons name="briefcase-outline" size={15} color="#10B981" />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.cardDeleteBtn}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                handleDeleteTrip(trip.id);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="trash-outline" size={15} color="#F87171" />
+                            </TouchableOpacity>
+                          </View>
                         </View>
 
                         <View style={styles.cardBottomRow}>
@@ -713,6 +767,19 @@ export const TripsListScreen = ({ navigation }: any) => {
           )}
 
         </ScrollView>
+      )}
+
+      {/* MODAL DYNAMICZNEGO ASYSTENTA PAKOWANIA */}
+      {packingTrip && (
+        <SmartPackingModal
+          visible={!!packingTrip}
+          onClose={() => setPackingTrip(null)}
+          tripId={packingTrip.id}
+          destination={packingTrip.destination}
+          startDate={packingTrip.start_date}
+          endDate={packingTrip.end_date}
+          transportType={packingTrip.transport_type}
+        />
       )}
     </SafeAreaView>
   );
@@ -839,6 +906,17 @@ const styles = StyleSheet.create({
 
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 },
   cardTopLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap' },
+  cardPackingBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    marginLeft: 6,
+  },
   cardDeleteBtn: {
     width: 28,
     height: 28,

@@ -30,6 +30,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
+import { SmartPackingModal } from '../components/SmartPackingModal';
+import { calculateTripDurationDays } from '../lib/smartPackingAssistant';
 import {
   resolvePointCoordinates,
   resolvePointCoordinatesAsync,
@@ -217,6 +219,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const [reserveAttractions, setReserveAttractions] = useState<PoolAttraction[]>([]);
   const [attractionsPool, setAttractionsPool] = useState<any[]>([]);
   const [isOptimizeModalVisible, setIsOptimizeModalVisible] = useState(false);
+  const [isPackingModalVisible, setIsPackingModalVisible] = useState(false);
   const [timelineRouteInfo, setTimelineRouteInfo] = useState<Record<string, StreetRouteInfo>>({});
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -1089,6 +1092,55 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         </View>
       )}
 
+      {/* KARTA DYNAMICZNEGO ASYSTENTA PAKOWANIA */}
+      {tripData && (
+        <View style={styles.smartPackingCardContainer}>
+          <TouchableOpacity
+            style={styles.smartPackingCard}
+            activeOpacity={0.8}
+            onPress={() => setIsPackingModalVisible(true)}
+            testID="open-smart-packing-btn"
+          >
+            <View style={styles.smartPackingCardLeft}>
+              <View style={styles.smartPackingIconBox}>
+                <Ionicons name="briefcase-outline" size={19} color="#10B981" />
+              </View>
+              <View style={styles.smartPackingInfo}>
+                <Text style={styles.smartPackingTitle}>
+                  {translations[language]?.smartPacking?.cardTitle || 'Dynamiczny Asystent Pakowania'}
+                </Text>
+                <Text style={styles.smartPackingSubtitle} numberOfLines={1}>
+                  {translations[language]?.smartPacking?.cardSubtitle
+                    ?.replace('{{days}}', String(calculateTripDurationDays(tripData.start_date, tripData.end_date)))
+                    ?.replace(
+                      '{{transport}}',
+                      tripData.transport_type === 'flight'
+                        ? translations[language]?.smartPacking?.paramFlight || 'Samolot'
+                        : tripData.transport_type === 'car'
+                        ? translations[language]?.smartPacking?.paramCar || 'Samochód'
+                        : tripData.transport_type === 'train'
+                        ? translations[language]?.smartPacking?.paramTrain || 'Pociąg'
+                        : tripData.transport_type === 'bus'
+                        ? translations[language]?.smartPacking?.paramBus || 'Autobus'
+                        : tripData.transport_type || 'Samolot'
+                    )
+                    ?.replace(
+                      '{{weather}}',
+                      translations[language]?.smartPacking?.conditionPill || 'Warunki wyjazdu'
+                    ) || 'Lista na podstawie pogody, transportu i długości wyjazdu'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.smartPackingActionBadge}>
+              <Text style={styles.smartPackingActionText}>
+                {translations[language]?.smartPacking?.openAssistant || 'Otwórz'}
+              </Text>
+              <Ionicons name="chevron-forward" size={13} color="#10B981" style={{ marginLeft: 2 }} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* KARTA INTELIGENTNEJ OPTYMALIZACJI TRASY (TSP) */}
       {tripData && events.some(e => e.type === 'ATTRACTION') && (
         <View style={styles.optimizeCardContainer}>
@@ -1593,6 +1645,19 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         poolAttractions={attractionsPool}
         destinationCity={tripData?.destination || 'Rome'}
       />
+
+      {/* MODAL DYNAMICZNEGO ASYSTENTA PAKOWANIA */}
+      {tripData && (
+        <SmartPackingModal
+          visible={isPackingModalVisible}
+          onClose={() => setIsPackingModalVisible(false)}
+          tripId={tripData.id}
+          destination={tripData.destination}
+          startDate={tripData.start_date}
+          endDate={tripData.end_date}
+          transportType={tripData.transport_type}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -2053,6 +2118,75 @@ const styles = StyleSheet.create({
   vaultDrawerActionText: {
     color: '#38BDF8',
     fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Karta dynamicznego asystenta pakowania
+  smartPackingCardContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 4,
+    backgroundColor: 'transparent',
+    zIndex: 5,
+  },
+  smartPackingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(17, 24, 39, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 14,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  smartPackingCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  smartPackingIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  smartPackingInfo: {
+    flex: 1,
+  },
+  smartPackingTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  smartPackingSubtitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  smartPackingActionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  smartPackingActionText: {
+    color: '#10B981',
+    fontSize: 11,
     fontWeight: '700',
   },
 

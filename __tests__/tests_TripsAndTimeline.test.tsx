@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -256,6 +256,22 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(screen.getByText('ODWIEDZONYCH MIEJSC')).toBeTruthy();
         expect(screen.getByText('1')).toBeTruthy();
         expect(screen.getByText('12')).toBeTruthy();
+      });
+    });
+
+    test('Powinien otworzyć asystenta pakowania po kliknięciu przycisku pakowania na karcie podróży', async () => {
+      render(<TripsListScreen navigation={{ navigate: mockNavigate }} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trip-packing-btn-trip-upcoming')).toBeTruthy();
+      });
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('trip-packing-btn-trip-upcoming'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('close-packing-modal-btn')).toBeTruthy();
       });
     });
 
@@ -596,6 +612,23 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       expect(mockNavigate).toHaveBeenCalledWith('MainTabs', {
         screen: 'Vault',
         params: { tripId: 'trip-upcoming' },
+      });
+    });
+
+    test('Powinien wyrenderować kartę Dynamicznego Asystenta Pakowania i otworzyć modal po kliknięciu', async () => {
+      render(<TimelineScreen route={{ params: { tripId: 'trip-upcoming' } }} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('open-smart-packing-btn')).toBeTruthy();
+        expect(screen.getByText('Dynamiczny Asystent Pakowania')).toBeTruthy();
+      });
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('open-smart-packing-btn'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('close-packing-modal-btn')).toBeTruthy();
       });
     });
 

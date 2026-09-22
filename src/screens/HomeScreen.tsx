@@ -1438,7 +1438,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         </View>
 
         <View style={styles.section}>
-          <View style={[styles.sectionHeaderRow, { paddingHorizontal: 24, marginBottom: 4 }]}>
+          <View style={[styles.sectionHeaderRow, { paddingHorizontal: 24, marginBottom: 4, justifyContent: 'flex-start' }]}>
             <Ionicons name="compass-outline" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
             <Text style={[styles.sectionHeaderTitle, { fontSize: 18 }]}>{t.section_liveTitle}</Text>
           </View>
