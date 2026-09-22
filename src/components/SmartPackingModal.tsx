@@ -14,6 +14,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Dimensions,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
@@ -60,6 +61,29 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
   const [activeFilter, setActiveFilter] = useState<'all' | 'unpacked' | 'packed'>('all');
   const [customItemText, setCustomItemText] = useState<string>('');
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -326,7 +350,9 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
             <ScrollView
               style={styles.scrollArea}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60) : 30 }}
             >
               {/* KARTY WARUNKÓW PODRÓŻY (WEATHER, TRANSPORT, DURATION) */}
               <View style={styles.conditionsCard}>

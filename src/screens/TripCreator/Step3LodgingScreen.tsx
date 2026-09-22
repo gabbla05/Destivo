@@ -99,7 +99,7 @@ export const Step3LodgingScreen = () => {
               { 
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60)
+                  ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60)
                   : Math.max(insets.bottom, 16) + 40
               }
             ]} 

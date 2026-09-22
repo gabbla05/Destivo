@@ -112,6 +112,20 @@ export interface TripCreatorState {
       type: string;
       createdAt?: string;
     } | null;
+    outboundTicketFile?: {
+      id: string;
+      name: string;
+      uri: string;
+      type: string;
+      createdAt?: string;
+    } | null;
+    returnTicketFile?: {
+      id: string;
+      name: string;
+      uri: string;
+      type: string;
+      createdAt?: string;
+    } | null;
   };
 
   setTransportDetails: (details: Partial<TripCreatorState['transportDetails']>) => void;
@@ -203,6 +217,8 @@ const initialState: Omit<
     returnDepartureTime: '',
     returnArrivalTime: '',
     ticketFile: null,
+    outboundTicketFile: null,
+    returnTicketFile: null,
   },
 
   lodging: {

@@ -47,13 +47,27 @@ const getCoords = async (query: string) => {
 };
 
 // --- POMOCNICZA FUNKCJA DO PARSOWANIA GODZINY DO OBIEKTU DATE ---
+const sanitizeTimeStr = (str?: string): string => {
+  if (!str) return '';
+  const clean = str.trim().replace('.', ':').replace(',', ':');
+  const match = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return clean;
+  let hour = parseInt(match[1], 10);
+  let min = parseInt(match[2], 10);
+  if (isNaN(hour) || isNaN(min)) return clean;
+  hour = ((hour % 24) + 24) % 24;
+  min = Math.max(0, Math.min(59, min));
+  return `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+};
+
 const parseTimeToDate = (timeStr?: string): Date => {
   const d = new Date();
   if (!timeStr || !timeStr.trim()) {
     d.setHours(12, 0, 0, 0);
     return d;
   }
-  const parts = timeStr.trim().split(':');
+  const clean = timeStr.trim().replace('.', ':').replace(',', ':');
+  const parts = clean.split(':');
   if (parts.length >= 2) {
     const h = parseInt(parts[0], 10);
     const m = parseInt(parts[1], 10);
@@ -344,10 +358,14 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     return parseTimeToDate(timeStr);
   };
 
-  // Obsługa dodawania biletu do Sejfu (PDF / Zdjęcie)
-  const handleUploadTicket = () => {
+  // Obsługa dodawania biletu do Sejfu (PDF / Zdjęcie) dla wyjazdu (TAM) lub powrotu (POWRÓT)
+  const handleUploadTicket = (leg: 'outbound' | 'return' = 'outbound') => {
+    const dialogTitle = leg === 'outbound'
+      ? (t.uploadOutboundTicket || 'Wgraj bilet na wyjazd (TAM)')
+      : (t.uploadReturnTicket || 'Wgraj bilet na powrót (POWRÓT)');
+
     Alert.alert(
-      t.uploadTicket,
+      dialogTitle,
       t.chooseTicketSource,
       [
         {
@@ -356,7 +374,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             try {
               const fileData = await VaultManager.pickFile();
               if (fileData) {
-                setTransportDetails({ ticketFile: fileData });
+                if (leg === 'outbound') {
+                  setTransportDetails({ outboundTicketFile: fileData, ticketFile: fileData });
+                } else {
+                  setTransportDetails({ returnTicketFile: fileData });
+                }
                 Alert.alert('DESTIVO', t.ticketUploadedSuccess);
               }
             } catch (e) {
@@ -371,7 +393,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             try {
               const fileData = await VaultManager.pickImage();
               if (fileData) {
-                setTransportDetails({ ticketFile: fileData });
+                if (leg === 'outbound') {
+                  setTransportDetails({ outboundTicketFile: fileData, ticketFile: fileData });
+                } else {
+                  setTransportDetails({ returnTicketFile: fileData });
+                }
                 Alert.alert('DESTIVO', t.ticketUploadedSuccess);
               }
             } catch (e) {
@@ -403,7 +429,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
               {
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40)
+                  ? (Platform.OS === 'android' ? 320 : keyboardHeight + 60)
                   : 120,
               },
             ]}
@@ -625,6 +651,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                               placeholderTextColor="#94A3B8"
                               value={transportDetails.outboundDepartureTime}
                               onChangeText={(txt) => setTransportDetails({ outboundDepartureTime: txt })}
+                              onBlur={() => {
+                                if (transportDetails.outboundDepartureTime) {
+                                  setTransportDetails({ outboundDepartureTime: sanitizeTimeStr(transportDetails.outboundDepartureTime) });
+                                }
+                              }}
                               keyboardType="numbers-and-punctuation"
                               maxLength={5}
                             />
@@ -648,6 +679,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                               placeholderTextColor="#94A3B8"
                               value={transportDetails.outboundArrivalTime}
                               onChangeText={(txt) => setTransportDetails({ outboundArrivalTime: txt })}
+                              onBlur={() => {
+                                if (transportDetails.outboundArrivalTime) {
+                                  setTransportDetails({ outboundArrivalTime: sanitizeTimeStr(transportDetails.outboundArrivalTime) });
+                                }
+                              }}
                               keyboardType="numbers-and-punctuation"
                               maxLength={5}
                             />
@@ -729,6 +765,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                                   placeholderTextColor="#94A3B8"
                                   value={transportDetails.returnDepartureTime}
                                   onChangeText={(txt) => setTransportDetails({ returnDepartureTime: txt })}
+                                  onBlur={() => {
+                                    if (transportDetails.returnDepartureTime) {
+                                      setTransportDetails({ returnDepartureTime: sanitizeTimeStr(transportDetails.returnDepartureTime) });
+                                    }
+                                  }}
                                   keyboardType="numbers-and-punctuation"
                                   maxLength={5}
                                 />
@@ -752,6 +793,11 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                                   placeholderTextColor="#94A3B8"
                                   value={transportDetails.returnArrivalTime}
                                   onChangeText={(txt) => setTransportDetails({ returnArrivalTime: txt })}
+                                  onBlur={() => {
+                                    if (transportDetails.returnArrivalTime) {
+                                      setTransportDetails({ returnArrivalTime: sanitizeTimeStr(transportDetails.returnArrivalTime) });
+                                    }
+                                  }}
                                   keyboardType="numbers-and-punctuation"
                                   maxLength={5}
                                 />
@@ -761,49 +807,104 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                         </>
                       ) : null}
 
-                      {/* WGRYWANIE BILETU DO SEJFU */}
-                      {transportDetails.ticketFile ? (
-                        <View style={styles.ticketAttachedCard}>
-                          <View style={styles.ticketIconContainer}>
-                            <Ionicons
-                              name={transportDetails.ticketFile.type === 'PDF' ? 'document-text' : 'image'}
-                              size={22}
-                              color="#F59E0B"
-                            />
-                          </View>
-                          <View style={styles.ticketInfo}>
-                            <Text style={styles.ticketFileName} numberOfLines={1}>
-                              {transportDetails.ticketFile.name}
-                            </Text>
-                            <View style={styles.ticketBadgeRow}>
-                              <Ionicons name="shield-checkmark" size={13} color="#10B981" style={{ marginRight: 4 }} />
-                              <Text style={styles.ticketBadgeText}>{t.ticketAttached}</Text>
+                      {/* WGRYWANIE BILETÓW DO SEJFU (TAM I Z POWROTEM) */}
+                      <View style={{ marginTop: 20 }}>
+                        {/* 1. BILET NA WYJAZD (TAM) */}
+                        <Text style={styles.subLabel}>
+                          {t.outboundTicketSection || 'Bilet na wyjazd (TAM)'}
+                        </Text>
+                        {(transportDetails.outboundTicketFile || transportDetails.ticketFile) ? (
+                          <View style={[styles.ticketAttachedCard, { marginTop: 8 }]}>
+                            <View style={styles.ticketIconContainer}>
+                              <Ionicons
+                                name={(transportDetails.outboundTicketFile || transportDetails.ticketFile)?.type === 'PDF' ? 'document-text' : 'image'}
+                                size={22}
+                                color="#38BDF8"
+                              />
                             </View>
+                            <View style={styles.ticketInfo}>
+                              <Text style={styles.ticketFileName} numberOfLines={1}>
+                                {(transportDetails.outboundTicketFile || transportDetails.ticketFile)?.name}
+                              </Text>
+                              <View style={styles.ticketBadgeRow}>
+                                <Ionicons name="shield-checkmark" size={13} color="#10B981" style={{ marginRight: 4 }} />
+                                <Text style={styles.ticketBadgeText}>{t.ticketOutboundAttached || 'Bilet na wyjazd (TAM)'}</Text>
+                              </View>
+                            </View>
+                            <TouchableOpacity
+                              testID="remove-ticket-btn"
+                              onPress={() => setTransportDetails({ outboundTicketFile: null, ticketFile: null })}
+                              style={styles.removeTicketBtn}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color="#F87171" />
+                            </TouchableOpacity>
                           </View>
+                        ) : (
                           <TouchableOpacity
-                            testID="remove-ticket-btn"
-                            onPress={() => setTransportDetails({ ticketFile: null })}
-                            style={styles.removeTicketBtn}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={[styles.uploadButton, { marginTop: 8 }]}
+                            onPress={() => handleUploadTicket('outbound')}
+                            activeOpacity={0.8}
+                            testID="upload-outbound-ticket-btn"
                           >
-                            <Ionicons name="trash-outline" size={18} color="#F87171" />
+                            <Ionicons
+                              name="document-attach-outline"
+                              size={18}
+                              color="#38BDF8"
+                              style={{ marginRight: 8 }}
+                            />
+                            <Text style={styles.uploadButtonText}>{t.uploadOutboundTicket || 'Wgraj bilet na wyjazd (TAM)'}</Text>
                           </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <TouchableOpacity
-                          style={styles.uploadButton}
-                          onPress={handleUploadTicket}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons
-                            name="document-attach-outline"
-                            size={18}
-                            color="#38BDF8"
-                            style={{ marginRight: 8 }}
-                          />
-                          <Text style={styles.uploadButtonText}>{t.uploadTicket}</Text>
-                        </TouchableOpacity>
-                      )}
+                        )}
+
+                        {/* 2. BILET NA POWRÓT (POWRÓT) */}
+                        <Text style={[styles.subLabel, { marginTop: 16 }]}>
+                          {t.returnTicketSection || 'Bilet na powrót (POWRÓT)'}
+                        </Text>
+                        {transportDetails.returnTicketFile ? (
+                          <View style={[styles.ticketAttachedCard, { marginTop: 8 }]}>
+                            <View style={[styles.ticketIconContainer, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                              <Ionicons
+                                name={transportDetails.returnTicketFile.type === 'PDF' ? 'document-text' : 'image'}
+                                size={22}
+                                color="#F59E0B"
+                              />
+                            </View>
+                            <View style={styles.ticketInfo}>
+                              <Text style={styles.ticketFileName} numberOfLines={1}>
+                                {transportDetails.returnTicketFile.name}
+                              </Text>
+                              <View style={styles.ticketBadgeRow}>
+                                <Ionicons name="shield-checkmark" size={13} color="#10B981" style={{ marginRight: 4 }} />
+                                <Text style={styles.ticketBadgeText}>{t.ticketReturnAttached || 'Bilet na powrót (POWRÓT)'}</Text>
+                              </View>
+                            </View>
+                            <TouchableOpacity
+                              testID="remove-return-ticket-btn"
+                              onPress={() => setTransportDetails({ returnTicketFile: null })}
+                              style={styles.removeTicketBtn}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color="#F87171" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={[styles.uploadButton, { marginTop: 8 }]}
+                            onPress={() => handleUploadTicket('return')}
+                            activeOpacity={0.8}
+                            testID="upload-return-ticket-btn"
+                          >
+                            <Ionicons
+                              name="document-attach-outline"
+                              size={18}
+                              color="#F59E0B"
+                              style={{ marginRight: 8 }}
+                            />
+                            <Text style={[styles.uploadButtonText, { color: '#F59E0B' }]}>{t.uploadReturnTicket || 'Wgraj bilet na powrót (POWRÓT)'}</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   </View>
                 )}
@@ -1005,4 +1106,11 @@ const styles = StyleSheet.create({
   ticketBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   ticketBadgeText: { color: '#10B981', fontSize: 11, fontWeight: '600' },
   removeTicketBtn: { padding: 8 },
+  subLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
 });

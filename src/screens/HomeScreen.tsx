@@ -25,10 +25,20 @@ import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
 import { parseTripDate } from './TripsListScreen';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import { insertTimelineEventIntelligently } from '../lib/routeOptimization';
+import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
+import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
+import * as Notifications from 'expo-notifications';
+import {
+  ProximityCheckResult,
+  findActiveTicketForTrip,
+  scheduleLocalDepartureNotification,
+  dismissExpiredDepartureNotifications,
+} from '../lib/proximityAlertService';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
@@ -213,6 +223,31 @@ const parseEventDateTime = (dateStr?: string, timeStr?: string): Date => {
   return new Date(year, month, day, hours, minutes, 0, 0);
 };
 
+export const parsePickerDate = (dateStr?: string): Date => {
+  if (!dateStr) return new Date();
+  const clean = dateStr.replace(/\./g, '-');
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    } else {
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    }
+  }
+  return new Date();
+};
+
+export const parsePickerTime = (timeStr?: string): Date => {
+  const d = new Date();
+  if (!timeStr) return d;
+  const parts = timeStr.split(':');
+  if (parts.length >= 2) {
+    d.setHours(parseInt(parts[0], 10) || 0);
+    d.setMinutes(parseInt(parts[1], 10) || 0);
+  }
+  return d;
+};
+
 export const sanitizeTimeStr = (timeStr?: string): string => {
   if (!timeStr || !timeStr.trim()) return '12:00';
   const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -329,6 +364,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [activeTimeline, setActiveTimeline] = useState<any[]>([]);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showPastEvents, setShowPastEvents] = useState(false);
 
   // Stany dla Modali
   const [isOptimizeModalVisible, setIsOptimizeModalVisible] = useState(false);
@@ -347,6 +383,63 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [currencySelectingSide, setCurrencySelectingSide] = useState<'FROM' | 'TO'>('FROM');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Stan dla alertu zbliżeniowego i szybkiego podglądu biletu
+  const [isQuickPassVisible, setIsQuickPassVisible] = useState(false);
+  const [quickPassResult, setQuickPassResult] = useState<ProximityCheckResult | null>(null);
+
+  // Stan aktywnego selektora daty/godziny (DateTimePicker)
+  type ActiveHomeScreenPicker =
+    | { type: 'editDate'; eventId: string; currentDate: Date }
+    | { type: 'editTime'; eventId: string; currentTime: Date }
+    | { type: 'manualDate'; currentDate: Date }
+    | { type: 'manualTime'; currentTime: Date }
+    | null;
+
+  const [activePicker, setActivePicker] = useState<ActiveHomeScreenPicker>(null);
+
+  const applyPickerDate = (picker: NonNullable<ActiveHomeScreenPicker>, date: Date) => {
+    if (picker.type === 'editDate') {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      handleEventEdit(picker.eventId, 'dateStr', `${day}-${month}-${year}`);
+    } else if (picker.type === 'editTime') {
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      handleEventEdit(picker.eventId, 'timeStr', `${hours}:${minutes}`);
+    } else if (picker.type === 'manualDate') {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      setManualDate(`${day}-${month}-${year}`);
+    } else if (picker.type === 'manualTime') {
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      setManualTime(`${hours}:${minutes}`);
+    }
+  };
+
+  const onPickerChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      const current = activePicker;
+      setActivePicker(null);
+      if (event.type === 'dismissed' || !selectedDate || !current) return;
+      applyPickerDate(current, selectedDate);
+    } else {
+      if (event.type === 'dismissed' || !selectedDate || !activePicker) {
+        setActivePicker(null);
+        return;
+      }
+      applyPickerDate(activePicker, selectedDate);
+      setActivePicker(null);
+    }
+  };
+
+  const handleOpenProximityPass = (result: ProximityCheckResult) => {
+    setQuickPassResult(result);
+    setIsQuickPassVisible(true);
+  };
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -449,10 +542,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             if (events.length === 0) {
               const transportData = JSON.parse(currentFound.transport_data || '{}');
               const lodgingData = JSON.parse(currentFound.lodging_data || '{}');
+              const transportDetails = transportData.details || {};
+              const outboundTime = transportDetails.outboundDepartureTime || '08:00';
+              const outboundSubtitle = transportDetails.outboundDepartureLocation || transportData.selectedOption?.provider || t.defaultTransportSubtitle;
               
               events = [
-                { id: '1', type: 'DEPARTURE', title: t.defaultDepartureTitle.replace('{{destination}}', currentFound.destination), timeStr: '08:00', dateStr: currentFound.start_date, subtitle: transportData.selectedOption?.provider || t.defaultTransportSubtitle },
-                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: '14:00', dateStr: currentFound.start_date, subtitle: lodgingData.lodgingAddress || t.defaultLodgingSubtitle },
+                { id: '1', type: 'DEPARTURE', title: t.defaultDepartureTitle.replace('{{destination}}', currentFound.destination), timeStr: outboundTime, dateStr: currentFound.start_date, subtitle: outboundSubtitle },
+                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: transportDetails.outboundArrivalTime || '14:00', dateStr: currentFound.start_date, subtitle: lodgingData.lodgingAddress || t.defaultLodgingSubtitle },
               ];
               
               const selectedAttrs = attractionsData.selected || [];
@@ -465,6 +561,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               });
             }
             setActiveTimeline(events);
+
+            // Weryfikacja i planowanie powiadomienia o zbliżającym się odjeździe (Proximity Alert)
+            scheduleLocalDepartureNotification(currentFound, language).catch(() => {});
           } else {
             setActiveTrip(null);
           }
@@ -477,6 +576,62 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       fetchActiveTrip();
     }, [user?.id])
   );
+
+  // Obsługa kliknięcia w powiadomienie (otwiera od razu "Bilet w zasięgu ręki")
+  useEffect(() => {
+    dismissExpiredDepartureNotifications().catch(() => {});
+
+    const openPassFromNotificationData = (data: any) => {
+      if (data?.type === 'PROXIMITY_ALERT' || data?.type === 'GEOFENCE_ENTER') {
+        const ticketData = activeTrip ? findActiveTicketForTrip(activeTrip) : null;
+        const isReturn = data.activeLeg === 'return' || ticketData?.activeLeg === 'return';
+
+        const selectedTicketFile = data.ticketFile || (isReturn ? ticketData?.returnTicket : ticketData?.outboundTicket) || ticketData?.file;
+        const selectedDepTime = data.departureTime || (isReturn ? ticketData?.returnDepartureTime : ticketData?.outboundDepartureTime) || ticketData?.departureTime || '12:00';
+        const selectedStation = data.stationName || (isReturn ? ticketData?.returnStation : ticketData?.outboundStation) || ticketData?.stationName || activeTrip?.origin || '';
+
+        setQuickPassResult({
+          shouldAlert: true,
+          reason: 'NOTIFICATION',
+          minutesUntilDeparture: null,
+          distanceMeters: null,
+          stationName: selectedStation,
+          ticketFile: selectedTicketFile,
+          departureTime: selectedDepTime,
+          destination: data.destination || activeTrip?.destination || '',
+          transportType: data.transportType || activeTrip?.transport_type || 'train',
+          activeLeg: isReturn ? 'return' : 'outbound',
+          outboundTicket: data.outboundTicket || ticketData?.outboundTicket || null,
+          returnTicket: data.returnTicket || ticketData?.returnTicket || null,
+          outboundDepartureTime: data.outboundDepartureTime || ticketData?.outboundDepartureTime,
+          returnDepartureTime: data.returnDepartureTime || ticketData?.returnDepartureTime,
+          outboundStation: data.outboundStation || ticketData?.outboundStation,
+          returnStation: data.returnStation || ticketData?.returnStation,
+          tripId: data.tripId || activeTrip?.id,
+        });
+        setIsQuickPassVisible(true);
+      }
+    };
+
+    // Cold-start: sprawdź czy aplikację otwarto przez kliknięcie w powiadomienie
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response?.notification?.request?.content?.data) {
+        openPassFromNotificationData(response.notification.request.content.data);
+      }
+    }).catch(() => {});
+
+    // Powiadomienie kliknięte podczas działania w tle lub na pierwszym planie
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response?.notification?.request?.content?.data;
+      if (data) {
+        openPassFromNotificationData(data);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [activeTrip]);
 
   const activeEventIndex = useMemo(() => {
     if (!activeTimeline || activeTimeline.length === 0) return -1;
@@ -503,6 +658,17 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
     return closestIdx;
   }, [activeTimeline, activeTrip]);
+
+  const pastEvents = useMemo(() => {
+    if (!activeTimeline || activeEventIndex <= 0) return [];
+    return activeTimeline.slice(0, activeEventIndex);
+  }, [activeTimeline, activeEventIndex]);
+
+  const activeAndUpcomingEvents = useMemo(() => {
+    if (!activeTimeline || activeTimeline.length === 0) return [];
+    if (activeEventIndex < 0) return activeTimeline;
+    return activeTimeline.slice(activeEventIndex);
+  }, [activeTimeline, activeEventIndex]);
 
   const availableSuggestions = useMemo(() => {
     if (!activeTrip) return [];
@@ -838,7 +1004,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             bounces={true} 
             contentContainerStyle={{ 
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 260 : keyboardHeight + 60) 
+                ? (Platform.OS === 'android' ? 320 : keyboardHeight + 80) 
                 : 110 
             }} 
             showsVerticalScrollIndicator={false}
@@ -889,9 +1055,17 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             </View>
           </View>
 
+          {/* KONTEKSTOWY BANER ZBLIŻENIOWY (PROXIMITY ALERT) */}
+          {activeTrip && (
+            <ProximityAlertBanner
+              trip={activeTrip}
+              onShowTicket={handleOpenProximityPass}
+            />
+          )}
+
           {/* OŚ CZASU (DAILY ITINERARY) */}
           <View style={styles.itinerarySection}>
-            <View style={styles.sectionHeaderRow}>
+            <View style={[styles.sectionHeaderRow, { justifyContent: 'space-between' }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
                 <Text style={styles.sectionHeaderTitle}>{t.dailyItineraryTitle || 'Plan Dnia'}</Text>
@@ -911,25 +1085,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             </View>
             
             <View style={styles.timelineWrapper}>
-              <View style={styles.timelineLineAbsolute} />
+              {activeAndUpcomingEvents.length > 1 && (
+                <View style={styles.timelineLineAbsolute} />
+              )}
               
-              {activeTimeline.map((item, index) => {
+              {activeAndUpcomingEvents.map((item, relIndex) => {
+                const originalIndex = activeTimeline.findIndex(e => e.id === item.id);
                 const isExpanded = expandedEventId === item.id;
-                const isPast = index < activeEventIndex;
-                const isInProgress = index === activeEventIndex;
-                const isFuture = index > activeEventIndex;
+                const isInProgress = relIndex === 0;
+                const isFuture = relIndex > 0;
+                const isPast = false;
                 const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
                 const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
 
                 return (
-                  <View key={item.id || index} style={styles.timelineRow}>
+                  <View key={item.id || relIndex} style={styles.timelineRow}>
                     {/* WĘZEŁ NA OSI */}
                     <View style={styles.nodeColumn}>
-                      {isPast ? (
-                        <View style={[styles.nodeCircle, styles.nodeCirclePast]}>
-                          <Ionicons name="checkmark" size={12} color="#0F172A" />
-                        </View>
-                      ) : isInProgress ? (
+                      {isInProgress ? (
                         <View style={[styles.nodeCircle, styles.nodeCircleActive]}>
                           <View style={styles.nodeActiveInnerDot} />
                         </View>
@@ -944,7 +1117,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     <TouchableOpacity 
                       style={[
                         styles.timelineCard,
-                        isPast && styles.timelineCardPast,
                         isInProgress && styles.timelineCardActive,
                         isExpanded && styles.eventCardExpanded
                       ]} 
@@ -972,7 +1144,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           <Text 
                             style={[
                               styles.cardTitle,
-                              isPast && styles.cardTitlePast,
                               isInProgress && styles.cardTitleActive,
                               isFuture && styles.cardTitleFuture
                             ]}
@@ -986,7 +1157,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <Text 
                         style={[
                           styles.cardTime,
-                          isPast && styles.cardTimePast,
                           isInProgress && styles.cardTimeActive,
                           isFuture && styles.cardTimeFuture
                         ]}
@@ -997,7 +1167,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <Text 
                         style={[
                           styles.cardDesc,
-                          isPast && styles.cardDescPast,
                           isInProgress && styles.cardDescActive,
                           isFuture && styles.cardDescFuture
                         ]} 
@@ -1007,49 +1176,141 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       </Text>
 
                       {/* PRZYCISKI AKCJI "DIRECTIONS" I "TICKETS" DLA IN PROGRESS */}
-                      {isInProgress && (
-                        <View style={styles.inProgressActionsRow}>
-                          <TouchableOpacity
-                            style={styles.inProgressDirectionsBtn}
-                            activeOpacity={0.8}
-                            onPress={() => {
-                              const query = encodeURIComponent(`${item.title}, ${activeTrip.destination || ''}`);
-                              Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-                            }}
-                          >
-                            <Ionicons name="navigate-outline" size={14} color="#0F172A" style={{ marginRight: 6 }} />
-                            <Text style={styles.inProgressDirectionsBtnText}>{t.directionsBtn || 'Trasa'}</Text>
-                          </TouchableOpacity>
+                      {(() => {
+                        if (!isInProgress) return null;
 
-                          <TouchableOpacity
-                            style={styles.inProgressTicketsBtn}
-                            activeOpacity={0.8}
-                            onPress={() => navigation?.navigate('Vault', { tripId: activeTrip.id })}
-                          >
-                            <Ionicons name="ticket-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
-                            <Text style={styles.inProgressTicketsBtnText}>{t.ticketsBtn || 'Bilety'}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                        const isTransportEvent = item.type === 'DEPARTURE' || item.type === 'RETURN' || item.type === 'TRANSPORT';
+                        const isLodgingEvent = item.type === 'LODGING';
+                        const isAttractionEvent = item.type === 'ATTRACTION';
+
+                        let userLodgingAddress = '';
+                        if (isLodgingEvent) {
+                          try {
+                            const lData = typeof activeTrip.lodging_data === 'string' ? JSON.parse(activeTrip.lodging_data || '{}') : (activeTrip.lodging_data || {});
+                            if (lData?.lodgingAddress && typeof lData.lodgingAddress === 'string' && lData.lodgingAddress.trim().length > 0) {
+                              userLodgingAddress = lData.lodgingAddress.trim();
+                            }
+                          } catch {}
+                          if (!userLodgingAddress && activeTrip?.accommodation_address && typeof activeTrip.accommodation_address === 'string' && activeTrip.accommodation_address.trim().length > 0) {
+                            userLodgingAddress = activeTrip.accommodation_address.trim();
+                          }
+                          if (!userLodgingAddress && item.subtitle && typeof item.subtitle === 'string') {
+                            const defaultSubs = [
+                              (translations.pl.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                              (translations.en.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                              'zameldowanie i odbiór kluczy',
+                              'check-in and key pickup',
+                              'brak zapisanego adresu noclegu',
+                              'no hotel address provided',
+                            ];
+                            if (!defaultSubs.includes(item.subtitle.trim().toLowerCase())) {
+                              userLodgingAddress = item.subtitle.trim();
+                            }
+                          }
+                        }
+
+                        const showDirectionsBtn = (isLodgingEvent && Boolean(userLodgingAddress)) || (isAttractionEvent && Boolean(item.title));
+                        const showTicketsBtn = isTransportEvent;
+
+                        if (!showDirectionsBtn && !showTicketsBtn) return null;
+
+                        return (
+                          <View style={styles.inProgressActionsRow}>
+                            {showDirectionsBtn && (
+                              <TouchableOpacity
+                                style={styles.inProgressDirectionsBtn}
+                                activeOpacity={0.8}
+                                onPress={() => {
+                                  const destTarget = isLodgingEvent ? userLodgingAddress : item.title;
+                                  const query = encodeURIComponent(`${destTarget}, ${activeTrip.destination || ''}`);
+                                  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                                }}
+                              >
+                                <Ionicons name="navigate-outline" size={14} color="#0F172A" style={{ marginRight: 6 }} />
+                                <Text style={styles.inProgressDirectionsBtnText}>{t.directionsBtn || 'Trasa'}</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {showTicketsBtn && (
+                              <TouchableOpacity
+                                style={styles.inProgressTicketsBtn}
+                                activeOpacity={0.8}
+                                onPress={() => {
+                                  const ticketData = findActiveTicketForTrip(activeTrip);
+                                  const isReturn = item.type === 'RETURN';
+                                  const selectedTicketFile = isReturn
+                                    ? (ticketData?.returnTicket || ticketData?.file || null)
+                                    : (ticketData?.outboundTicket || ticketData?.file || null);
+                                  const selectedDepTime = sanitizeTimeStr(item.timeStr) || (isReturn ? ticketData?.returnDepartureTime : ticketData?.outboundDepartureTime) || ticketData?.departureTime || '12:00';
+                                  const selectedStation = item.subtitle || (isReturn ? ticketData?.returnStation : ticketData?.outboundStation) || ticketData?.stationName || activeTrip.origin || '';
+
+                                  setQuickPassResult({
+                                    shouldAlert: true,
+                                    reason: 'TIME',
+                                    minutesUntilDeparture: null,
+                                    distanceMeters: null,
+                                    stationName: selectedStation,
+                                    ticketFile: selectedTicketFile,
+                                    departureTime: selectedDepTime,
+                                    destination: activeTrip.destination || '',
+                                    transportType: activeTrip.transport_type || 'train',
+                                    activeLeg: isReturn ? 'return' : 'outbound',
+                                    outboundTicket: ticketData?.outboundTicket || null,
+                                    returnTicket: ticketData?.returnTicket || null,
+                                    outboundDepartureTime: ticketData?.outboundDepartureTime,
+                                    returnDepartureTime: ticketData?.returnDepartureTime,
+                                    outboundStation: ticketData?.outboundStation,
+                                    returnStation: ticketData?.returnStation,
+                                  });
+                                  setIsQuickPassVisible(true);
+                                }}
+                              >
+                                <Ionicons name="ticket-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+                                <Text style={styles.inProgressTicketsBtnText}>{t.ticketsBtn || 'Bilety'}</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })()}
 
                       {/* SEKCJA ROZWIJANA (EDYCJA) */}
                       {isExpanded && (
                         <View style={styles.expandedSection}>
                           <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>{t.dateLabel}</Text>
-                            <TextInput 
-                              style={styles.input} 
-                              value={item.dateStr} 
-                              onChangeText={(val) => handleEventEdit(item.id, 'dateStr', val)}
-                            />
+                            <View style={styles.inputWithIconRow}>
+                              <TextInput 
+                                style={styles.inputWithIconText} 
+                                value={item.dateStr} 
+                                onChangeText={(val) => handleEventEdit(item.id, 'dateStr', val)}
+                              />
+                              <TouchableOpacity
+                                style={styles.inputIconBtn}
+                                onPress={() => setActivePicker({ type: 'editDate', eventId: item.id, currentDate: parsePickerDate(item.dateStr || activeTrip?.start_date) })}
+                                activeOpacity={0.7}
+                                testID={`date-picker-btn-${item.id}`}
+                              >
+                                <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
+                              </TouchableOpacity>
+                            </View>
                           </View>
                           <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>{t.timeLabel}</Text>
-                            <TextInput 
-                              style={styles.input} 
-                              value={item.timeStr} 
-                              onChangeText={(val) => handleEventEdit(item.id, 'timeStr', val)}
-                            />
+                            <View style={styles.inputWithIconRow}>
+                              <TextInput 
+                                style={styles.inputWithIconText} 
+                                value={item.timeStr} 
+                                onChangeText={(val) => handleEventEdit(item.id, 'timeStr', val)}
+                              />
+                              <TouchableOpacity
+                                style={styles.inputIconBtn}
+                                onPress={() => setActivePicker({ type: 'editTime', eventId: item.id, currentTime: parsePickerTime(item.timeStr) })}
+                                activeOpacity={0.7}
+                                testID={`time-picker-btn-${item.id}`}
+                              >
+                                <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                              </TouchableOpacity>
+                            </View>
                           </View>
                           <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
@@ -1071,11 +1332,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           {/* PRZYCISKI AKCJI (USUŃ I PRZESUŃ) */}
                           <View style={styles.cardActionsRow}>
                             <View style={styles.moveActions}>
-                              <TouchableOpacity style={[styles.actionBtn, index === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(index, 'UP')}>
-                                <Ionicons name="chevron-up" size={15} color={index === 0 ? "#475569" : "#94A3B8"} />
+                              <TouchableOpacity style={[styles.actionBtn, originalIndex === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'UP')}>
+                                <Ionicons name="chevron-up" size={15} color={originalIndex === 0 ? "#475569" : "#94A3B8"} />
                               </TouchableOpacity>
-                              <TouchableOpacity style={[styles.actionBtn, index === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(index, 'DOWN')}>
-                                <Ionicons name="chevron-down" size={15} color={index === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
+                              <TouchableOpacity style={[styles.actionBtn, originalIndex === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'DOWN')}>
+                                <Ionicons name="chevron-down" size={15} color={originalIndex === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
                               </TouchableOpacity>
                             </View>
                             <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
@@ -1088,6 +1349,152 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   </View>
                 );
               })}
+
+              {/* MINIONE PUNKTY (UKRYTE DOMYŚLNIE, ROZWIJANE NA ŻYCZENIE NA DOLE) */}
+              {pastEvents.length > 0 && (
+                <View style={styles.pastEventsSection}>
+                  <TouchableOpacity
+                    style={styles.pastEventsToggleBtn}
+                    onPress={() => setShowPastEvents(!showPastEvents)}
+                    activeOpacity={0.7}
+                    testID="toggle-past-events-btn"
+                  >
+                    <Ionicons
+                      name={showPastEvents ? "chevron-up" : "checkmark-done-circle-outline"}
+                      size={16}
+                      color="#F59E0B"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.pastEventsToggleText}>
+                      {showPastEvents
+                        ? (t.hidePastEvents || 'Ukryj minione punkty')
+                        : (t.showPastEvents || 'Minione punkty ({{count}}) • Pokaż').replace('{{count}}', String(pastEvents.length))}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {showPastEvents && (
+                    <View style={styles.pastEventsList}>
+                      {pastEvents.map((item, pIdx) => {
+                        const originalIndex = activeTimeline.findIndex(e => e.id === item.id);
+                        const isExpanded = expandedEventId === item.id;
+                        const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
+                        const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
+
+                        return (
+                          <View key={item.id || `past_${pIdx}`} style={styles.timelineRow}>
+                            <View style={styles.nodeColumn}>
+                              <View style={[styles.nodeCircle, styles.nodeCirclePast]}>
+                                <Ionicons name="checkmark" size={12} color="#0F172A" />
+                              </View>
+                            </View>
+
+                            <TouchableOpacity
+                              style={[
+                                styles.timelineCard,
+                                styles.timelineCardPast,
+                                isExpanded && styles.eventCardExpanded,
+                              ]}
+                              activeOpacity={0.85}
+                              onPress={() => setExpandedEventId(isExpanded ? null : item.id)}
+                            >
+                              <View style={styles.cardHeaderFlex}>
+                                <View style={styles.cardTitleRow}>
+                                  <View style={styles.cardTypeIconWrap}>
+                                    {renderTimelineIcon(item.type)}
+                                  </View>
+                                  <Text style={[styles.cardTitle, styles.cardTitlePast]}>
+                                    {item.title}
+                                  </Text>
+                                </View>
+                                <Ionicons name="pencil-outline" size={15} color="#64748B" />
+                              </View>
+
+                              <Text style={[styles.cardTime, styles.cardTimePast]}>
+                                {eventTime} • {getTimelineTypeLabel(item.type)}
+                              </Text>
+
+                              <Text style={[styles.cardDesc, styles.cardDescPast]} numberOfLines={isExpanded ? 0 : 2}>
+                                {eventSubtitle}
+                              </Text>
+
+                              {isExpanded && (
+                                <View style={styles.expandedSection}>
+                                  <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>{t.dateLabel}</Text>
+                                    <View style={styles.inputWithIconRow}>
+                                      <TextInput 
+                                        style={styles.inputWithIconText} 
+                                        value={item.dateStr} 
+                                        onChangeText={(val) => handleEventEdit(item.id, 'dateStr', val)}
+                                      />
+                                      <TouchableOpacity
+                                        style={styles.inputIconBtn}
+                                        onPress={() => setActivePicker({ type: 'editDate', eventId: item.id, currentDate: parsePickerDate(item.dateStr || activeTrip?.start_date) })}
+                                        activeOpacity={0.7}
+                                        testID={`past-date-picker-btn-${item.id}`}
+                                      >
+                                        <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+                                  <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>{t.timeLabel}</Text>
+                                    <View style={styles.inputWithIconRow}>
+                                      <TextInput 
+                                        style={styles.inputWithIconText} 
+                                        value={item.timeStr} 
+                                        onChangeText={(val) => handleEventEdit(item.id, 'timeStr', val)}
+                                      />
+                                      <TouchableOpacity
+                                        style={styles.inputIconBtn}
+                                        onPress={() => setActivePicker({ type: 'editTime', eventId: item.id, currentTime: parsePickerTime(item.timeStr) })}
+                                        activeOpacity={0.7}
+                                        testID={`past-time-picker-btn-${item.id}`}
+                                      >
+                                        <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+                                  <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
+                                    <TextInput 
+                                      style={styles.input} 
+                                      value={item.title} 
+                                      onChangeText={(val) => handleEventEdit(item.id, 'title', val)}
+                                    />
+                                  </View>
+                                  <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>{t.eventSubtitleLabel}</Text>
+                                    <TextInput 
+                                      style={styles.input} 
+                                      value={item.subtitle} 
+                                      onChangeText={(val) => handleEventEdit(item.id, 'subtitle', val)}
+                                    />
+                                  </View>
+
+                                  <View style={styles.cardActionsRow}>
+                                    <View style={styles.moveActions}>
+                                      <TouchableOpacity style={[styles.actionBtn, originalIndex === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'UP')}>
+                                        <Ionicons name="chevron-up" size={15} color={originalIndex === 0 ? "#475569" : "#94A3B8"} />
+                                      </TouchableOpacity>
+                                      <TouchableOpacity style={[styles.actionBtn, originalIndex === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'DOWN')}>
+                                        <Ionicons name="chevron-down" size={15} color={originalIndex === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
+                                      </TouchableOpacity>
+                                    </View>
+                                    <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
+                                      <Text style={styles.deleteBtnText}>{t.delete}</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
           </View>
 
@@ -1219,8 +1626,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               </View>
 
               <ScrollView 
-                style={{ maxHeight: 480 }} 
-                contentContainerStyle={{ paddingBottom: 40 }}
+                style={{ maxHeight: isKeyboardVisible ? 320 : 480 }} 
+                contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 280 : 40 }}
                 showsVerticalScrollIndicator={true}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -1292,23 +1699,43 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   <View style={{ flexDirection: 'row', gap: 12 }}>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
                       <Text style={styles.inputLabel}>{t.dateLabel || 'Data'}</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={manualDate}
-                        onChangeText={setManualDate}
-                        placeholder={activeTrip?.start_date || 'DD-MM-YYYY'}
-                        placeholderTextColor="#94A3B8"
-                      />
+                      <View style={styles.inputWithIconRow}>
+                        <TextInput
+                          style={styles.inputWithIconText}
+                          value={manualDate}
+                          onChangeText={setManualDate}
+                          placeholder={activeTrip?.start_date || 'DD-MM-YYYY'}
+                          placeholderTextColor="#94A3B8"
+                        />
+                        <TouchableOpacity
+                          style={styles.inputIconBtn}
+                          onPress={() => setActivePicker({ type: 'manualDate', currentDate: parsePickerDate(manualDate || activeTrip?.start_date) })}
+                          activeOpacity={0.7}
+                          testID="manual-date-picker-btn"
+                        >
+                          <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
                       <Text style={styles.inputLabel}>{t.timeLabel || 'Godzina'}</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={manualTime}
-                        onChangeText={setManualTime}
-                        placeholder="15:00"
-                        placeholderTextColor="#94A3B8"
-                      />
+                      <View style={styles.inputWithIconRow}>
+                        <TextInput
+                          style={styles.inputWithIconText}
+                          value={manualTime}
+                          onChangeText={setManualTime}
+                          placeholder="15:00"
+                          placeholderTextColor="#94A3B8"
+                        />
+                        <TouchableOpacity
+                          style={styles.inputIconBtn}
+                          onPress={() => setActivePicker({ type: 'manualTime', currentTime: parsePickerTime(manualTime) })}
+                          activeOpacity={0.7}
+                          testID="manual-time-picker-btn"
+                        >
+                          <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
 
@@ -1390,6 +1817,30 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           destinationCity={activeTrip?.destination || 'Rome'}
         />
 
+        {/* MODAL BILETU W ZASIĘGU RĘKI (PROXIMITY QUICK PASS) */}
+        {quickPassResult && (
+          <QuickTicketPassModal
+            visible={isQuickPassVisible}
+            onClose={() => setIsQuickPassVisible(false)}
+            ticketFile={quickPassResult.ticketFile}
+            departureTime={quickPassResult.departureTime}
+            stationName={quickPassResult.stationName}
+            destination={quickPassResult.destination}
+            transportType={quickPassResult.transportType}
+            activeLeg={quickPassResult.activeLeg}
+            outboundTicket={quickPassResult.outboundTicket}
+            returnTicket={quickPassResult.returnTicket}
+            outboundDepartureTime={quickPassResult.outboundDepartureTime}
+            returnDepartureTime={quickPassResult.returnDepartureTime}
+            outboundStation={quickPassResult.outboundStation}
+            returnStation={quickPassResult.returnStation}
+            onOpenVault={() => {
+              setIsQuickPassVisible(false);
+              navigation?.navigate('Vault', { tripId: activeTrip?.id });
+            }}
+          />
+        )}
+
         {/* PRZYCISK ZAPISU OSI CZASU */}
         {hasUnsavedChanges && (
           <View style={styles.saveFooter}>
@@ -1399,6 +1850,21 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
         )}
         </KeyboardAvoidingView>
+
+        {/* NATYWNY SELEKTOR DATY I CZASU */}
+        {activePicker && (
+          <DateTimePicker
+            value={
+              activePicker.type === 'editDate' || activePicker.type === 'manualDate'
+                ? activePicker.currentDate
+                : activePicker.currentTime
+            }
+            mode={activePicker.type.includes('Date') ? 'date' : 'time'}
+            is24Hour={true}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onPickerChange}
+          />
+        )}
       </SafeAreaView>
     );
   }
@@ -1637,6 +2103,32 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         </View>
 
       </ScrollView>
+
+      {/* MODAL BILETU W ZASIĘGU RĘKI (PROXIMITY QUICK PASS) DLA WIDOKU EXPLORE */}
+      {quickPassResult && (
+        <QuickTicketPassModal
+          visible={isQuickPassVisible}
+          onClose={() => setIsQuickPassVisible(false)}
+          ticketFile={quickPassResult.ticketFile}
+          departureTime={quickPassResult.departureTime}
+          stationName={quickPassResult.stationName}
+          destination={quickPassResult.destination}
+          transportType={quickPassResult.transportType}
+          activeLeg={quickPassResult.activeLeg}
+          outboundTicket={quickPassResult.outboundTicket}
+          returnTicket={quickPassResult.returnTicket}
+          outboundDepartureTime={quickPassResult.outboundDepartureTime}
+          returnDepartureTime={quickPassResult.returnDepartureTime}
+          outboundStation={quickPassResult.outboundStation}
+          returnStation={quickPassResult.returnStation}
+          onOpenVault={() => {
+            setIsQuickPassVisible(false);
+            if (activeTrip?.id || quickPassResult?.tripId) {
+              navigation?.navigate('Vault', { tripId: activeTrip?.id || quickPassResult?.tripId });
+            }
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -1854,7 +2346,7 @@ const styles = StyleSheet.create({
 
   // Itinerary & Timeline
   itinerarySection: { paddingHorizontal: 20, paddingTop: 10, marginTop: 6 },
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginBottom: 16, paddingHorizontal: 4 },
   optimizeHomeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1931,6 +2423,29 @@ const styles = StyleSheet.create({
   inputGroup: { marginBottom: 10 },
   inputLabel: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginBottom: 4 },
   input: { backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#334155', borderRadius: 8, color: '#F8FAFC', fontSize: 13, paddingHorizontal: 10, height: 38 },
+  inputWithIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0B1120',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    paddingRight: 6,
+    height: 40,
+  },
+  inputWithIconText: {
+    flex: 1,
+    color: '#F8FAFC',
+    fontSize: 13,
+    paddingHorizontal: 10,
+    height: '100%',
+  },
+  inputIconBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   cardActionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   moveActions: { flexDirection: 'row', gap: 8 },
   actionBtn: { backgroundColor: '#1E293B', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
@@ -1938,6 +2453,34 @@ const styles = StyleSheet.create({
   actionBtnText: { color: '#F8FAFC', fontSize: 11, fontWeight: '600' },
   deleteBtn: { backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' },
   deleteBtnText: { color: '#F87171', fontSize: 11, fontWeight: '700' },
+
+  // Past Events Section
+  pastEventsSection: {
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  pastEventsToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#131D31',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  pastEventsToggleText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pastEventsList: {
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+  },
 
   // Currency Converter
   converterSection: { paddingHorizontal: 20, marginTop: 24 },

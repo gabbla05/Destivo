@@ -328,7 +328,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
         <ScrollView 
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 140 }
+            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60) : 140 }
           ]} 
           bounces={false}
           keyboardShouldPersistTaps="handled"
@@ -555,7 +555,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: 20 }}
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 20 }}
             >
               {forgotStage === 'EMAIL' ? (
                 <>

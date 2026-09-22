@@ -375,5 +375,277 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
     expect(getEmergencyNumber('Barcelona')).toBe('112');
     expect(getEmergencyNumber('Chorwacja')).toBe('112');
   });
+
+  test('13. przycisk Bilety wyświetla się wyłącznie dla transportu, a Trasa dla atrakcji i podanego noclegu', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    // Przypadek 1: W trakcie transportu (DEPARTURE) -> tylko Bilety
+    const transportTrip = {
+      id: 'trip-transport',
+      trip_name: 'Podróż testowa',
+      destination: 'Gdańsk',
+      origin: 'Warszawa',
+      start_date: today,
+      end_date: tomorrow,
+      transport_type: 'train',
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-dep', type: 'DEPARTURE', title: 'Wyjazd z Warszawa', timeStr: '10:00', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [transportTrip],
+      array: [transportTrip],
+    });
+
+    const { unmount } = render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Bilety')).toBeTruthy();
+      expect(screen.queryByText('Trasa')).toBeNull();
+    });
+
+    unmount();
+
+    // Przypadek 2: W trakcie atrakcji (ATTRACTION) -> tylko Trasa
+    const attractionTrip = {
+      id: 'trip-attr',
+      trip_name: 'Podróż testowa',
+      destination: 'Gdańsk',
+      origin: 'Warszawa',
+      start_date: today,
+      end_date: tomorrow,
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-attr', type: 'ATTRACTION', title: 'Fontanna Neptuna', timeStr: '14:00', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [attractionTrip],
+      array: [attractionTrip],
+    });
+
+    const { unmount: unmount2 } = render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Trasa')).toBeTruthy();
+      expect(screen.queryByText('Bilety')).toBeNull();
+    });
+
+    unmount2();
+
+    // Przypadek 3: Nocleg bez adresu -> żaden przycisk
+    const lodgingNoAddressTrip = {
+      id: 'trip-lodge-no-addr',
+      trip_name: 'Podróż testowa',
+      destination: 'Gdańsk',
+      origin: 'Warszawa',
+      start_date: today,
+      end_date: tomorrow,
+      lodging_data: JSON.stringify({ lodgingAddress: '' }),
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-lodge', type: 'LODGING', title: 'Nocleg', timeStr: '16:00', subtitle: 'Zameldowanie i odbiór kluczy', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [lodgingNoAddressTrip],
+      array: [lodgingNoAddressTrip],
+    });
+
+    const { unmount: unmount3 } = render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nocleg')).toBeTruthy();
+      expect(screen.queryByText('Trasa')).toBeNull();
+      expect(screen.queryByText('Bilety')).toBeNull();
+    });
+
+    unmount3();
+
+    // Przypadek 4: Nocleg z podanym adresem -> tylko Trasa
+    const lodgingWithAddressTrip = {
+      id: 'trip-lodge-addr',
+      trip_name: 'Podróż testowa',
+      destination: 'Gdańsk',
+      origin: 'Warszawa',
+      start_date: today,
+      end_date: tomorrow,
+      lodging_data: JSON.stringify({ lodgingAddress: 'ul. Długa 12, Gdańsk' }),
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-lodge', type: 'LODGING', title: 'Nocleg', timeStr: '16:00', subtitle: 'ul. Długa 12, Gdańsk', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [lodgingWithAddressTrip],
+      array: [lodgingWithAddressTrip],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nocleg')).toBeTruthy();
+      expect(screen.getByText('Trasa')).toBeTruthy();
+      expect(screen.queryByText('Bilety')).toBeNull();
+    });
+  });
+
+  test('14. kliknięcie w powiadomienie o bilecie natychmiast otwiera modal Bilet w zasięgu ręki', async () => {
+    const Notifications = require('expo-notifications');
+    Notifications.getLastNotificationResponseAsync.mockResolvedValueOnce({
+      notification: {
+        request: {
+          content: {
+            data: {
+              type: 'PROXIMITY_ALERT',
+              destination: 'Wenecja',
+              departureTime: '16:30',
+              stationName: 'Kraków Główny',
+              ticketFile: { id: 't-notif-1', name: 'Bilet_Wenecja.pdf' },
+            },
+          },
+        },
+      },
+    });
+
+    mockExecute.mockResolvedValue({
+      rows: [],
+      array: [],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      // Sprawdzamy czy modal szybkiego podglądu biletu natychmiast się otworzył
+      expect(screen.getByText('Kraków Główny')).toBeTruthy();
+      expect(screen.getByText('Wenecja')).toBeTruthy();
+      expect(screen.getByText('16:30')).toBeTruthy();
+      expect(screen.getByText('Bilet w zasięgu ręki')).toBeTruthy();
+    });
+  });
+
+  test('15. minione punkty na osi czasu są ukrywane domyślnie, a aktywny punkt świeci się na samej górze', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    const timelineTrip = {
+      id: 'trip-timeline-test',
+      trip_name: 'Wyprawa w Tatry',
+      destination: 'Zakopane',
+      origin: 'Kraków',
+      start_date: today,
+      end_date: tomorrow,
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-past', type: 'TRANSPORT', title: 'Pociąg do Zakopanego', timeStr: '06:00', subtitle: 'Kraków -> Zakopane', status: 'COMPLETED' },
+          { id: 'ev-current', type: 'ATTRACTION', title: 'Morskie Oko', timeStr: '11:00', subtitle: 'Wycieczka piesza', status: 'IN_PROGRESS' },
+          { id: 'ev-future', type: 'LODGING', title: 'Hotel Tatry', timeStr: '19:00', subtitle: 'Zakwaterowanie', status: 'PENDING' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [timelineTrip],
+      array: [timelineTrip],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      // Aktywny punkt "Morskie Oko" musi być widoczny i oznaczony jako "W TRAKCIE"
+      expect(screen.getByText('Morskie Oko')).toBeTruthy();
+      expect(screen.getByText('W TRAKCIE')).toBeTruthy();
+
+      // Przyszły punkt "Hotel Tatry" jest na osi czasu
+      expect(screen.getByText('Hotel Tatry')).toBeTruthy();
+
+      // Miniony punkt "Pociąg do Zakopanego" NIE powinien być widoczny domyślnie
+      expect(screen.queryByText('Pociąg do Zakopanego')).toBeNull();
+
+      // Przycisk zwijania/rozwijania minionych punktów powinien być widoczny
+      expect(screen.getByTestId('toggle-past-events-btn')).toBeTruthy();
+      expect(screen.getByText('Minione punkty (1) • Pokaż')).toBeTruthy();
+    });
+
+    // Rozwijamy minione punkty
+    fireEvent.press(screen.getByTestId('toggle-past-events-btn'));
+
+    await waitFor(() => {
+      // Teraz miniony punkt stał się widoczny
+      expect(screen.getByText('Pociąg do Zakopanego')).toBeTruthy();
+      expect(screen.getByText('Ukryj minione punkty')).toBeTruthy();
+    });
+
+    // Zwijamy z powrotem
+    fireEvent.press(screen.getByTestId('toggle-past-events-btn'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Pociąg do Zakopanego')).toBeNull();
+      expect(screen.getByText('Minione punkty (1) • Pokaż')).toBeTruthy();
+    });
+  });
+
+  test('16. w osi czasu oraz w modalu dodawania atrakcji dostępne są przyciski kalendarza i zegara', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    const timelineTrip = {
+      id: 'trip-picker-test',
+      trip_name: 'Wyprawa testowa',
+      destination: 'Wrocław',
+      origin: 'Kraków',
+      start_date: today,
+      end_date: tomorrow,
+      attractions_data: JSON.stringify({
+        customTimeline: [
+          { id: 'ev-test-1', type: 'ATTRACTION', title: 'Rynek', timeStr: '12:00', subtitle: 'Spacer', status: 'IN_PROGRESS' },
+        ],
+      }),
+    };
+
+    mockExecute.mockResolvedValue({
+      rows: [timelineTrip],
+      array: [timelineTrip],
+    });
+
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Rynek')).toBeTruthy();
+    });
+
+    // Rozwijamy kartę wydarzenia
+    fireEvent.press(screen.getByText('Rynek'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('date-picker-btn-ev-test-1')).toBeTruthy();
+      expect(screen.getByTestId('time-picker-btn-ev-test-1')).toBeTruthy();
+    });
+
+    // Sprawdzamy czy naciśnięcie nie powoduje błędu
+    fireEvent.press(screen.getByTestId('date-picker-btn-ev-test-1'));
+    fireEvent.press(screen.getByTestId('time-picker-btn-ev-test-1'));
+
+    // Otwieramy modal dodawania atrakcji (przycisk u góry "Dodaj atrakcję")
+    fireEvent.press(screen.getByText('Dodaj atrakcję'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manual-date-picker-btn')).toBeTruthy();
+      expect(screen.getByTestId('manual-time-picker-btn')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('manual-date-picker-btn'));
+    fireEvent.press(screen.getByTestId('manual-time-picker-btn'));
+  });
 });
 

@@ -29,6 +29,10 @@ import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
 import { checkTripCollision } from '../../lib/tripCollision';
+import {
+  scheduleLocalDepartureNotification,
+  setupGeofencingForTrip,
+} from '../../lib/proximityAlertService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as Crypto from 'expo-crypto';
@@ -351,21 +355,6 @@ export const Step4AttractionsScreen = () => {
       }
 
       const tripId = Crypto.randomUUID();
-      
-      const extendedAttractions = {
-        selected: storeAttractions.selected,
-        pool: results.map((r) => ({
-          id: r.id,
-          name: r.name,
-          imageUrl: r.imageUrl,
-          address: r.address,
-          rating: r.rating,
-          lat: r.lat,
-          lon: r.lon,
-        })),
-      };
-
-      const attractionsJson = JSON.stringify(extendedAttractions);
 
       const formatToDBDate = (dateStr: string) => {
         if (!dateStr) return '';
@@ -378,10 +367,168 @@ export const Step4AttractionsScreen = () => {
         return normalized;
       };
 
-      const vaultFiles = transportDetails?.ticketFile ? [transportDetails.ticketFile] : [];
+      const formatForDisplayDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const parts = dateStr.replace(/\./g, '-').split('-');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+          }
+          return dateStr;
+        }
+        return dateStr;
+      };
+
+      const parseDateHelper = (dateStr: string | null, timeStr?: string): Date => {
+        if (!dateStr) return new Date();
+        const clean = dateStr.replace(/\./g, '-');
+        const parts = clean.split('-');
+        let year: number, month: number, day: number;
+        if (parts[0].length === 4) {
+          year = Number(parts[0]);
+          month = Number(parts[1]) - 1;
+          day = Number(parts[2]);
+        } else {
+          day = Number(parts[0]);
+          month = Number(parts[1]) - 1;
+          year = Number(parts[2]);
+        }
+        const date = new Date(year, month, day);
+        if (timeStr) {
+          const cleanTime = timeStr.trim().replace(/[.,]/g, ':');
+          const [h, m] = cleanTime.split(':');
+          date.setHours(Number(h) || 0, Number(m) || 0, 0, 0);
+        }
+        return date;
+      };
+
+      const sanitizeTime = (timeStr?: string) => {
+        if (!timeStr) return '';
+        return timeStr.trim().replace(/[.,]/g, ':');
+      };
+
+      const timelineT = translations[language].timeline;
+      const outboundTime = sanitizeTime(transportDetails?.outboundDepartureTime) || '08:00';
+      const outboundLocation = transportDetails?.outboundDepartureLocation || origin || timelineT.home || 'Start';
+      const returnTime = sanitizeTime(transportDetails?.returnDepartureTime) || '12:00';
+      const returnLocation = transportDetails?.returnDepartureLocation || destination || '';
+
+      const initialTimeline: any[] = [];
+
+      // 1. Wyjazd (DEPARTURE)
+      const depDate = parseDateHelper(startDate, outboundTime);
+      initialTimeline.push({
+        id: 'evt_dep',
+        type: 'DEPARTURE',
+        title: (timelineT.departurePrefix || 'Wyjazd: {{origin}} ➔ {{destination}}')
+          .replace('{{origin}}', outboundLocation)
+          .replace('{{destination}}', destination),
+        subtitle: transportDetails?.outboundDepartureLocation || transport?.selectedOption?.provider || (transport?.selectedOption?.type ? transport.selectedOption.type.toUpperCase() : timelineT.departure || 'Wyjazd'),
+        dateStr: formatForDisplayDate(startDate),
+        timeStr: outboundTime,
+        parsedDate: depDate.toISOString(),
+      });
+
+      // 2. Zakwaterowanie (LODGING)
+      if (lodgingAddress) {
+        const checkinTime = sanitizeTime(transportDetails?.outboundArrivalTime) || '14:00';
+        const lodgingDate = parseDateHelper(startDate, checkinTime);
+        initialTimeline.push({
+          id: 'evt_lodging',
+          type: 'LODGING',
+          title: timelineT.lodging || 'Zakwaterowanie',
+          subtitle: lodgingAddress,
+          dateStr: formatForDisplayDate(startDate),
+          timeStr: checkinTime,
+          parsedDate: lodgingDate.toISOString(),
+        });
+      }
+
+      // 3. Atrakcje (ATTRACTIONS)
+      const selectedPool = results.map((r) => ({
+        id: r.id,
+        name: r.name,
+        imageUrl: r.imageUrl,
+        address: r.address,
+        rating: r.rating,
+        lat: r.lat,
+        lon: r.lon,
+      }));
+
+      storeAttractions.selected.forEach((attrName, idx) => {
+        const poolItem = selectedPool.find((p) => p.name === attrName);
+        const attrDate = parseDateHelper(startDate);
+        attrDate.setDate(attrDate.getDate() + (startDate === endDate ? 0 : 1));
+        const formattedAttrDate = `${String(attrDate.getDate()).padStart(2, '0')}-${String(attrDate.getMonth() + 1).padStart(2, '0')}-${attrDate.getFullYear()}`;
+        const attrHour = `${10 + (idx % 8)}:00`;
+        attrDate.setHours(10 + (idx % 8), 0, 0, 0);
+
+        initialTimeline.push({
+          id: `evt_attr_${idx}_${Date.now()}`,
+          type: 'ATTRACTION',
+          title: attrName,
+          subtitle: timelineT.sightseeing || 'Zwiedzanie',
+          dateStr: formattedAttrDate,
+          timeStr: attrHour,
+          parsedDate: attrDate.toISOString(),
+          lat: poolItem?.lat,
+          lon: poolItem?.lon,
+        });
+      });
+
+      // 4. Powrót (RETURN)
+      if (endDate) {
+        const returnDate = parseDateHelper(endDate, returnTime);
+        initialTimeline.push({
+          id: 'evt_return',
+          type: 'RETURN',
+          title: (timelineT.returnPrefix || 'Powrót: {{destination}} ➔ {{origin}}')
+            .replace('{{destination}}', returnLocation)
+            .replace('{{origin}}', origin || timelineT.home || 'Koniec'),
+          subtitle: transportDetails?.returnDepartureLocation || timelineT.returnTrip || 'Podróż powrotna',
+          dateStr: formatForDisplayDate(endDate),
+          timeStr: returnTime,
+          parsedDate: returnDate.toISOString(),
+        });
+      }
+
+      initialTimeline.sort((a, b) => new Date(a.parsedDate).getTime() - new Date(b.parsedDate).getTime());
+
+      const extendedAttractions = {
+        selected: storeAttractions.selected,
+        pool: selectedPool,
+        customTimeline: initialTimeline,
+      };
+
+      const attractionsJson = JSON.stringify(extendedAttractions);
+
+      // Zapisujemy osobno bilet na wyjazd (TAM) oraz na powrót (POWRÓT) do Sejfu (lodging_data.vaultFiles)
+      const vaultFiles: any[] = [];
+      const outboundTicket = transportDetails?.outboundTicketFile || transportDetails?.ticketFile;
+      if (outboundTicket) {
+        vaultFiles.push({
+          ...outboundTicket,
+          tag: 'OUTBOUND_TICKET',
+        });
+      }
+      if (transportDetails?.returnTicketFile) {
+        vaultFiles.push({
+          ...transportDetails.returnTicketFile,
+          tag: 'RETURN_TICKET',
+        });
+      }
+
+      const sanitizedTransportDetails = transportDetails ? {
+        ...transportDetails,
+        outboundDepartureTime: sanitizeTime(transportDetails.outboundDepartureTime),
+        outboundArrivalTime: sanitizeTime(transportDetails.outboundArrivalTime),
+        returnDepartureTime: sanitizeTime(transportDetails.returnDepartureTime),
+        returnArrivalTime: sanitizeTime(transportDetails.returnArrivalTime),
+      } : {};
+
       const transportJson = JSON.stringify({
         ...(transport || {}),
-        details: transportDetails || {},
+        details: sanitizedTransportDetails,
       });
       const lodgingJson = JSON.stringify({
         ...lodging,
@@ -469,6 +616,31 @@ export const Step4AttractionsScreen = () => {
         await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCache));
       } catch (cacheErr) {
         console.warn('Błąd zapisu do cache AsyncStorage:', cacheErr);
+      }
+
+      // 4. Energooszczędne powiadomienie lokalne oraz geofencing dworca/lotniska
+      try {
+        await scheduleLocalDepartureNotification(
+          {
+            id: tripId,
+            destination,
+            start_date: formatToDBDate(startDate),
+            transport_data: transportJson,
+            lodging_data: lodgingJson,
+          },
+          language
+        );
+
+        await setupGeofencingForTrip({
+          id: tripId,
+          origin,
+          destination,
+          start_date: formatToDBDate(startDate),
+          transport_type: transport?.selectedOption?.type || 'train',
+          transport_data: transportJson,
+        });
+      } catch (proxErr) {
+        console.warn('Proximity setup error:', proxErr);
       }
 
       Alert.alert('DESTIVO', t.saveSuccess);

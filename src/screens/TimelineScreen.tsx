@@ -31,6 +31,12 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import { SmartPackingModal } from '../components/SmartPackingModal';
+import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
+import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
+import {
+  cancelScheduledDepartureNotification,
+  ProximityCheckResult,
+} from '../lib/proximityAlertService';
 import { calculateTripDurationDays } from '../lib/smartPackingAssistant';
 import {
   resolvePointCoordinates,
@@ -82,6 +88,7 @@ interface TripRecord {
   accommodation_address: string;
   attractions_data: string;
   lodging_data?: string;
+  transport_data?: string;
   vaultFiles?: any[];
   created_at: string;
 }
@@ -220,9 +227,16 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const [attractionsPool, setAttractionsPool] = useState<any[]>([]);
   const [isOptimizeModalVisible, setIsOptimizeModalVisible] = useState(false);
   const [isPackingModalVisible, setIsPackingModalVisible] = useState(false);
+  const [isQuickPassVisible, setIsQuickPassVisible] = useState(false);
+  const [quickPassResult, setQuickPassResult] = useState<ProximityCheckResult | null>(null);
   const [timelineRouteInfo, setTimelineRouteInfo] = useState<Record<string, StreetRouteInfo>>({});
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const handleOpenProximityPass = (result: ProximityCheckResult) => {
+    setQuickPassResult(result);
+    setIsQuickPassVisible(true);
+  };
 
   const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
   hasUnsavedChangesRef.current = hasUnsavedChanges;
@@ -489,33 +503,61 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         
         let currentEvents: TimelineEvent[] = [];
 
+        // Pobieramy szczegóły transportu, aby godziny i lokalizacje były zawsze wiernie odwzorowane
+        let transportData: any = {};
+        try {
+          transportData = JSON.parse(trip.transport_data || '{}');
+        } catch {}
+        const transportDetails = transportData.details || {};
+        const outboundTime = transportDetails.outboundDepartureTime || '08:00';
+        const outboundLocation = transportDetails.outboundDepartureLocation || trip.origin || t.home;
+        const returnTime = transportDetails.returnDepartureTime || '12:00';
+        const returnLocation = transportDetails.returnDepartureLocation || trip.destination;
+
         // 1. Ładowanie istniejącej osi lub generowanie nowej
-        if (attractions.customTimeline) {
+        if (attractions.customTimeline && attractions.customTimeline.length > 0) {
           currentEvents = attractions.customTimeline.map((e: any) => ({
             ...e,
             parsedDate: new Date(e.parsedDate)
           }));
+
+          // Bezpieczna synchronizacja z formularzem transportu (jeśli użytkownik podał godziny w kreatorze, ale na osi były 08:00 / 12:00)
+          if (transportDetails.outboundDepartureTime) {
+            const depEvt = currentEvents.find(e => e.type === 'DEPARTURE');
+            if (depEvt && (depEvt.timeStr === '08:00' || !depEvt.timeStr) && transportDetails.outboundDepartureTime !== '08:00') {
+              depEvt.timeStr = transportDetails.outboundDepartureTime;
+              depEvt.parsedDate = parseDate(trip.start_date, transportDetails.outboundDepartureTime);
+            }
+          }
+          if (transportDetails.returnDepartureTime) {
+            const retEvt = currentEvents.find(e => e.type === 'RETURN');
+            if (retEvt && (retEvt.timeStr === '12:00' || !retEvt.timeStr) && transportDetails.returnDepartureTime !== '12:00') {
+              retEvt.timeStr = transportDetails.returnDepartureTime;
+              retEvt.parsedDate = parseDate(trip.end_date, transportDetails.returnDepartureTime);
+            }
+          }
         } else {
           const selectedAttractions: string[] = attractions.selected || [];
           currentEvents.push({
             id: 'evt_dep',
             type: 'DEPARTURE',
-            title: t.departurePrefix.replace('{{origin}}', trip.origin || t.home).replace('{{destination}}', trip.destination),
-            subtitle: trip.transport_type ? t.transportLabel.replace('{{type}}', trip.transport_type.toUpperCase()) : t.departure,
+            title: t.departurePrefix.replace('{{origin}}', outboundLocation).replace('{{destination}}', trip.destination),
+            subtitle: transportDetails.outboundDepartureLocation || (trip.transport_type ? t.transportLabel.replace('{{type}}', trip.transport_type.toUpperCase()) : t.departure),
             dateStr: formatForDisplay(trip.start_date, t.noDate),
-            timeStr: '08:00',
-            parsedDate: parseDate(trip.start_date, '08:00'),
+            timeStr: outboundTime,
+            parsedDate: parseDate(trip.start_date, outboundTime),
           });
 
           if (trip.accommodation_address) {
+            const checkinTime = transportDetails.outboundArrivalTime || '14:00';
             currentEvents.push({
               id: 'evt_lodging',
               type: 'LODGING',
               title: t.lodging,
               subtitle: trip.accommodation_address,
               dateStr: formatForDisplay(trip.start_date, t.noDate),
-              timeStr: '14:00',
-              parsedDate: parseDate(trip.start_date, '14:00'),
+              timeStr: checkinTime,
+              parsedDate: parseDate(trip.start_date, checkinTime),
             });
           }
 
@@ -544,11 +586,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           currentEvents.push({
             id: 'evt_return',
             type: 'RETURN',
-            title: t.returnPrefix.replace('{{destination}}', trip.destination).replace('{{origin}}', trip.origin || t.home),
-            subtitle: t.returnTrip,
+            title: t.returnPrefix.replace('{{destination}}', returnLocation).replace('{{origin}}', trip.origin || t.home),
+            subtitle: transportDetails.returnDepartureLocation || t.returnTrip,
             dateStr: formatForDisplay(trip.end_date, t.noDate),
-            timeStr: '12:00',
-            parsedDate: parseDate(trip.end_date, '12:00'),
+            timeStr: returnTime,
+            parsedDate: parseDate(trip.end_date, returnTime),
           });
 
           currentEvents.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
@@ -964,6 +1006,10 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             }
           } catch {}
 
+          try {
+            await cancelScheduledDepartureNotification(tripData.id);
+          } catch {}
+
           navigation.goBack();
         } catch (e) {
           Alert.alert(commonT.error, t.deleteTripError);
@@ -1057,6 +1103,14 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           <Text style={styles.hiddenTestText}>🗑️</Text>
         </TouchableOpacity>
       </View>
+
+      {/* KONTEKSTOWY BANER ZBLIŻENIOWY (PROXIMITY ALERT) */}
+      {tripData && (
+        <ProximityAlertBanner
+          trip={tripData}
+          onShowTicket={handleOpenProximityPass}
+        />
+      )}
 
       {/* SZUFLADKA SEJFU DLA TEJ PODRÓŻY */}
       {tripData && (
@@ -1212,7 +1266,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               styles.scrollContent,
               {
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 260 : keyboardHeight + 60)
+                  ? (Platform.OS === 'android' ? 320 : keyboardHeight + 80)
                   : 140,
               }
             ]}
@@ -1508,7 +1562,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
             <ScrollView 
               showsVerticalScrollIndicator={true}
-              contentContainerStyle={{ paddingBottom: 50 }}
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60) : 50 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
             >
@@ -1656,6 +1710,33 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           startDate={tripData.start_date}
           endDate={tripData.end_date}
           transportType={tripData.transport_type}
+        />
+      )}
+
+      {/* MODAL BILETU W ZASIĘGU RĘKI (PROXIMITY QUICK PASS) */}
+      {quickPassResult && (
+        <QuickTicketPassModal
+          visible={isQuickPassVisible}
+          onClose={() => setIsQuickPassVisible(false)}
+          ticketFile={quickPassResult.ticketFile}
+          departureTime={quickPassResult.departureTime}
+          stationName={quickPassResult.stationName}
+          destination={quickPassResult.destination}
+          transportType={quickPassResult.transportType}
+          activeLeg={quickPassResult.activeLeg}
+          outboundTicket={quickPassResult.outboundTicket}
+          returnTicket={quickPassResult.returnTicket}
+          outboundDepartureTime={quickPassResult.outboundDepartureTime}
+          returnDepartureTime={quickPassResult.returnDepartureTime}
+          outboundStation={quickPassResult.outboundStation}
+          returnStation={quickPassResult.returnStation}
+          onOpenVault={() => {
+            setIsQuickPassVisible(false);
+            navigation.navigate('MainTabs', {
+              screen: 'Vault',
+              params: { tripId: tripData?.id },
+            });
+          }}
         />
       )}
     </SafeAreaView>

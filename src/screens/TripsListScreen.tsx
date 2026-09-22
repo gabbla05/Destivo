@@ -229,8 +229,30 @@ export const TripsListScreen = ({ navigation }: any) => {
                 transport_type: transportType,
               });
 
-              // Zapisujemy podróż z chmury do lokalnej bazy PowerSync, by była trwale dostępna
+              // Zapisujemy podróż z chmury do lokalnej bazy PowerSync, by była trwale dostępna,
+              // zachowując lokalne dane biletów i transportu (które nie są synchronizowane do Supabase)
               try {
+                let existingLocal: any = null;
+                try {
+                  const localRes = await db.execute('SELECT transport_data, lodging_data, attractions_data FROM trips WHERE id = ? LIMIT 1', [trip.id]);
+                  const rows = ((localRes as any)?.array || (localRes as any)?.rows?._array || (localRes as any)?.rows || []) as any[];
+                  if (rows.length > 0) {
+                    existingLocal = rows[0];
+                  }
+                } catch {}
+
+                const finalTransportData = (trip.transport_data && trip.transport_data !== '{}')
+                  ? trip.transport_data
+                  : (existingLocal?.transport_data || JSON.stringify({ selectedOption: { type: trip.transport_type || 'flight' } }));
+
+                const finalLodgingData = (trip.lodging_data && trip.lodging_data !== '{}')
+                  ? trip.lodging_data
+                  : (existingLocal?.lodging_data || JSON.stringify({ lodgingAddress: trip.accommodation_address || '' }));
+
+                const finalAttractionsData = (trip.attractions_data && trip.attractions_data !== '{}')
+                  ? trip.attractions_data
+                  : (existingLocal?.attractions_data || '{}');
+
                 await db.execute(
                   `INSERT OR REPLACE INTO trips (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -242,9 +264,9 @@ export const TripsListScreen = ({ navigation }: any) => {
                     trip.destination || '',
                     trip.start_date || '',
                     trip.end_date || '',
-                    trip.transport_data || JSON.stringify({ selectedOption: { type: trip.transport_type || 'flight' } }),
-                    trip.lodging_data || JSON.stringify({ lodgingAddress: trip.accommodation_address || '' }),
-                    trip.attractions_data || '{}',
+                    finalTransportData,
+                    finalLodgingData,
+                    finalAttractionsData,
                     trip.created_at || new Date().toISOString(),
                   ]
                 );

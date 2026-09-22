@@ -338,11 +338,11 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
 
     await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
 
-    const uploadButton = screen.getByText('Wgraj bilet do Sejfu (PDF/Zdj)');
+    const uploadButton = screen.getByTestId('upload-outbound-ticket-btn');
     fireEvent.press(uploadButton);
 
     expect(Alert.alert).toHaveBeenCalledWith(
-      'Wgraj bilet do Sejfu (PDF/Zdj)',
+      'Wgraj bilet na wyjazd (TAM)',
       expect.any(String),
       expect.any(Array)
     );

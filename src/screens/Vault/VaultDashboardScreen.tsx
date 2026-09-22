@@ -13,6 +13,7 @@ import {
   Dimensions,
   Platform,
   KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,6 +58,29 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   const [namingModalVisible, setNamingModalVisible] = useState(false);
   const [targetFile, setTargetFile] = useState<any | null>(null);
   const [newFileName, setNewFileName] = useState('');
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates?.height || 280);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const fetchTrips = async () => {
     try {
@@ -492,7 +516,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: 10 }}
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 10 }}
             >
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>{t.nameFileTitle || 'Nazwij plik w Sejfie'}</Text>

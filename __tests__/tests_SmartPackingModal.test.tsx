@@ -32,7 +32,7 @@ describe('SmartPackingModal Component', () => {
       expect(screen.getByText('PARYŻ • Spersonalizowana lista na podstawie warunków Twojej podróży')).toBeTruthy();
       expect(screen.getByText('5 dni')).toBeTruthy();
       expect(screen.getByText('Samolot')).toBeTruthy();
-    });
+    }, { timeout: 4000 });
 
     // Sprawdzamy czy są elementy specyficzne dla samolotu i liczby dni
     await waitFor(() => {

@@ -227,7 +227,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
             styles.content,
             {
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60)
+                ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60)
                 : 100
             }
           ]} 

@@ -271,7 +271,7 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
             { 
               paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) 
+                ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60) 
                 : Math.max(insets.bottom, 20) + 30 
             }
           ]} 
