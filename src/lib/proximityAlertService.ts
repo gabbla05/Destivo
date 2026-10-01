@@ -13,7 +13,9 @@ try {
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
-    }),
+      shouldShowBanner: true,
+      shouldShowList: true,
+    } as any),
   });
 } catch (handlerErr) {
   console.warn('Error setting notification handler:', handlerErr);
@@ -25,7 +27,8 @@ export const GEOFENCE_STORAGE_KEY_PREFIX = '@destivo_proximity_geofence_';
 
 export interface ProximityCheckResult {
   shouldAlert: boolean;
-  reason: 'LOCATION' | 'TIME' | 'BOTH' | 'NONE';
+  reason: 'LOCATION' | 'TIME' | 'BOTH' | 'NONE' | 'NOTIFICATION';
+  tripId?: string;
   minutesUntilDeparture: number | null;
   distanceMeters: number | null;
   stationName: string;
@@ -634,7 +637,7 @@ export async function scheduleLocalDepartureNotification(
           returnStation: ticketData?.returnStation,
           expiresAt,
         },
-      },
+      } as any,
       trigger,
     });
 

@@ -509,14 +509,29 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={[
+            styles.modalOverlay,
+            isKeyboardVisible && {
+              justifyContent: 'flex-start',
+              paddingTop: Platform.OS === 'android' ? 36 : 48,
+              paddingHorizontal: 16,
+            }
+          ]}
         >
-          <View style={styles.modalContent}>
+          <View style={[
+            styles.modalContent,
+            isKeyboardVisible && {
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+              paddingBottom: 20,
+            }
+          ]}>
             <ScrollView 
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 10 }}
+              keyboardDismissMode="none"
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 40 : 10 }}
             >
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>{t.nameFileTitle || 'Nazwij plik w Sejfie'}</Text>

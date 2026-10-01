@@ -429,15 +429,19 @@ export const Step4AttractionsScreen = () => {
         parsedDate: depDate.toISOString(),
       });
 
+      const cleanLodging = lodgingAddress && !['ok', 'brak', 'none', '-'].includes(lodgingAddress.trim().toLowerCase())
+        ? lodgingAddress.trim()
+        : '';
+
       // 2. Zakwaterowanie (LODGING)
-      if (lodgingAddress) {
+      if (cleanLodging) {
         const checkinTime = sanitizeTime(transportDetails?.outboundArrivalTime) || '14:00';
         const lodgingDate = parseDateHelper(startDate, checkinTime);
         initialTimeline.push({
           id: 'evt_lodging',
           type: 'LODGING',
           title: timelineT.lodging || 'Zakwaterowanie',
-          subtitle: lodgingAddress,
+          subtitle: cleanLodging,
           dateStr: formatForDisplayDate(startDate),
           timeStr: checkinTime,
           parsedDate: lodgingDate.toISOString(),
@@ -476,7 +480,31 @@ export const Step4AttractionsScreen = () => {
         });
       });
 
-      // 4. Powrót (RETURN)
+      // 4. Nocleg pomiędzy dniami podróży (godz. 22:00, user może edytować)
+      const startD = parseDateHelper(startDate);
+      const endD = parseDateHelper(endDate || startDate);
+      const diffTime = endD.getTime() - startD.getTime();
+      const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+      if (diffDays >= 1) {
+        for (let d = 0; d < diffDays; d++) {
+          const nightDate = parseDateHelper(startDate, '22:00');
+          nightDate.setDate(nightDate.getDate() + d);
+          const formattedNightDate = `${String(nightDate.getDate()).padStart(2, '0')}-${String(nightDate.getMonth() + 1).padStart(2, '0')}-${nightDate.getFullYear()}`;
+
+          initialTimeline.push({
+            id: `evt_night_${d}_${Date.now()}`,
+            type: 'LODGING',
+            title: timelineT.lodgingNightTitle || 'Nocleg',
+            subtitle: cleanLodging,
+            dateStr: formattedNightDate,
+            timeStr: '22:00',
+            parsedDate: nightDate.toISOString(),
+          });
+        }
+      }
+
+      // 5. Powrót (RETURN)
       if (endDate) {
         const returnDate = parseDateHelper(endDate, returnTime);
         initialTimeline.push({
@@ -532,7 +560,7 @@ export const Step4AttractionsScreen = () => {
       });
       const lodgingJson = JSON.stringify({
         ...lodging,
-        lodgingAddress: lodgingAddress || '',
+        lodgingAddress: cleanLodging,
         vaultFiles,
       });
 
@@ -590,7 +618,7 @@ export const Step4AttractionsScreen = () => {
             start_date: formatToDBDate(startDate),
             end_date: formatToDBDate(endDate),
             transport_type: transport?.selectedOption?.type || 'flight',
-            accommodation_address: lodgingAddress || '',
+            accommodation_address: cleanLodging,
             attractions_data: attractionsJson,
           }]);
 

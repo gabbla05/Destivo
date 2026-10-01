@@ -52,7 +52,11 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
 
   const [origin, setOrigin] = useState('');
   const [startDate, setStartDate] = useState(normalizeDate(destData.proposedTrip?.startDate));
-  const [endDate, setEndDate] = useState(normalizeDate(destData.proposedTrip?.endDate));
+  const [endDate, setEndDate] = useState(
+    destData.isDayTrip
+      ? normalizeDate(destData.proposedTrip?.startDate)
+      : normalizeDate(destData.proposedTrip?.endDate)
+  );
   const [lodging, setLodging] = useState('');
   const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -88,9 +92,19 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
       const formatted = formatDDMMYYYY(selectedDate);
       if (currentTarget === 'start') {
         setStartDate(formatted);
+        if (destData.isDayTrip) {
+          setEndDate(formatted);
+        }
       } else {
         setEndDate(formatted);
       }
+    }
+  };
+
+  const handleStartDateTextChange = (text: string) => {
+    setStartDate(text);
+    if (destData.isDayTrip) {
+      setEndDate(text);
     }
   };
 
@@ -131,8 +145,9 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
       }
       
       const tripId = Crypto.randomUUID();
+      const cleanLodging = lodging && !['ok', 'brak', 'none', '-'].includes(lodging.trim().toLowerCase()) ? lodging.trim() : '';
       const transportJson = JSON.stringify({ selectedOption: { type: destData.recommendedTransport } });
-      const lodgingJson = JSON.stringify({ lodgingAddress: lodging });
+      const lodgingJson = JSON.stringify({ lodgingAddress: cleanLodging });
       
       const flatAttractions = destData.proposedTrip?.itinerary.flatMap(day => day.attractions) || [];
       
@@ -142,9 +157,114 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
         imageUrl: destData.coverImage 
       }));
 
+      // Budujemy kompletną oś czasu (customTimeline) zoptymalizowaną przez TSP z noclegami o 22:00
+      const timelineT = (translations[language] as any)?.timeline || {};
+      const initialTimeline: any[] = [];
+      const startParsed = parseDDMMYYYY(startDate) || new Date();
+      const endParsed = parseDDMMYYYY(endDate) || startParsed;
+      const diffTime = Math.max(0, endParsed.getTime() - startParsed.getTime());
+      const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+      // 1. Wyjazd (DEPARTURE)
+      const depDate = new Date(startParsed);
+      depDate.setHours(8, 0, 0, 0);
+      initialTimeline.push({
+        id: 'evt_dep',
+        type: 'DEPARTURE',
+        title: (timelineT.departurePrefix || 'Wyjazd: {{origin}} ➔ {{destination}}')
+          .replace('{{origin}}', origin || timelineT.home || 'Start')
+          .replace('{{destination}}', destData.city),
+        subtitle: destData.isDayTrip
+          ? (language === 'pl' ? 'Wyprawa samochodem (1 dzień bez noclegu)' : 'Car road trip (1 day without overnight stay)')
+          : `Podróż (${(destData.recommendedTransport || 'flight').toUpperCase()})`,
+        dateStr: startDate,
+        timeStr: '08:00',
+        parsedDate: depDate.toISOString(),
+      });
+
+      // 2. Zameldowanie (LODGING)
+      if (cleanLodging && !destData.isDayTrip) {
+        const checkinDate = new Date(startParsed);
+        checkinDate.setHours(14, 0, 0, 0);
+        initialTimeline.push({
+          id: 'evt_lodging',
+          type: 'LODGING',
+          title: timelineT.lodging || 'Zakwaterowanie',
+          subtitle: cleanLodging,
+          dateStr: startDate,
+          timeStr: '14:00',
+          parsedDate: checkinDate.toISOString(),
+        });
+      }
+
+      // 3. Atrakcje ułożone według planu podróży z podziałem na dni
+      const itinerary = destData.proposedTrip?.itinerary || [];
+      itinerary.forEach((dayPlan, dayIdx) => {
+        const dayDate = new Date(startParsed);
+        dayDate.setDate(dayDate.getDate() + dayIdx);
+        const dayDateStr = formatDDMMYYYY(dayDate);
+
+        dayPlan.attractions.forEach((attrName, attrIdx) => {
+          const hour = 10 + attrIdx * 2;
+          const attrTime = `${String(Math.min(20, hour)).padStart(2, '0')}:00`;
+          const attrParsed = new Date(dayDate);
+          attrParsed.setHours(Math.min(20, hour), 0, 0, 0);
+
+          initialTimeline.push({
+            id: `evt_attr_${dayIdx}_${attrIdx}_${Date.now()}`,
+            type: 'ATTRACTION',
+            title: attrName,
+            subtitle: timelineT.sightseeing || 'Zwiedzanie',
+            dateStr: dayDateStr,
+            timeStr: attrTime,
+            parsedDate: attrParsed.toISOString(),
+          });
+        });
+      });
+
+      // 4. Noclegi pomiędzy dniami podróży (22:00, user może edytować)
+      if (diffDays >= 1 && !destData.isDayTrip) {
+        for (let d = 0; d < diffDays; d++) {
+          const nightDate = new Date(startParsed);
+          nightDate.setDate(nightDate.getDate() + d);
+          nightDate.setHours(22, 0, 0, 0);
+          const nightDateStr = formatDDMMYYYY(nightDate);
+
+          initialTimeline.push({
+            id: `evt_night_${d}_${Date.now()}`,
+            type: 'LODGING',
+            title: timelineT.lodgingNightTitle || 'Nocleg',
+            subtitle: cleanLodging,
+            dateStr: nightDateStr,
+            timeStr: '22:00',
+            parsedDate: nightDate.toISOString(),
+          });
+        }
+      }
+
+      // 5. Powrót (RETURN)
+      const retDate = new Date(endParsed);
+      retDate.setHours(18, 0, 0, 0);
+      initialTimeline.push({
+        id: 'evt_return',
+        type: 'RETURN',
+        title: (timelineT.returnPrefix || 'Powrót: {{destination}} ➔ {{origin}}')
+          .replace('{{destination}}', destData.city)
+          .replace('{{origin}}', origin || timelineT.home || 'Koniec'),
+        subtitle: destData.isDayTrip
+          ? (language === 'pl' ? 'Powrót tego samego dnia' : 'Same-day return')
+          : timelineT.returnTrip || 'Podróż powrotna',
+        dateStr: endDate,
+        timeStr: '18:00',
+        parsedDate: retDate.toISOString(),
+      });
+
+      initialTimeline.sort((a, b) => new Date(a.parsedDate).getTime() - new Date(b.parsedDate).getTime());
+
       const attractionsJson = JSON.stringify({ 
         selected: flatAttractions,
-        pool: generatedPool 
+        pool: generatedPool,
+        customTimeline: initialTimeline
       });
       const dbStartDate = formatToDBDate(startDate);
       const dbEndDate = formatToDBDate(endDate);
@@ -179,7 +299,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
             start_date: dbStartDate,
             end_date: dbEndDate,
             transport_type: destData.recommendedTransport || 'flight',
-            accommodation_address: lodging || '',
+            accommodation_address: cleanLodging,
             attractions_data: attractionsJson,
           }]);
 
@@ -227,13 +347,13 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
             styles.content,
             {
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60)
+                ? (Platform.OS === 'android' ? 400 : keyboardHeight + 80)
                 : 100
             }
           ]} 
           bounces={true}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.title}>{t.title}</Text>
@@ -267,27 +387,32 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
                   placeholder={t.datePlaceholder}
                   placeholderTextColor="#94A3B8"
                   value={startDate}
-                  onChangeText={setStartDate}
+                  onChangeText={handleStartDateTextChange}
                   maxLength={10}
                 />
               </View>
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>{t.returnDateLabel}</Text>
+              <Text style={styles.label}>
+                {t.returnDateLabel} {destData.isDayTrip && `(${t.dayTripReturnHint || 'Ten sam dzień'})`}
+              </Text>
               <View style={styles.dateInputContainer}>
                 <TouchableOpacity
-                  onPress={() => setActivePicker('end')}
-                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (!destData.isDayTrip) setActivePicker('end');
+                  }}
+                  activeOpacity={destData.isDayTrip ? 1 : 0.7}
                   style={styles.dateIconTouch}
                 >
                   <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
                 </TouchableOpacity>
                 <TextInput
-                  style={styles.dateInput}
+                  style={[styles.dateInput, destData.isDayTrip && { color: '#94A3B8' }]}
                   placeholder={t.datePlaceholder}
                   placeholderTextColor="#94A3B8"
                   value={endDate}
                   onChangeText={setEndDate}
+                  editable={!destData.isDayTrip}
                   maxLength={10}
                 />
               </View>
@@ -295,8 +420,20 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>{t.lodgingLabel}</Text>
-            <TextInput style={styles.input} placeholder={t.lodgingPlaceholder} placeholderTextColor="#94A3B8" value={lodging} onChangeText={setLodging} />
+            <Text style={styles.label}>
+              {destData.isDayTrip
+                ? (t.dayTripLodgingLabel || (language === 'pl' ? 'ADRES / PRZYSTANEK (Opcjonalnie - brak noclegu)' : 'ADDRESS / STOP (Optional - no overnight stay)'))
+                : t.lodgingLabel}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder={destData.isDayTrip
+                ? (t.dayTripLodgingPlaceholder || (language === 'pl' ? 'np. Parking pod zamkiem, restauracja...' : 'e.g. Castle parking, restaurant...'))
+                : t.lodgingPlaceholder}
+              placeholderTextColor="#94A3B8"
+              value={lodging}
+              onChangeText={setLodging}
+            />
           </View>
 
           <TouchableOpacity style={styles.primaryButton} onPress={handleSaveTrip}>

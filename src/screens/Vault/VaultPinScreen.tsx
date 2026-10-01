@@ -273,9 +273,24 @@ export const VaultPinScreen = () => {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={[
+            styles.modalOverlay,
+            isKeyboardVisible && {
+              justifyContent: 'flex-start',
+              paddingTop: Platform.OS === 'android' ? 36 : 48,
+              paddingHorizontal: 16,
+            }
+          ]}
         >
-          <View style={styles.modalContent}>
+          <View style={[
+            styles.modalContent,
+            isKeyboardVisible && {
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+              paddingBottom: 20,
+            }
+          ]}>
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>{t.forgotPinTitle || 'Zresetuj PIN Sejfu'}</Text>
               <TouchableOpacity
@@ -293,8 +308,8 @@ export const VaultPinScreen = () => {
             <ScrollView 
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 260 : keyboardHeight + 40) : 30 }}
+              keyboardDismissMode="none"
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 40 : 30 }}
             >
               <Text style={styles.modalDesc}>
                 {user?.isGuest || !user?.email

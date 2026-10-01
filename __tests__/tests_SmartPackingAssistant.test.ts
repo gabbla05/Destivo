@@ -157,7 +157,7 @@ describe('Dynamiczny Asystent Pakowania (Smart Packing Assistant)', () => {
       expect(dimensions?.title).toContain('wymiarów bagażu');
 
       expect(powerbank).toBeDefined();
-      expect(powerbank?.reason).toContain('zabronione w luku bagażowym');
+      expect(powerbank?.reason).toContain('zabronione w bagażu rejestrowanym');
 
       expect(boardingPass).toBeDefined();
     });

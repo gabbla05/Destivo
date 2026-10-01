@@ -261,7 +261,7 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
 
   // Etykiety i podsumowanie parametrów
   const getTransportBadgeText = () => {
-    if (!data) return '';
+    if (!data) return { label: '', rule: '', icon: 'airplane' };
     switch (data.transportType) {
       case 'flight':
         return { label: t.paramFlight, rule: t.ruleFlight, icon: 'airplane' };
@@ -314,9 +314,24 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalOverlay}
+        style={[
+          styles.modalOverlay,
+          isKeyboardVisible && {
+            justifyContent: 'flex-start',
+            paddingTop: Platform.OS === 'android' ? 36 : 48,
+            paddingHorizontal: 16,
+          }
+        ]}
       >
-        <View style={styles.modalContent}>
+        <View style={[
+          styles.modalContent,
+          isKeyboardVisible && {
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+            paddingBottom: 20,
+          }
+        ]}>
           {/* HEADER MODALA */}
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
@@ -351,8 +366,8 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
               style={styles.scrollArea}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60) : 30 }}
+              keyboardDismissMode="none"
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 60 : 30 }}
             >
               {/* KARTY WARUNKÓW PODRÓŻY (WEATHER, TRANSPORT, DURATION) */}
               <View style={styles.conditionsCard}>

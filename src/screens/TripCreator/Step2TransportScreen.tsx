@@ -429,13 +429,13 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
               {
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 320 : keyboardHeight + 60)
+                  ? (Platform.OS === 'android' ? 420 : keyboardHeight + 80)
                   : 120,
               },
             ]}
             bounces={true}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {/* PASEK POSTĘPU KREATORA */}

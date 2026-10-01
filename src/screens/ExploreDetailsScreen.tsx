@@ -69,6 +69,14 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
     else Alert.alert('DESTIVO', t.lodgingError);
   };
 
+  const handleCheckDining = async () => {
+    const query = encodeURIComponent(`restauracje obiad ${destData.city}`);
+    const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+    const supported = await Linking.canOpenURL(url);
+    if (supported) await Linking.openURL(url);
+    else Alert.alert('DESTIVO', t.transportError);
+  };
+
   const normalizeDate = (d?: string) => (d ? d.replace(/[./]/g, '-') : '');
 
   const handleBuildCustomPlan = () => {
@@ -95,7 +103,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         <View style={styles.heroOverlay}>
           <Text style={styles.cityTitle}>{localizedCity}</Text>
           <Text style={styles.countryTitle}>
-            {localizedCountry} • {t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
+            {localizedCountry} • {destData.isDayTrip ? (t.heroDayTripSubtitle || 'Jednodniowy wypad bez noclegu') : t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
           </Text>
         </View>
       </ImageBackground>
@@ -139,14 +147,18 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                 ? (t.transportFlightTitle || 'Połączenie lotnicze').replace('✈️ ', '')
                 : destData.recommendedTransport === 'train'
                   ? (t.transportTrainTitle || 'Połączenie kolejowe').replace('🚆 ', '')
-                  : (t.transportCarTitle || 'Podróż samochodem ({{distance}} km)').replace('🚗 ', '').replace('{{distance}}', String(destData.distanceKm || ''))}
+                  : destData.isDayTrip
+                    ? (t.transportDayTripTitle || 'Jednodniowa wycieczka samochodem').replace('🚗 ', '').replace('{{distance}}', String(destData.distanceKm || ''))
+                    : (t.transportCarTitle || 'Podróż samochodem ({{distance}} km)').replace('🚗 ', '').replace('{{distance}}', String(destData.distanceKm || ''))}
             </Text>
             <Text style={styles.transportDescText}>
               {destData.recommendedTransport === 'flight'
                 ? (t.transportFlightDesc || 'Wylot z lotniska: {{airport}} • Sprawdź dostępne loty na żywo').replace('{{airport}}', destData.nearestAirport || 'WAW')
                 : destData.recommendedTransport === 'train'
                   ? (t.transportTrainDesc || 'Wygodny dojazd pociągiem PKP / Koleo • Sprawdź rozkład jazdy')
-                  : (t.transportCarDesc || 'Szybki dojazd samochodem • Wyznacz trasę i nawigację w Google Maps')}
+                  : destData.isDayTrip
+                    ? (t.transportDayTripDesc || 'Wypad autem tam i z powrotem tego samego dnia • Odkryj okoliczne atrakcje')
+                    : (t.transportCarDesc || 'Szybki dojazd samochodem • Wyznacz trasę i nawigację w Google Maps')}
             </Text>
           </View>
         </View>
@@ -154,7 +166,13 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         {/* REKOMENDACJA POGODOWA I LOGISTYCZNA */}
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>{t.proposedTripTitle}</Text>
-          <Text style={styles.highlightText}>{t.dateRange.replace('🗓️ ', '').replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
+          {destData.isDayTrip ? (
+            <Text style={styles.highlightText}>
+              🗓️ {trip?.startDate || ''} • {language === 'pl' ? 'Wyjazd rano, powrót wieczorem (bez noclegu)' : 'Same-day return (no overnight stay)'}
+            </Text>
+          ) : (
+            <Text style={styles.highlightText}>{t.dateRange.replace('🗓️ ', '').replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
+          )}
           <Text style={styles.highlightText}>{t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
           <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
         </View>
@@ -164,9 +182,11 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         {/* ETAP 3: PREDEFINIOWANY SZABLON WYCIECZKI vs WŁASNY PLAN */}
         {destData.hasPredefinedPlan ? (
           <>
-            <View style={styles.readyPlanNoticeCard}>
+            <View style={[styles.readyPlanNoticeCard, destData.isDayTrip && { borderColor: '#F59E0B' }]}>
               <Text style={styles.readyPlanNoticeText}>
-                {t.readyPlanNotice || 'Dopasowano do bazy gotowych szablonów. Poniżej znajduje się pełny harmonogram dzień po dniu!'}
+                {destData.isDayTrip
+                  ? (t.dayTripNoticeCard || 'Jednodniowy plan podróży bez noclegu – rano wyjazd samochodem, zwiedzanie i relaks, powrót wieczorem!')
+                  : (t.readyPlanNotice || 'Dopasowano do bazy gotowych szablonów. Poniżej znajduje się pełny harmonogram dzień po dniu!')}
               </Text>
             </View>
 
@@ -178,12 +198,23 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                 </View>
                 <View style={styles.tagsContainer}>
                   {dayPlan.attractions.map((attr, idx) => (
-                    <View key={idx} style={styles.tag}>
+                    <TouchableOpacity
+                      key={idx}
+                      style={styles.tag}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        const query = encodeURIComponent(`${attr}, ${destData.city}`);
+                        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+                        Linking.openURL(mapsUrl).catch((err) => console.warn('Cannot open maps:', err));
+                      }}
+                      testID={`explore-attraction-tag-${dayPlan.day}-${idx}`}
+                    >
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="location-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
                         <Text style={styles.tagText}>{attr}</Text>
+                        <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 5 }} />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               </View>
@@ -235,12 +266,21 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
               </Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={handleCheckLodging}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="bed-outline" size={15} color="#F59E0B" style={{ marginRight: 6 }} />
-              <Text style={styles.actionButtonText}>{t.lodging.replace('🏨 ', '')}</Text>
-            </View>
-          </TouchableOpacity>
+          {destData.isDayTrip ? (
+            <TouchableOpacity style={styles.actionButton} onPress={handleCheckDining}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="restaurant-outline" size={15} color="#F59E0B" style={{ marginRight: 6 }} />
+                <Text style={styles.actionButtonText}>{(t.dayTripDining || 'Gdzie zjeść na trasie').replace('🍽️ ', '')}</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.actionButton} onPress={handleCheckLodging}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="bed-outline" size={15} color="#F59E0B" style={{ marginRight: 6 }} />
+                <Text style={styles.actionButtonText}>{t.lodging.replace('🏨 ', '')}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
         {destData.hasPredefinedPlan ? (

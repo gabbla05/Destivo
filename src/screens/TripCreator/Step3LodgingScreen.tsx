@@ -75,7 +75,9 @@ export const Step3LodgingScreen = () => {
   };
 
   const handleNext = () => {
-    setLodgingAddress(localAddress);
+    const trimmed = localAddress.trim();
+    const clean = ['ok', 'brak', 'none', '-'].includes(trimmed.toLowerCase()) ? '' : trimmed;
+    setLodgingAddress(clean);
     navigation.navigate('Step4Attractions' as never); 
   };
 
@@ -99,13 +101,13 @@ export const Step3LodgingScreen = () => {
               { 
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60)
+                  ? (Platform.OS === 'android' ? 400 : keyboardHeight + 80)
                   : Math.max(insets.bottom, 16) + 40
               }
             ]} 
             bounces={true}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {/* PASEK POSTĘPU */}
@@ -160,8 +162,7 @@ export const Step3LodgingScreen = () => {
             {/* AKCJE NA DOLE EKRANU */}
             <View style={styles.bottomActions}>
               <TouchableOpacity 
-                style={[styles.primaryButton, localAddress.trim().length === 0 && { opacity: 0.5 }]}
-                disabled={localAddress.trim().length === 0}
+                style={styles.primaryButton}
                 onPress={handleNext}
                 activeOpacity={0.8}
               >

@@ -49,6 +49,7 @@ import {
   insertTimelineEventIntelligently,
   type StreetRouteInfo,
 } from '../lib/routeOptimization';
+import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -459,13 +460,15 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           const localTrip = rows[0];
           const transportData = JSON.parse(localTrip.transport_data || '{}');
           const lodgingData = JSON.parse(localTrip.lodging_data || '{}');
+          const rawLodgingAddr = (lodgingData.lodgingAddress || '').trim();
+          const cleanLodgingAddr = ['ok', 'brak', 'none', '-'].includes(rawLodgingAddr.toLowerCase()) ? '' : rawLodgingAddr;
           trip = {
             ...localTrip,
             title: localTrip.trip_name,
             start_date: normalizeDateForTimeline(localTrip.start_date),
             end_date: normalizeDateForTimeline(localTrip.end_date),
             transport_type: transportData.selectedOption?.type || '',
-            accommodation_address: lodgingData.lodgingAddress || '',
+            accommodation_address: cleanLodgingAddr,
             lodging_data: localTrip.lodging_data,
             vaultFiles: lodgingData.vaultFiles || [],
           } as TripRecord;
@@ -481,11 +484,15 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           if (data && data.length > 0) {
             const remoteTrip = data[0];
             const lodgingData = JSON.parse(remoteTrip.lodging_data || '{}');
+            const rawLodgingAddr = (lodgingData.lodgingAddress || remoteTrip.accommodation_address || '').trim();
+            const cleanLodgingAddr = ['ok', 'brak', 'none', '-'].includes(rawLodgingAddr.toLowerCase()) ? '' : rawLodgingAddr;
             trip = {
               ...remoteTrip,
               title: remoteTrip.trip_name || remoteTrip.title,
               start_date: normalizeDateForTimeline(remoteTrip.start_date),
               end_date: normalizeDateForTimeline(remoteTrip.end_date),
+              transport_type: remoteTrip.transport_type || '',
+              accommodation_address: cleanLodgingAddr,
               lodging_data: remoteTrip.lodging_data,
               vaultFiles: lodgingData.vaultFiles || [],
             } as TripRecord;
@@ -516,10 +523,15 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
         // 1. Ładowanie istniejącej osi lub generowanie nowej
         if (attractions.customTimeline && attractions.customTimeline.length > 0) {
-          currentEvents = attractions.customTimeline.map((e: any) => ({
-            ...e,
-            parsedDate: new Date(e.parsedDate)
-          }));
+          currentEvents = attractions.customTimeline.map((e: any) => {
+            const rawSub = (e.subtitle || '').trim();
+            const isDummy = ['ok', 'brak', 'none', '-'].includes(rawSub.toLowerCase());
+            return {
+              ...e,
+              subtitle: isDummy ? '' : (e.subtitle || ''),
+              parsedDate: new Date(e.parsedDate)
+            };
+          });
 
           // Bezpieczna synchronizacja z formularzem transportu (jeśli użytkownik podał godziny w kreatorze, ale na osi były 08:00 / 12:00)
           if (transportDetails.outboundDepartureTime) {
@@ -537,6 +549,10 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             }
           }
         } else {
+          const cleanAccom = trip.accommodation_address && !['ok', 'brak', 'none', '-'].includes(trip.accommodation_address.trim().toLowerCase())
+            ? trip.accommodation_address.trim()
+            : '';
+
           const selectedAttractions: string[] = attractions.selected || [];
           currentEvents.push({
             id: 'evt_dep',
@@ -548,13 +564,13 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             parsedDate: parseDate(trip.start_date, outboundTime),
           });
 
-          if (trip.accommodation_address) {
+          if (cleanAccom) {
             const checkinTime = transportDetails.outboundArrivalTime || '14:00';
             currentEvents.push({
               id: 'evt_lodging',
               type: 'LODGING',
               title: t.lodging,
-              subtitle: trip.accommodation_address,
+              subtitle: cleanAccom,
               dateStr: formatForDisplay(trip.start_date, t.noDate),
               timeStr: checkinTime,
               parsedDate: parseDate(trip.start_date, checkinTime),
@@ -583,6 +599,30 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             });
           });
 
+          // Obliczenie nocy pomiędzy dniami podróży (22:00)
+          const startD = parseDate(trip.start_date);
+          const endD = parseDate(trip.end_date || trip.start_date);
+          const diffTime = endD.getTime() - startD.getTime();
+          const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+          if (diffDays >= 1) {
+            for (let d = 0; d < diffDays; d++) {
+              const nightDate = parseDate(trip.start_date, '22:00');
+              nightDate.setDate(nightDate.getDate() + d);
+              const formattedNightDate = `${String(nightDate.getDate()).padStart(2, '0')}-${String(nightDate.getMonth() + 1).padStart(2, '0')}-${nightDate.getFullYear()}`;
+              
+              currentEvents.push({
+                id: `evt_night_${d}_${Date.now()}`,
+                type: 'LODGING',
+                title: t.lodgingNightTitle || 'Nocleg',
+                subtitle: cleanAccom,
+                dateStr: formattedNightDate,
+                timeStr: '22:00',
+                parsedDate: nightDate,
+              });
+            }
+          }
+
           currentEvents.push({
             id: 'evt_return',
             type: 'RETURN',
@@ -603,8 +643,16 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         // 3. Jeśli pula po odrzuceniu jest pusta, dociągamy prawdziwe dane z Google Places API!
         if (availablePool.length > 0) {
           const shuffledPool = availablePool.sort(() => 0.5 - Math.random());
-          setVisibleAttractions(shuffledPool.slice(0, 3));
+          const initialVisible = shuffledPool.slice(0, 3);
+          setVisibleAttractions(initialVisible);
           setReserveAttractions(shuffledPool.slice(3));
+
+          // Asynchroniczne wzbogacenie propozycji o prawdziwe zdjęcia z Google Places
+          enrichAttractionsWithGooglePhotos(initialVisible, trip.destination)
+            .then((enriched) => {
+              setVisibleAttractions(enriched);
+            })
+            .catch(() => {});
         } else {
           const queryLocation = trip.accommodation_address && trip.destination
             ? `${trip.accommodation_address}, ${trip.destination}`
@@ -1266,13 +1314,13 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               styles.scrollContent,
               {
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 320 : keyboardHeight + 80)
+                  ? (Platform.OS === 'android' ? 420 : keyboardHeight + 100)
                   : 140,
               }
             ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
           >
             <View style={styles.timelineLine} />
 
@@ -1310,12 +1358,17 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                     <View style={styles.cardHeader}>
                       <View style={styles.cardHeaderTexts}>
                         <Text style={[styles.eventTitle, evt.isPast && styles.textPast]}>{evt.title}</Text>
-                        {evt.subtitle ? (
-                          <View style={styles.subtitleRow}>
-                            <Ionicons name={getTypeSmallIcon(evt.type)} size={12} color="#94A3B8" style={{ marginRight: 4 }} />
-                            <Text style={styles.eventSubtitle}>{evt.subtitle}</Text>
-                          </View>
-                        ) : null}
+                        {(() => {
+                          const rawSub = (evt.subtitle || '').trim();
+                          const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.toLowerCase());
+                          if (!rawSub || isDummySub) return null;
+                          return (
+                            <View style={styles.subtitleRow}>
+                              <Ionicons name={getTypeSmallIcon(evt.type)} size={12} color="#94A3B8" style={{ marginRight: 4 }} />
+                              <Text style={styles.eventSubtitle}>{rawSub}</Text>
+                            </View>
+                          );
+                        })()}
                       </View>
                       <View style={styles.dotsButton}>
                         <Ionicons name={isExpanded ? "chevron-up" : "ellipsis-vertical"} size={16} color="#94A3B8" />
@@ -1550,9 +1603,24 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
       <Modal visible={isAddModalVisible} animationType="slide" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={[
+            styles.modalOverlay,
+            isKeyboardVisible && {
+              justifyContent: 'flex-start',
+              paddingTop: Platform.OS === 'android' ? 36 : 48,
+              paddingHorizontal: 16,
+            }
+          ]}
         >
-          <View style={styles.modalContent}>
+          <View style={[
+            styles.modalContent,
+            isKeyboardVisible && {
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+              paddingBottom: 20,
+            }
+          ]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{t.addTitle}</Text>
               <TouchableOpacity onPress={closeAddModal} style={styles.closeButton} activeOpacity={0.7}>
@@ -1562,9 +1630,9 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
             <ScrollView 
               showsVerticalScrollIndicator={true}
-              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 280 : keyboardHeight + 60) : 50 }}
+              contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 60 : 50 }}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              keyboardDismissMode="none"
             >
               
               <Text style={styles.modalSectionTitle}>{t.suggestions}</Text>
@@ -1580,7 +1648,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                             onPress={() => handleAddNewEvent(true, attr)}
                         >
                             <ImageBackground 
-                                source={{ uri: attr.imageUrl || 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800' }} 
+                                source={{ uri: attr.imageUrl || getCuratedCityFallback(tripData?.destination) }} 
                                 style={styles.poolCardImage}
                                 imageStyle={{ borderRadius: 12 }}
                             >
@@ -2013,7 +2081,10 @@ const styles = StyleSheet.create({
   expandedTransitChipsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
+    rowGap: 6,
+    marginTop: 6,
   },
   transitChip: {
     flexDirection: 'row',
@@ -2035,7 +2106,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   mapsQuickIconBtn: {
-    marginLeft: 'auto',
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
     paddingVertical: 4,
     paddingHorizontal: 8,

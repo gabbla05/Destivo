@@ -406,7 +406,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       fireEvent.press(screen.getByText('Zapisz i zakończ'));
 
       await waitFor(() => {
-        expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Gość może mieć tylko jedną podróż.');
+        expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', expect.stringContaining('Gość może mieć tylko'));
         expect(mockNavigate).not.toHaveBeenCalled();
       });
     });

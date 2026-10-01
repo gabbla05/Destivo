@@ -38,36 +38,7 @@ interface TripRecord {
   transport_type?: string;
 }
 
-// Baza sprawdzonych, reprezentacyjnych zdjęć miast (fallback)
-const CURATED_CITY_PHOTOS: { [key: string]: string } = {
-  rzym: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=800',
-  rome: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=800',
-  paryż: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=800',
-  paris: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=800',
-  londyn: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
-  london: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
-  barcelona: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=800',
-  madryt: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=800',
-  madrid: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=800',
-  warszawa: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=800',
-  warsaw: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=800',
-  kraków: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=800',
-  krakow: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=800',
-  berlin: 'https://images.unsplash.com/photo-1560969184-10fe8719e047?auto=format&fit=crop&q=80&w=800',
-  wiedeń: 'https://images.unsplash.com/photo-1516550893923-42d28e5677af?auto=format&fit=crop&q=80&w=800',
-  vienna: 'https://images.unsplash.com/photo-1516550893923-42d28e5677af?auto=format&fit=crop&q=80&w=800',
-  wenecja: 'https://images.unsplash.com/photo-1514890547357-a9ee288728e0?auto=format&fit=crop&q=80&w=800',
-  venice: 'https://images.unsplash.com/photo-1514890547357-a9ee288728e0?auto=format&fit=crop&q=80&w=800',
-  praga: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=800',
-  prague: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=800',
-  tokio: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=800',
-  tokyo: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=800',
-  amsterdam: 'https://images.unsplash.com/photo-1512470876302-972faa2aa9a4?auto=format&fit=crop&q=80&w=800',
-  lizbona: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&q=80&w=800',
-  lisbon: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&q=80&w=800',
-  'nowy jork': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&q=80&w=800',
-  'new york': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&q=80&w=800',
-};
+import { CURATED_CITY_PHOTOS, getCuratedCityFallback } from '../lib/placesPhotoService';
 
 const DEFAULT_TRIP_PHOTO = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=800';
 
@@ -190,6 +161,13 @@ export const TripsListScreen = ({ navigation }: any) => {
           }
         }
       } catch {}
+
+      // Natychmiastowe wyświetlenie lokalnych i zbuforowanych podróży (0ms oczekiwania)
+      const initialLocalTrips = Array.from(tripsById.values());
+      if (initialLocalTrips.length > 0) {
+        setTrips(initialLocalTrips);
+        setLoading(false);
+      }
 
       // 3. Wczytujemy z chmury Supabase dla zalogowanego konta (zapewniając odświeżoną sesję)
       if (user && !user.isGuest && user.id) {
@@ -328,6 +306,7 @@ export const TripsListScreen = ({ navigation }: any) => {
     const fetchPhotosForTrips = async () => {
       const destinations = Array.from(new Set(trips.map((t) => t.destination.trim()).filter(Boolean)));
       const newPhotos: { [key: string]: string } = {};
+      const pendingFetch: string[] = [];
 
       for (const dest of destinations) {
         const key = dest.toLowerCase();
@@ -336,38 +315,52 @@ export const TripsListScreen = ({ navigation }: any) => {
           continue;
         }
 
-        // Sprawdzamy czy mamy zdefiniowane lokalnie sprawdzone zdjęcie
-        let photoFound: string | null = null;
-        for (const [cKey, cUrl] of Object.entries(CURATED_CITY_PHOTOS)) {
-          if (key.includes(cKey)) {
-            photoFound = cUrl;
-            break;
-          }
+        const fallback = getCuratedCityFallback(dest);
+        if (fallback && fallback !== DEFAULT_TRIP_PHOTO) {
+          cityPhotoCache.current.set(key, fallback);
+          newPhotos[key] = fallback;
+          continue;
         }
 
-        // Jeśli mamy klucz Google Places, próbujemy pobrać prawdziwe zdjęcie z Google Places
-        if (googleApiKey && !googleApiKey.includes('TYMCZASOWY')) {
-          try {
-            const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark')}&key=${googleApiKey}`;
-            const res = await fetch(url);
-            const data = await res.json();
-            if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-              const withPhoto = data.results.find((p: any) => Array.isArray(p.photos) && p.photos.length > 0);
-              if (withPhoto && withPhoto.photos[0]?.photo_reference) {
-                photoFound = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${withPhoto.photos[0].photo_reference}&key=${googleApiKey}`;
-              }
-            }
-          } catch {
-            // Ignorujemy błędy sieciowe
-          }
-        }
-
-        const finalPhoto = photoFound || DEFAULT_TRIP_PHOTO;
-        cityPhotoCache.current.set(key, finalPhoto);
-        newPhotos[key] = finalPhoto;
+        pendingFetch.push(dest);
       }
 
-      setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
+      if (Object.keys(newPhotos).length > 0) {
+        setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
+      }
+
+      if (pendingFetch.length > 0 && googleApiKey && !googleApiKey.includes('TYMCZASOWY')) {
+        await Promise.all(
+          pendingFetch.map(async (dest) => {
+            const key = dest.toLowerCase();
+            try {
+              const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark architecture')}&key=${googleApiKey}`;
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 3500);
+              const res = await fetch(url, { signal: controller.signal });
+              clearTimeout(timer);
+              const data = await res.json();
+              if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
+                const filtered = data.results.filter((p: any) => {
+                  const nameLower = (p.name || '').toLowerCase();
+                  return !nameLower.includes('zoo') && !nameLower.includes('safari') && !nameLower.includes('aquarium') && !nameLower.includes('papugarnia');
+                });
+                const candidate = filtered[0] || data.results[0];
+                if (candidate && Array.isArray(candidate.photos) && candidate.photos[0]?.photo_reference) {
+                  const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${candidate.photos[0].photo_reference}&key=${googleApiKey}`;
+                  cityPhotoCache.current.set(key, photoUrl);
+                  newPhotos[key] = photoUrl;
+                  return;
+                }
+              }
+            } catch {}
+            const fallback = getCuratedCityFallback(dest);
+            cityPhotoCache.current.set(key, fallback);
+            newPhotos[key] = fallback;
+          })
+        );
+        setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
+      }
     };
 
     if (trips.length > 0) {
@@ -379,10 +372,7 @@ export const TripsListScreen = ({ navigation }: any) => {
     const key = destination?.trim().toLowerCase() || '';
     if (cityPhotos[key]) return cityPhotos[key];
     if (cityPhotoCache.current.has(key)) return cityPhotoCache.current.get(key)!;
-    for (const [cKey, cUrl] of Object.entries(CURATED_CITY_PHOTOS)) {
-      if (key.includes(cKey)) return cUrl;
-    }
-    return DEFAULT_TRIP_PHOTO;
+    return getCuratedCityFallback(destination);
   };
 
   const handleTripPress = (tripId: string) => {
@@ -552,7 +542,7 @@ export const TripsListScreen = ({ navigation }: any) => {
           ]} 
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -643,6 +633,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                               }}
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                               activeOpacity={0.7}
+                              testID={`trip-delete-btn-${trip.id}`}
                             >
                               <Ionicons name="trash-outline" size={15} color="#F87171" />
                             </TouchableOpacity>
@@ -759,6 +750,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                               }}
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                               activeOpacity={0.7}
+                              testID={`trip-delete-btn-${trip.id}`}
                             >
                               <Ionicons name="trash-outline" size={15} color="#F87171" />
                             </TouchableOpacity>

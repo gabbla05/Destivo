@@ -82,6 +82,32 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
     },
   };
 
+  const mockDayTripDestination: LiveDestination = {
+    id: 'kazimierz_01',
+    city: 'Kazimierz Dolny',
+    country: 'Polska',
+    lat: 51.3218,
+    lon: 21.9472,
+    coverImage: 'https://images.unsplash.com/photo-kazimierz.jpg',
+    shortDescription: 'Malownicze miasteczko nad Wisłą, idealne na 1-dniowy wypad autem.',
+    transportCode: 'KAZ',
+    distanceKm: 145,
+    recommendedTransport: 'car',
+    isDayTrip: true,
+    hasPredefinedPlan: true,
+    proposedTrip: {
+      startDate: '20.09.2026',
+      endDate: '20.09.2026',
+      durationDays: 1,
+      estimatedTemp: 21,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      crowdLevel: 'Spokojniejsza okolica, mniej turystów',
+      itinerary: [
+        { day: 1, title: 'Dzień 1', attractions: ['Rynek w Kazimierzu Dolnym', 'Góra Trzech Krzyży'] },
+      ],
+    },
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
@@ -251,5 +277,42 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
     fireEvent.press(backBtn);
 
     expect(mockNavigation.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('9. [Wypad jednodniowy] renderuje podtytuł bez noclegu, powiadomienie o wypadzie autem i przycisk Gdzie zjeść na trasie zamiast hotelu', () => {
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: mockDayTripDestination } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
+    expect(screen.getByText(/Jednodniowy wypad bez noclegu/i)).toBeTruthy();
+    expect(screen.getByText(/Wypad samochodem \(145 km\) • 1 dzień/i)).toBeTruthy();
+    expect(screen.getByText(/Wyjazd rano, powrót wieczorem \(bez noclegu\)/i)).toBeTruthy();
+    expect(screen.getByText(/Gdzie zjeść na trasie/i)).toBeTruthy();
+    expect(screen.queryByText(/Noclegi/i)).toBeNull();
+  });
+
+  test('10. [Wypad jednodniowy - Gdzie zjeść] kliknięcie przycisku posiłku otwiera wyszukiwanie restauracji w Google Maps', async () => {
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: mockDayTripDestination } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    const diningBtn = screen.getByText(/Gdzie zjeść na trasie/i);
+    fireEvent.press(diningBtn);
+
+    await waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        expect.stringContaining('google.com/maps/search/?api=1&query=')
+      );
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        expect.stringContaining('Kazimierz')
+      );
+    });
   });
 });

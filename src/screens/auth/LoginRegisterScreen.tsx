@@ -328,11 +328,11 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
         <ScrollView 
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60) : 140 }
+            { paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 380 : keyboardHeight + 80) : 140 }
           ]} 
           bounces={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
         >
           
           <View style={styles.topBar}>
@@ -405,7 +405,6 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>{t.email}</Text>
-                <Text style={styles.labelBadge}>{t.secureData}</Text>
               </View>
               <View style={styles.inputContainer}>
                 <Ionicons name="mail-outline" size={18} color="#94A3B8" style={{ marginRight: 10 }} />
@@ -535,9 +534,20 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
+          style={[
+            styles.modalOverlay,
+            isKeyboardVisible && {
+              justifyContent: 'flex-start',
+              paddingTop: Platform.OS === 'android' ? 36 : 48,
+            }
+          ]}
         >
-          <View style={styles.modalContent}>
+          <View style={[
+            styles.modalContent,
+            isKeyboardVisible && {
+              maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+            }
+          ]}>
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>
                 {forgotStage === 'EMAIL' ? t.forgotPasswordTitle : (t.setNewPasswordTitle || 'Ustaw nowe hasło')}
@@ -554,7 +564,7 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              keyboardDismissMode="none"
               contentContainerStyle={{ paddingBottom: isKeyboardVisible ? (Platform.OS === 'android' ? 240 : keyboardHeight + 40) : 20 }}
             >
               {forgotStage === 'EMAIL' ? (

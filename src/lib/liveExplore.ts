@@ -1,5 +1,20 @@
 import * as Location from 'expo-location';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  CURATED_CITY_PHOTOS,
+  getCuratedCityFallback,
+  buildGooglePlacesPhotoUrl,
+  GOOGLE_PLACES_CITY_PHOTO_REFS,
+  fetchGoogleCityPhoto,
+  getGoogleApiKey,
+} from './placesPhotoService';
+import {
+  resolvePointCoordinates,
+  buildDistanceMatrix,
+  solveTwoOptTSP,
+  GeoPoint,
+} from './routeOptimization';
 
 const WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY || '68a647f3b99a084c4a1c3809b971b034';
 const GOOGLE_API_KEY =
@@ -17,6 +32,7 @@ export interface ProposedTrip {
   startDate: string;
   endDate: string;
   durationDays: number;
+  isDayTrip?: boolean;
   estimatedTemp: number;
   condition: string;
   crowdLevel: string;
@@ -42,151 +58,152 @@ export interface LiveDestination {
   hasPredefinedPlan: boolean;
   flightDate?: string;
   isOffTheBeatenPath?: boolean;
+  isDayTrip?: boolean;
 }
 
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
 export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'flightPricePln' | 'nearestAirport' | 'flightDate'>[] = [
   // --- ORYGINALNE 7 MIAST ---
-  { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600', shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.', transportCode: 'ROM' },
-  { id: 'bcn_01', city: 'Barcelona', country: 'Hiszpania', lat: 41.3851, lon: 2.1734, coverImage: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600', shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.', transportCode: 'BCN' },
-  { id: 'par_01', city: 'Paryż', country: 'Francja', lat: 48.8566, lon: 2.3522, coverImage: 'https://images.unsplash.com/photo-1502602898657-3e90768ea0ab?auto=format&fit=crop&q=80&w=600', shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.', transportCode: 'PAR' },
-  { id: 'lon_01', city: 'Londyn', country: 'Wielka Brytania', lat: 51.5074, lon: -0.1278, coverImage: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600', shortDescription: 'Wielokulturowa metropolia, w której historia spotyka się z nowoczesnością na każdym kroku.', transportCode: 'LON' },
-  { id: 'ath_01', city: 'Ateny', country: 'Grecja', lat: 37.9838, lon: 23.7275, coverImage: 'https://images.unsplash.com/photo-1521727915443-c0d12e617d91?auto=format&fit=crop&q=80&w=600', shortDescription: 'Kolebka zachodniej cywilizacji. Poczuj starożytny klimat przechadzając się u stóp Akropolu.', transportCode: 'ATH' },
-  { id: 'krk_01', city: 'Kraków', country: 'Polska', lat: 50.0614, lon: 19.9366, coverImage: 'https://images.unsplash.com/photo-1558948574-8aa47b5962f3?auto=format&fit=crop&q=80&w=600', shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.', transportCode: 'Kraków Główny' },
-  { id: 'prag_01', city: 'Praga', country: 'Czechy', lat: 50.0755, lon: 14.4378, coverImage: 'https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=600', shortDescription: 'Magiczna stolica pełna gotyckich wież, urokliwych uliczek i najlepszego na świecie piwa.', transportCode: 'PRG' },
+  { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: getCuratedCityFallback('Rzym'), shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.', transportCode: 'ROM' },
+  { id: 'bcn_01', city: 'Barcelona', country: 'Hiszpania', lat: 41.3851, lon: 2.1734, coverImage: getCuratedCityFallback('Barcelona'), shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.', transportCode: 'BCN' },
+  { id: 'par_01', city: 'Paryż', country: 'Francja', lat: 48.8566, lon: 2.3522, coverImage: getCuratedCityFallback('Paryż'), shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.', transportCode: 'PAR' },
+  { id: 'lon_01', city: 'Londyn', country: 'Wielka Brytania', lat: 51.5074, lon: -0.1278, coverImage: getCuratedCityFallback('Londyn'), shortDescription: 'Wielokulturowa metropolia, w której historia spotyka się z nowoczesnością na każdym kroku.', transportCode: 'LON' },
+  { id: 'ath_01', city: 'Ateny', country: 'Grecja', lat: 37.9838, lon: 23.7275, coverImage: getCuratedCityFallback('Ateny'), shortDescription: 'Kolebka zachodniej cywilizacji. Poczuj starożytny klimat przechadzając się u stóp Akropolu.', transportCode: 'ATH' },
+  { id: 'krk_01', city: 'Kraków', country: 'Polska', lat: 50.0614, lon: 19.9366, coverImage: getCuratedCityFallback('Kraków'), shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.', transportCode: 'Kraków Główny' },
+  { id: 'prag_01', city: 'Praga', country: 'Czechy', lat: 50.0755, lon: 14.4378, coverImage: getCuratedCityFallback('Praga'), shortDescription: 'Magiczna stolica pełna gotyckich wież, urokliwych uliczek i najlepszego na świecie piwa.', transportCode: 'PRG' },
 
   // --- NOWE 23 MIASTA (ŁĄCZNIE 30) ---
   {
     id: 'vie_01', city: 'Wiedeń', country: 'Austria', lat: 48.2082, lon: 16.3738, 
-    coverImage: 'https://images.unsplash.com/photo-1516550893923-42d28e5677af?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Wiedeń'), 
     shortDescription: 'Zanurz się w klasycznej muzyce, wypij wiedeńską kawę i podziwiaj majestatyczne pałace Habsburgów.', transportCode: 'VIE'
   },
   {
     id: 'bud_01', city: 'Budapeszt', country: 'Węgry', lat: 47.4979, lon: 19.0402, 
-    coverImage: 'https://images.unsplash.com/photo-1549877452-9c387954fbc2?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Budapeszt'), 
     shortDescription: 'Perła Dunaju. Zrelaksuj się w słynnych termach i daj się porwać nocnemu życiu w ruin barach.', transportCode: 'BUD'
   },
   {
     id: 'ber_01', city: 'Berlin', country: 'Niemcy', lat: 52.5200, lon: 13.4050, 
-    coverImage: 'https://images.unsplash.com/photo-1560969184-10fe8719e047?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Berlin'), 
     shortDescription: 'Miasto, które nigdy nie śpi. Alternatywna sztuka, bogata historia i najlepsza scena techno w Europie.', transportCode: 'BER'
   },
   {
     id: 'lis_01', city: 'Lizbona', country: 'Portugalia', lat: 38.7223, lon: -9.1393, 
-    coverImage: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Lizbona'), 
     shortDescription: 'Słoneczna stolica na siedmiu wzgórzach. Przejedź się żółtym tramwajem i skosztuj słodkich pasteis de nata.', transportCode: 'LIS'
   },
   {
     id: 'mad_01', city: 'Madryt', country: 'Hiszpania', lat: 40.4168, lon: -3.7038, 
-    coverImage: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Madryt'), 
     shortDescription: 'Tętniące życiem serce Hiszpanii, pełne sztuki (muzeum Prado), tapas i królewskiego rozmachu.', transportCode: 'MAD'
   },
   {
     id: 'ams_01', city: 'Amsterdam', country: 'Holandia', lat: 52.3676, lon: 4.9041, 
-    coverImage: 'https://images.unsplash.com/photo-1512470876302-972faa2aa9a4?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Amsterdam'), 
     shortDescription: 'Malownicze kanały, setki rowerów i dzieła Van Gogha. Miasto wolności i pięknej architektury.', transportCode: 'AMS'
   },
   {
     id: 'cph_01', city: 'Kopenhaga', country: 'Dania', lat: 55.6761, lon: 12.5683, 
-    coverImage: 'https://images.unsplash.com/photo-1513622470522-26c3c8a854bc?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Kopenhaga'), 
     shortDescription: 'Skandynawski design, urokliwy port Nyhavn i królewskie pałace. Poznaj prawdziwe duńskie hygge.', transportCode: 'CPH'
   },
   {
     id: 'mxp_01', city: 'Mediolan', country: 'Włochy', lat: 45.4642, lon: 9.1900, 
-    coverImage: 'https://images.unsplash.com/photo-1520440229-6469a149ac59?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Mediolan'), 
     shortDescription: 'Światowa stolica mody i designu. Monumentalna katedra Duomo robi niesamowite wrażenie.', transportCode: 'MXP'
   },
   {
     id: 'vce_01', city: 'Wenecja', country: 'Włochy', lat: 45.4408, lon: 12.3155, 
-    coverImage: 'https://images.unsplash.com/photo-1514890547357-a9ee288728e0?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Wenecja'), 
     shortDescription: 'Romantyczne kanały, gondole i zachwycające pałace odbijające się w wodzie. Jedyne takie miejsce na Ziemi.', transportCode: 'VCE'
   },
   {
     id: 'dbv_01', city: 'Dubrownik', country: 'Chorwacja', lat: 42.6507, lon: 18.0944, 
-    coverImage: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Dubrownik'), 
     shortDescription: 'Perła Adriatyku. Spaceruj po potężnych murach miejskich, znanych na całym świecie dzięki Grze o Tron.', transportCode: 'DBV'
   },
   {
     id: 'zrh_01', city: 'Zurych', country: 'Szwajcaria', lat: 47.3769, lon: 8.5417, 
-    coverImage: 'https://images.unsplash.com/photo-1515488764276-beab7607c1e6?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Zurych'), 
     shortDescription: 'Eleganckie miasto z widokiem na Alpy. Odkryj jezioro Zuryskie, luksusowe butiki i pyszną czekoladę.', transportCode: 'ZRH'
   },
   {
     id: 'edi_01', city: 'Edynburg', country: 'Szkocja', lat: 55.9533, lon: -3.1883, 
-    coverImage: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Edynburg'), 
     shortDescription: 'Tajemnicze, gotyckie miasto leżące na wygasłych wulkanach. Odkryj potężny zamek i szkocką whisky.', transportCode: 'EDI'
   },
   {
     id: 'dub_01', city: 'Dublin', country: 'Irlandia', lat: 53.3498, lon: -6.2603, 
-    coverImage: 'https://images.unsplash.com/photo-1549918864-48ac978761a4?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Dublin'), 
     shortDescription: 'Zielona stolica pełna celtyckiej historii i tętniących życiem pubów Temple Bar. Skosztuj idealnego Guinnessa.', transportCode: 'DUB'
   },
   {
     id: 'vlc_01', city: 'Walencja', country: 'Hiszpania', lat: 39.4699, lon: -0.3763, 
-    coverImage: 'https://images.unsplash.com/photo-1558642084-fd07fae5282e?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Walencja'), 
     shortDescription: 'Ojczyzna paelli. Zobacz futurystyczne Miasto Sztuki i Nauki i spędź popołudnie na piaszczystej plaży.', transportCode: 'VLC'
   },
   {
     id: 'nap_01', city: 'Neapol', country: 'Włochy', lat: 40.8518, lon: 14.2681, 
-    coverImage: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Neapol'), 
     shortDescription: 'Krzykliwy, autentyczny i pełen życia. Zjedz najlepszą pizzę na świecie w cieniu potężnego Wezuwiusza.', transportCode: 'NAP'
   },
   {
     id: 'opo_01', city: 'Porto', country: 'Portugalia', lat: 41.1579, lon: -8.6291, 
-    coverImage: 'https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Porto'), 
     shortDescription: 'Urokliwe miasto mostów i wina Porto. Zgub się w wąskich, kolorowych uliczkach dzielnicy Ribeira.', transportCode: 'OPO'
   },
   {
     id: 'ist_01', city: 'Stambuł', country: 'Turcja', lat: 41.0082, lon: 28.9784, 
-    coverImage: 'https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Stambuł'), 
     shortDescription: 'Gdzie Europa spotyka Azję. Zobacz majestatyczną Hagię Sofię i poczuj zapachy Grand Bazaaru.', transportCode: 'IST'
   },
   {
     id: 'nce_01', city: 'Nicea', country: 'Francja', lat: 43.7102, lon: 7.2620, 
-    coverImage: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Nicea'), 
     shortDescription: 'Klejnot Lazurowego Wybrzeża. Przejdź się słynną Promenadą Anglików w pełnym słońcu Riwiery Francuskiej.', transportCode: 'NCE'
   },
   {
     id: 'muc_01', city: 'Monachium', country: 'Niemcy', lat: 48.1351, lon: 11.5820, 
-    coverImage: 'https://images.unsplash.com/photo-1595867818082-083862f3d630?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Monachium'), 
     shortDescription: 'Bawarska kultura, precle, piękne parki miejskie i bliskość alpejskich szczytów.', transportCode: 'MUC'
   },
   {
     id: 'mla_01', city: 'Valletta', country: 'Malta', lat: 35.8992, lon: 14.5141, 
-    coverImage: 'https://images.unsplash.com/photo-1516483638261-f4dbaf036963?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Valletta'), 
     shortDescription: 'Stolica zakonów rycerskich zbudowana ze złocistego piaskowca. Prawdziwe muzeum pod gołym niebem.', transportCode: 'MLA'
   },
   {
     id: 'kef_01', city: 'Reykjavik', country: 'Islandia', lat: 64.1466, lon: -21.9426, 
-    coverImage: 'https://images.unsplash.com/photo-1504893524553-b855bce32c67?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Reykjavik'), 
     shortDescription: 'Kraina lodu i ognia. Idealna baza wypadowa do podziwiania zorzy polarnej, gejzerów i wodospadów.', transportCode: 'KEF'
   },
   {
     id: 'gdn_01', city: 'Gdańsk', country: 'Polska', lat: 54.3520, lon: 18.6466, 
-    coverImage: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Gdańsk'), 
     shortDescription: 'Stolica bursztynu. Posmakuj morskiego klimatu spacerując malowniczą ulicą Długą, aż po słynnego Żurawia.', transportCode: 'GDN'
   },
   {
     id: 'wro_01', city: 'Wrocław', country: 'Polska', lat: 51.1079, lon: 17.0385, 
-    coverImage: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Wrocław'), 
     shortDescription: 'Miasto setek mostów i krasnali. Tętniący życiem wrocławski rynek to jedno z najpiękniejszych miejsc w Polsce.', transportCode: 'WRO'
   },
   // --- OKAZJE LOTNICZE I POŁUDNIE EUROPY ---
   {
     id: 'bri_01', city: 'Bari', country: 'Włochy', lat: 41.1171, lon: 16.8719, 
-    coverImage: 'https://images.unsplash.com/photo-1596484552834-6a58f850e0a1?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Bari'), 
     shortDescription: 'Słoneczna stolica Apulii nad Adriatykiem, słynąca ze średniowiecznego starego miasta Bari Vecchia i świeżych owoców morza.', transportCode: 'BRI',
     isOffTheBeatenPath: true
   },
   {
     id: 'zad_01', city: 'Zadar', country: 'Chorwacja', lat: 44.1194, lon: 15.2314, 
-    coverImage: 'https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Zadar'), 
     shortDescription: 'Niezwykłe Morskie Organy, rzymskie fora i zachwycające zachody słońca na wybrzeżu Dalmacji.', transportCode: 'ZAD',
     isOffTheBeatenPath: true
   },
   {
     id: 'blq_01', city: 'Bolonia', country: 'Włochy', lat: 44.4949, lon: 11.3426, 
-    coverImage: 'https://images.unsplash.com/photo-1568084680786-a84f91d1153c?auto=format&fit=crop&q=80&w=600', 
+    coverImage: getCuratedCityFallback('Bolonia'), 
     shortDescription: 'Kulinarna stolica Włoch, słynąca z kilometrów zabytkowych arkad, uniwersyteckiej tradycji i wież Asinelli.', transportCode: 'BLQ',
     isOffTheBeatenPath: true
   },
@@ -194,140 +211,192 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
   // --- MNIEJ OCZYWISTE KIERUNKI I UKRYTE PEREŁKI (OFF THE BEATEN PATH) ---
   {
     id: 'aho_01', city: 'Alghero', country: 'Włochy', lat: 40.5579, lon: 8.3193,
-    coverImage: 'https://images.unsplash.com/photo-1598977123418-454555aa1376?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Alghero'),
     shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
     transportCode: 'AHO', isOffTheBeatenPath: true
   },
   {
     id: 'kotor_01', city: 'Kotor', country: 'Czarnogóra', lat: 42.4247, lon: 18.7712,
-    coverImage: 'https://images.unsplash.com/photo-1568853862744-e2213765e94b?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Kotor'),
     shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
     transportCode: 'TIV', isOffTheBeatenPath: true
   },
   {
     id: 'lju_01', city: 'Lublana', country: 'Słowenia', lat: 46.0569, lon: 14.5058,
-    coverImage: 'https://images.unsplash.com/photo-1584467541268-b040f83be3fd?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Lublana'),
     shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
     transportCode: 'LJU', isOffTheBeatenPath: true
   },
   {
     id: 'bgo_01', city: 'Bergen', country: 'Norwegia', lat: 60.3913, lon: 5.3221,
-    coverImage: 'https://images.unsplash.com/photo-1517411032315-54ef2cb783bb?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Bergen'),
     shortDescription: 'Brama do norweskich fiordów. Drewniane domy Bryggen z listy UNESCO i spektakularna kolejka linowa na górę Fløyen.',
     transportCode: 'BGO', isOffTheBeatenPath: true
   },
   {
     id: 'col_01', city: 'Colmar', country: 'Francja', lat: 48.0794, lon: 7.3585,
-    coverImage: 'https://images.unsplash.com/photo-1528728329032-2972f65dfb3f?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Colmar'),
     shortDescription: 'Bajkowa stolica alzackich win z kanałami Małej Wenecji i zachwycającymi domami z muru pruskiego.',
     transportCode: 'SXB', isOffTheBeatenPath: true
   },
   {
     id: 'sin_01', city: 'Sintra', country: 'Portugalia', lat: 38.8029, lon: -9.3817,
-    coverImage: 'https://images.unsplash.com/photo-1588614959060-4d144f28b207?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Sintra'),
     shortDescription: 'Mistyczna rezydencja królów ukryta w zielonych wzgórzach – baśniowy Pałac Pena i tajemnicza Quinta da Regaleira.',
     transportCode: 'LIS', isOffTheBeatenPath: true
   },
   {
     id: 'eas_01', city: 'San Sebastián', country: 'Hiszpania', lat: 43.3183, lon: -1.9812,
-    coverImage: 'https://images.unsplash.com/photo-1536663815808-535e2280d2c2?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('San Sebastián'),
     shortDescription: 'Światowa stolica smaku w Kraju Basków ze zjawiskową plażą La Concha i legendarną kulturą pintxos.',
     transportCode: 'EAS', isOffTheBeatenPath: true
   },
   {
     id: 'tll_01', city: 'Tallinn', country: 'Estonia', lat: 59.4370, lon: 24.7536,
-    coverImage: 'https://images.unsplash.com/photo-1587974928442-77dc3e0dba72?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Tallinn'),
     shortDescription: 'Najlepiej zachowane średniowieczne miasto północnej Europy, gdzie gotyckie baszty spotykają się z technologicznym duchem.',
     transportCode: 'TLL', isOffTheBeatenPath: true
   },
   {
     id: 'mat_01', city: 'Matera', country: 'Włochy', lat: 40.6664, lon: 16.6043,
-    coverImage: 'https://images.unsplash.com/photo-1584646098378-0874589d76b1?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Matera'),
     shortDescription: 'Unikatowe miasto w całości wykute w skałach wapiennych (Sassi) – jedno z najstarszych i najbardziej fascynujących miejsc globu.',
     transportCode: 'BRI', isOffTheBeatenPath: true
   },
   {
     id: 'tos_01', city: 'Tromsø', country: 'Norwegia', lat: 69.6492, lon: 18.9553,
-    coverImage: 'https://images.unsplash.com/photo-1579033461380-adb47c3eb938?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Tromsø'),
     shortDescription: 'Brama Arktyki za kołem podbiegunowym – zorza polarna, potężne fiordy i spektakularna Katedra Arktyczna.',
     transportCode: 'TOS', isOffTheBeatenPath: true
   },
   {
     id: 'ohd_01', city: 'Ochryda', country: 'Macedonia Północna', lat: 41.1172, lon: 20.8016,
-    coverImage: 'https://images.unsplash.com/photo-1565008447742-97f6f38c985c?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Ochryda'),
     shortDescription: 'Starożytne jezioro z krystaliczną wodą i ikoniczną cerkwią św. Jana zawieszoną na urwisku skalnym nad taflą wody.',
     transportCode: 'OHD', isOffTheBeatenPath: true
   },
   {
     id: 'gro_01', city: 'Girona', country: 'Hiszpania', lat: 41.9794, lon: 2.8214,
-    coverImage: 'https://images.unsplash.com/photo-1582234372722-50d7ccc30ebd?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Girona'),
     shortDescription: 'Kataloński klejnot z kolorowymi kamienicami nad rzeką Onyar, monumentalną katedrą i zabytkową dzielnicą żydowską.',
     transportCode: 'GRO', isOffTheBeatenPath: true
   },
   {
     id: 'hal_01', city: 'Hallstatt', country: 'Austria', lat: 47.5622, lon: 13.6493,
-    coverImage: 'https://images.unsplash.com/photo-1508672019048-805b876b67e2?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Hallstatt'),
     shortDescription: 'Malownicza alpejska wioska przeglądająca się w tafli jeziora, z najstarszą kopalnią soli i drewnianą architekturą.',
     transportCode: 'SZG', isOffTheBeatenPath: true
   },
   {
     id: 'brq_01', city: 'Brno', country: 'Czechy', lat: 49.1951, lon: 16.6068,
-    coverImage: 'https://images.unsplash.com/photo-1596436889106-be35e843f974?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Brno'),
     shortDescription: 'Klimatyczna stolica Moraw z modernistyczną Willą Tugendhat (UNESCO), podziemnym labiryntem i lokalnymi winiarniami.',
     transportCode: 'BRQ', isOffTheBeatenPath: true
   },
   {
     id: 'snd_01', city: 'Sandomierz', country: 'Polska', lat: 50.6800, lon: 21.7500,
-    coverImage: 'https://images.unsplash.com/photo-1590486803833-1c5dc8ddd4c8?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Sandomierz'),
     shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
     transportCode: 'Sandomierz', isOffTheBeatenPath: true
   },
   {
     id: 'szc_01', city: 'Szczawnica', country: 'Polska', lat: 49.4278, lon: 20.4856,
-    coverImage: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Szczawnica'),
     shortDescription: 'Klimatyczne uzdrowisko w sercu Pienin – spływ Przełomem Dunajca, widok na Trzy Korony i pijalnie wód mineralnych.',
     transportCode: 'Szczawnica'
   },
   {
     id: 'zak_01', city: 'Zakopane', country: 'Polska', lat: 49.2992, lon: 19.9496,
-    coverImage: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Zakopane'),
     shortDescription: 'Zimowa i letnia stolica Tatr. Wyrusz na szlaki Morskiego Oka, Kasprowego Wierchu i poczuj góralski klimat Krupówek.',
     transportCode: 'Zakopane'
   },
   {
     id: 'tor_01', city: 'Toruń', country: 'Polska', lat: 53.0138, lon: 18.5984,
-    coverImage: 'https://images.unsplash.com/photo-1541845157-a6d2d100c931?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Toruń'),
     shortDescription: 'Gotycka perła UNESCO nad Wisłą. Miasto Mikołaja Kopernika, pachnące tradycyjnymi toruńskimi piernikami.',
     transportCode: 'Toruń Główny'
   },
   {
     id: 'poz_01', city: 'Poznań', country: 'Polska', lat: 52.4064, lon: 16.9252,
-    coverImage: 'https://images.unsplash.com/photo-1517840901100-8179e982acb7?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Poznań'),
     shortDescription: 'Kolorowy Stary Rynek ze słynnymi koziołkami, kolebka polskiej państwowości na Ostrowie Tumskim i rogaliki świętomarcińskie.',
     transportCode: 'POZ'
   },
   {
     id: 'szg_01', city: 'Salzburg', country: 'Austria', lat: 47.8095, lon: 13.0550,
-    coverImage: 'https://images.unsplash.com/photo-1527631746610-bca00a040d60?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Salzburg'),
     shortDescription: 'Barokowe miasto Mozarta u podnóża Alp, z majestatyczną twierdzą Hohensalzburg i ogrodami pałacu Mirabell.',
     transportCode: 'SZG'
   },
   {
     id: 'pmo_01', city: 'Palermo', country: 'Włochy', lat: 38.1157, lon: 13.3615,
-    coverImage: 'https://images.unsplash.com/photo-1523906834658-6e2522d42e9d?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Palermo'),
     shortDescription: 'Fascynująca stolica Sycylii z bizantyjsko-arabską architekturą, gwarnymi targami i widokiem na Zatokę Palermo.',
     transportCode: 'PMO'
   },
   {
     id: 'svq_01', city: 'Sewilla', country: 'Hiszpania', lat: 37.3891, lon: -5.9845,
-    coverImage: 'https://images.unsplash.com/photo-1509840841025-9088ba78a826?auto=format&fit=crop&q=80&w=600',
+    coverImage: getCuratedCityFallback('Sewilla'),
     shortDescription: 'Gorąca stolica Andaluzji. Zachwycający plac Plaza de España, pałac Alcázar i ojczyzna pasjonującego flamenco.',
     transportCode: 'SVQ'
+  },
+
+  // --- JEDNODNIOWE WYPADY BEZ NOCLEGU W OKOLICY (SAMOCHÓD) ---
+  {
+    id: 'kaz_01', city: 'Kazimierz Dolny', country: 'Polska', lat: 51.3235, lon: 21.9547,
+    coverImage: getCuratedCityFallback('Kazimierz Dolny'),
+    shortDescription: 'Klimatyczne miasteczko artystów nad Wisłą – słynny rynek, Wąwóz Korzeniowy Dół, Góra Trzech Krzyży i pyszne koguty maślane.',
+    transportCode: 'Kazimierz Dolny',
+    isDayTrip: true
+  },
+  {
+    id: 'zel_01', city: 'Żelazowa Wola', country: 'Polska', lat: 52.2570, lon: 20.3160,
+    coverImage: getCuratedCityFallback('Żelazowa Wola'),
+    shortDescription: 'Zielony wypad pod Warszawę: zabytkowy dworek i park Fryderyka Chopina oraz dziewicze ścieżki Kampinoskiego Parku Narodowego.',
+    transportCode: 'Żelazowa Wola',
+    isDayTrip: true
+  },
+  {
+    id: 'plo_01', city: 'Płock', country: 'Polska', lat: 52.5463, lon: 19.7065,
+    coverImage: getCuratedCityFallback('Płock'),
+    shortDescription: 'Historyczna stolica Mazowsza ze spektakularnym Wzgórzem Tumskim nad szeroką Wisłą, nowoczesnym molo i zabytkowym rynkiem.',
+    transportCode: 'Płock',
+    isDayTrip: true
+  },
+  {
+    id: 'ojc_01', city: 'Ojcowski Park Narodowy', country: 'Polska', lat: 50.2114, lon: 19.8294,
+    coverImage: getCuratedCityFallback('Ojcowski Park Narodowy'),
+    shortDescription: 'Królewski jednodniowy spacer wśród białych ostańców wapiennych Jury – Zamek Pieskowa Skała, Maczuga Herkulesa i Grota Łokietka.',
+    transportCode: 'Ojców',
+    isDayTrip: true
+  },
+  {
+    id: 'mal_01', city: 'Zamek w Malborku', country: 'Polska', lat: 54.0398, lon: 19.0280,
+    coverImage: getCuratedCityFallback('Zamek w Malborku'),
+    shortDescription: 'Najpotężniejsza ceglana twierdza rycerska na świecie (UNESCO). Fascynujący jednodniowy wypad na zwiedzanie zamkowych komnat nad Nogatem.',
+    transportCode: 'Malbork',
+    isDayTrip: true
+  },
+  {
+    id: 'ogr_01', city: 'Zamek Ogrodzieniec', country: 'Polska', lat: 50.4533, lon: 19.5517,
+    coverImage: getCuratedCityFallback('Zamek Ogrodzieniec'),
+    shortDescription: 'Najbardziej imponujące orle gniazdo Jury Krakowsko-Częstochowskiej. Malownicze ruiny wkomponowane w monumentalne skały Podzamcza.',
+    transportCode: 'Podzamcze',
+    isDayTrip: true
+  },
+  {
+    id: 'lod_01', city: 'Łódź', country: 'Polska', lat: 51.7592, lon: 19.4560,
+    coverImage: getCuratedCityFallback('Łódź'),
+    shortDescription: 'Tętniący życiem dzień w sercu Polski: spacer reprezentacyjną Piotrkowską, zrewitalizowana Manufaktura i magiczny klimat Księżego Młyna.',
+    transportCode: 'Łódź Fabryczna',
+    isDayTrip: true
   }
 ];
 
 // ETAP 3: Baza destynacji posiadających gotowy, opracowany szablon wycieczki
 export const CITIES_WITH_PREDEFINED_PLANS = new Set([
+  // Główne europejskie city-breaki
   'Rzym',
   'Barcelona',
   'Paryż',
@@ -358,6 +427,29 @@ export const CITIES_WITH_PREDEFINED_PLANS = new Set([
   'Monachium',
   'Valletta',
   'Reykjavik',
+  // Polskie i regionalne wyjazdy z gotowym planem
+  'Toruń',
+  'Poznań',
+  'Zakopane',
+  'Sandomierz',
+  'Szczawnica',
+  'Salzburg',
+  'Bolonia',
+  'Sewilla',
+  'Palermo',
+  'Brno',
+  'Hallstatt',
+  'Girona',
+  'Colmar',
+  'Sintra',
+  // Jednodniowe wypady bez noclegu autem
+  'Kazimierz Dolny',
+  'Żelazowa Wola',
+  'Płock',
+  'Ojcowski Park Narodowy',
+  'Zamek w Malborku',
+  'Zamek Ogrodzieniec',
+  'Łódź',
 ]);
 
 // ETAP 1: Polskie lotniska wylotowe
@@ -390,23 +482,68 @@ export function findNearestAirport(lat: number, lon: number): AirportInfo {
   return best;
 }
 
+const CITY_PHOTO_CACHE = new Map<string, string>();
+
+async function fetchWithTimeout(url: string, ms = 3500): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // Funkcja pobierająca zdjęcie danej lokalizacji z Google Places
 export async function fetchCityGooglePhoto(city: string, lat: number, lon: number): Promise<string | null> {
-  if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('TYMCZASOWY')) return null;
+  const cityKey = city.toLowerCase().trim();
+  if (CITY_PHOTO_CACHE.has(cityKey)) {
+    return CITY_PHOTO_CACHE.get(cityKey)!;
+  }
+
+  const curatedFallback = CURATED_CITY_PHOTOS[cityKey];
+
+  if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('TYMCZASOWY')) {
+    if (curatedFallback) {
+      CITY_PHOTO_CACHE.set(cityKey, curatedFallback);
+      return curatedFallback;
+    }
+    return null;
+  }
+
   try {
     const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lon}&radius=20000&type=tourist_attraction&key=${GOOGLE_API_KEY}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url, 3500);
     const data = await res.json();
     if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-      const sorted = data.results.sort((a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0));
+      const excludedKeywords = ['zoo', 'safari', 'aquarium', 'oceanarium', 'papugarnia', 'fokarium', 'zwierząt', 'animal'];
+      const excludedTypes = new Set(['zoo', 'aquarium', 'amusement_park', 'bowling_alley', 'campground', 'casino', 'pet_store', 'rv_park']);
+
+      const cleanResults = data.results.filter((p: any) => {
+        const nameLower = (p.name || '').toLowerCase();
+        const hasBadKeyword = excludedKeywords.some(kw => nameLower.includes(kw));
+        const hasBadType = Array.isArray(p.types) && p.types.some((t: string) => excludedTypes.has(t));
+        return !hasBadKeyword && !hasBadType;
+      });
+
+      const poolToUse = cleanResults.length > 0 ? cleanResults : data.results;
+      const sorted = poolToUse.sort((a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0));
       const withPhoto = sorted.find((p: any) => Array.isArray(p.photos) && p.photos.length > 0);
       if (withPhoto && withPhoto.photos[0]?.photo_reference) {
-        return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${withPhoto.photos[0].photo_reference}&key=${GOOGLE_API_KEY}`;
+        const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${withPhoto.photos[0].photo_reference}&key=${GOOGLE_API_KEY}`;
+        CITY_PHOTO_CACHE.set(cityKey, photoUrl);
+        return photoUrl;
       }
     }
   } catch (e) {
     console.warn(`[Google Places Photo] Błąd dla ${city}:`, e);
   }
+
+  if (curatedFallback) {
+    CITY_PHOTO_CACHE.set(cityKey, curatedFallback);
+    return curatedFallback;
+  }
+
   return null;
 }
 
@@ -427,6 +564,93 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
 function formatDateStr(ymd: string) {
   const [y, m, d] = ymd.split('-');
   return `${d}.${m}.${y}`;
+}
+
+/**
+ * Buduje zoptymalizowany plan zwiedzania (itinerary) dla sekcji Explore.
+ * Zamiast losowego rozrzucania atrakcji lub duplikowania punktów,
+ * atrakcje są geokodowane i uszeregowane za pomocą algorytmu 2-Opt TSP
+ * (Problem Komiwojażera), dzięki czemu użytkownik porusza się najkrótszą,
+ * ciągłą ścieżką w mieście bez niepotrzebnego zawracania w to samo miejsce.
+ */
+export function buildOptimizedExploreItinerary(
+  attractionItems: Array<string | { name: string; lat?: number; lon?: number }>,
+  tripDays: number,
+  city: string
+): TripDay[] {
+  if (!attractionItems || attractionItems.length === 0) return [];
+
+  // 1. Zbuduj unikalną listę obiektów GeoPoint ze współrzędnymi
+  const seenNames = new Set<string>();
+  const geoPoints: GeoPoint[] = [];
+
+  for (let i = 0; i < attractionItems.length; i++) {
+    const item = attractionItems[i];
+    const name = typeof item === 'string' ? item : item?.name;
+    const cleanName = (name || '').trim();
+    if (!cleanName || seenNames.has(cleanName.toLowerCase())) continue;
+    seenNames.add(cleanName.toLowerCase());
+
+    let lat = typeof item === 'object' ? item.lat : undefined;
+    let lon = typeof item === 'object' ? item.lon : undefined;
+
+    if (lat === undefined || lon === undefined || isNaN(lat) || isNaN(lon)) {
+      const resolved = resolvePointCoordinates(cleanName, [], city);
+      lat = resolved.lat;
+      lon = resolved.lon;
+    }
+
+    geoPoints.push({
+      id: `attr_${i}`,
+      title: cleanName,
+      lat,
+      lon,
+    });
+  }
+
+  if (geoPoints.length === 0) return [];
+
+  // 2. Optymalizacja trasy TSP (2-Opt) - ułożenie w kolejności geograficznej bez cofania się
+  let orderedPoints = geoPoints;
+  if (geoPoints.length >= 3) {
+    const matrix = buildDistanceMatrix(geoPoints);
+    const initialRoute = geoPoints.map((_, idx) => idx);
+    const twoOpt = solveTwoOptTSP(initialRoute, matrix, false);
+    orderedPoints = twoOpt.route.map((idx) => geoPoints[idx]);
+  }
+
+  // 3. Podział uporządkowanych punktów na kolejne dni wycieczki (ciągłe segmenty trasy)
+  const daysCount = Math.max(1, tripDays);
+  const totalAttractions = orderedPoints.length;
+  const itinerary: TripDay[] = [];
+
+  const dayThemes = [
+    'Odkrywanie miasta i centrum',
+    'Kultura, zabytki i historia',
+    'Malownicze zakątki i architektura',
+    'Spacer, relaks i lokalne smaki',
+    'Najpiękniejsze panoramy i parki',
+  ];
+
+  for (let d = 0; d < daysCount; d++) {
+    const startIdx = Math.floor((d * totalAttractions) / daysCount);
+    const endIdx = Math.floor(((d + 1) * totalAttractions) / daysCount);
+    let dailySlice = orderedPoints.slice(startIdx, endIdx);
+
+    // Jeśli punktów było mało i wycinek wyszedł pusty, bierzemy punkt z indeksu dnia
+    if (dailySlice.length === 0 && orderedPoints[d % totalAttractions]) {
+      dailySlice = [orderedPoints[d % totalAttractions]];
+    }
+
+    const theme = dayThemes[d % dayThemes.length];
+    itinerary.push({
+      day: d + 1,
+      title: `Dzień ${d + 1}: ${theme}`,
+      attractions: dailySlice.map((p) => p.title),
+    });
+  }
+
+  return itinerary;
 }
 
 export function getFallbackRecommendations(userLat: number, userLon: number): LiveDestination[] {
@@ -452,7 +676,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Włochy',
       lat: 41.9028,
       lon: 12.4964,
-      coverImage: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Rzym'),
       shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
       transportCode: 'ROM',
       temp: 22,
@@ -466,7 +690,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Hiszpania',
       lat: 41.3851,
       lon: 2.1734,
-      coverImage: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Barcelona'),
       shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.',
       transportCode: 'BCN',
       temp: 20,
@@ -480,7 +704,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Polska',
       lat: 50.0614,
       lon: 19.9366,
-      coverImage: 'https://images.unsplash.com/photo-1558948574-8aa47b5962f3?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Kraków'),
       shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.',
       transportCode: 'Kraków Główny',
       temp: 18,
@@ -494,7 +718,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Francja',
       lat: 48.8566,
       lon: 2.3522,
-      coverImage: 'https://images.unsplash.com/photo-1502602898657-3e90768ea0ab?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Paryż'),
       shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.',
       transportCode: 'PAR',
       temp: 19,
@@ -508,7 +732,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Włochy',
       lat: 40.5579,
       lon: 8.3193,
-      coverImage: 'https://images.unsplash.com/photo-1598977123418-454555aa1376?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Alghero'),
       shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
       transportCode: 'AHO',
       temp: 23,
@@ -523,7 +747,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Czarnogóra',
       lat: 42.4247,
       lon: 18.7712,
-      coverImage: 'https://images.unsplash.com/photo-1568853862744-e2213765e94b?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Kotor'),
       shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
       transportCode: 'TIV',
       temp: 21,
@@ -538,7 +762,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Słowenia',
       lat: 46.0569,
       lon: 14.5058,
-      coverImage: 'https://images.unsplash.com/photo-1584467541268-b040f83be3fd?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Lublana'),
       shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
       transportCode: 'LJU',
       temp: 20,
@@ -553,7 +777,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       country: 'Polska',
       lat: 50.6800,
       lon: 21.7500,
-      coverImage: 'https://images.unsplash.com/photo-1590486803833-1c5dc8ddd4c8?auto=format&fit=crop&q=80&w=600',
+      coverImage: getCuratedCityFallback('Sandomierz'),
       shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
       transportCode: 'Sandomierz',
       temp: 19,
@@ -562,16 +786,60 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       attractions: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi'],
       isOffTheBeatenPath: true,
     },
+    {
+      id: 'kaz_01',
+      city: 'Kazimierz Dolny',
+      country: 'Polska',
+      lat: 51.3235,
+      lon: 21.9547,
+      coverImage: getCuratedCityFallback('Kazimierz Dolny'),
+      shortDescription: 'Klimatyczne miasteczko artystów nad Wisłą – słynny rynek, Wąwóz Korzeniowy Dół, Góra Trzech Krzyży i pyszne koguty maślane.',
+      transportCode: 'Kazimierz Dolny',
+      temp: 20,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Rynek i renesansowe kamienice Przybyłów', 'Wąwóz Korzeniowy Dół', 'Góra Trzech Krzyży', 'Ruiny Zamku Kazimierzowskiego i Baszta'],
+      isDayTrip: true,
+    },
+    {
+      id: 'zel_01',
+      city: 'Żelazowa Wola',
+      country: 'Polska',
+      lat: 52.2570,
+      lon: 20.3160,
+      coverImage: getCuratedCityFallback('Żelazowa Wola'),
+      shortDescription: 'Zielony wypad pod Warszawę: zabytkowy dworek i park Fryderyka Chopina oraz dziewicze ścieżki Kampinoskiego Parku Narodowego.',
+      transportCode: 'Żelazowa Wola',
+      temp: 21,
+      condition: 'Bez opadów, idealnie na zwiedzanie',
+      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
+      attractions: ['Dworek Chopina i park krajobrazowy', 'Kampinoski Park Narodowy - Szlak Puszczański', 'Ośrodek Edukacyjny w Granicy'],
+      isDayTrip: true,
+    },
   ];
 
   const validFallbackCities = fallbackCities.filter(
     (c) => calculateDistanceKm(userLat, userLon, c.lat, c.lon) >= 20
   );
-  const citiesToUse = validFallbackCities.length > 0 ? validFallbackCities : fallbackCities;
+  const rawCitiesToUse = validFallbackCities.length > 0 ? validFallbackCities : fallbackCities;
+
+  const seenFallback = new Set<string>();
+  const citiesToUse: typeof fallbackCities = [];
+  for (const c of rawCitiesToUse) {
+    const key = c.city.toLowerCase().trim();
+    if (!seenFallback.has(key)) {
+      seenFallback.add(key);
+      citiesToUse.push(c);
+    }
+  }
 
   return citiesToUse.map((c) => {
+    const isDay = !!(c as any).isDayTrip;
     const distance = calculateDistanceKm(userLat, userLon, c.lat, c.lon);
-    const recommendedTransport = determineTransport(distance);
+    const recommendedTransport = isDay ? 'car' : determineTransport(distance);
+    const durationDays = isDay ? 1 : 3;
+    const endDateStr = isDay ? startStr : endStr;
+    const flightDateStr = isDay ? `${startStr} (1 dzień)` : `${startStr} - ${endStr}`;
 
     return {
       id: c.id,
@@ -585,8 +853,9 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       distanceKm: distance,
       recommendedTransport,
       hasPredefinedPlan: true,
+      isDayTrip: isDay,
       nearestAirport: 'WAW',
-      flightDate: `${startStr} - ${endStr}`,
+      flightDate: flightDateStr,
       isOffTheBeatenPath: (c as any).isOffTheBeatenPath || false,
       weather: {
         temp: c.temp,
@@ -595,16 +864,13 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       },
       proposedTrip: {
         startDate: startStr,
-        endDate: endStr,
-        durationDays: 3,
+        endDate: endDateStr,
+        durationDays,
+        isDayTrip: isDay,
         estimatedTemp: c.temp,
         condition: c.condition,
-        crowdLevel: 'Umiarkowany ruch turystyczny',
-        itinerary: [
-          { day: 1, title: 'Dzień 1: Odkrywanie miasta', attractions: [c.attractions[0], c.attractions[1]] },
-          { day: 2, title: 'Dzień 2: Kultura i zabytki', attractions: [c.attractions[1], c.attractions[2]] },
-          { day: 3, title: 'Dzień 3: Spacer i relaks', attractions: [c.attractions[0], c.attractions[2]] },
-        ],
+        crowdLevel: isDay ? 'Idealne warunki na jednodniowy wypad' : 'Umiarkowany ruch turystyczny',
+        itinerary: buildOptimizedExploreItinerary(c.attractions, durationDays, c.city),
       },
     };
   });
@@ -623,11 +889,15 @@ export async function fetchCityWeather(
     return null;
   }
 
-  const recommendedTransport = determineTransport(distance);
+  const isDayTrip = !!dest.isDayTrip;
+  const recommendedTransport = isDayTrip ? 'car' : determineTransport(distance);
 
   let minDays = 2;
   let maxDays = 3;
-  if (recommendedTransport === 'flight') {
+  if (isDayTrip) {
+    minDays = 1;
+    maxDays = 1;
+  } else if (recommendedTransport === 'flight') {
     minDays = 3;
     maxDays = 4;
   } else if (recommendedTransport === 'car') {
@@ -732,7 +1002,7 @@ export async function fetchCityWeather(
 
       if (!anomalyEncountered && rainFreeDays >= minDays) {
         bestStartIdx = i;
-        finalDuration = rainFreeDays;
+        finalDuration = isDayTrip ? 1 : rainFreeDays;
         foundPerfect = true;
         break;
       }
@@ -762,7 +1032,7 @@ export async function fetchCityWeather(
     }
 
     const startStr = days[bestStartIdx];
-    const endStr = days[bestStartIdx + finalDuration - 1];
+    const endStr = isDayTrip ? startStr : days[bestStartIdx + finalDuration - 1];
 
     let sumTemp = 0;
     for (let i = 0; i < finalDuration; i++) {
@@ -831,9 +1101,16 @@ export async function fetchCityWeather(
       Salzburg: ['Twierdza Hohensalzburg', 'Ogrody Pałacu Mirabell', 'Ulica Getreidegasse (Dom Mozarta)', 'Katedra w Salzburgu'],
       Palermo: ['Katedra w Palermo', 'Pałac Normanów i Cappella Palatina', 'Targ Ballarò', 'Teatro Massimo'],
       Sewilla: ['Plaza de España i Park Marii Luizy', 'Katedra w Sewilli i wieża Giralda', 'Pałac Królewski Real Alcázar', 'Dzielnica Santa Cruz'],
+      'Kazimierz Dolny': ['Rynek i renesansowe kamienice Przybyłów', 'Wąwóz Korzeniowy Dół', 'Góra Trzech Krzyży', 'Ruiny Zamku Kazimierzowskiego i Baszta'],
+      'Żelazowa Wola': ['Dworek Chopina i park krajobrazowy', 'Kampinoski Park Narodowy - Szlak Puszczański', 'Ośrodek Edukacyjny w Granicy'],
+      'Płock': ['Wzgórze Tumskie i panorama Wisły', 'Molo w Płocku', 'Bazylika Katedralna Wniebowzięcia NMP', 'Stary Rynek i Ratusz'],
+      'Ojcowski Park Narodowy': ['Zamek Pieskowa Skała i Maczuga Herkulesa', 'Dolina Prądnika i Brama Krakowska', 'Grota Łokietka', 'Ruiny Zamku w Ojcowie'],
+      'Zamek w Malborku': ['Zamek Średni i Pałac Wielkich Mistrzów', 'Zamek Wysoki i Kościół NMP', 'Taras widokowy nad Nogatem i Wały Plauena'],
+      'Zamek Ogrodzieniec': ['Ruiny Zamku Ogrodzieniec', 'Gród na Górze Birów', 'Skalne ostańce Jury i Park Doświadczeń Fizycznych'],
+      'Łódź': ['Ulica Piotrkowska i Pasaż Róży', 'Centrum Manufaktura i Muzeum Fabryki', 'Zabytkowe osiedle fabryczne Księży Młyn', 'Kompleks EC1 Łódź - Miasto Kultury'],
     };
 
-    const itinerary: TripDay[] = [];
+    let itinerary: TripDay[] = [];
     if (hasPredefinedPlan) {
       const pool = defaultAttractionsByCity[dest.city] || [
         'Stare Miasto i Rynek',
@@ -841,24 +1118,17 @@ export async function fetchCityWeather(
         'Lokalne muzeum sztuki',
         'Deptak spacerowy i kawiarnie',
       ];
-
-      for (let i = 0; i < finalDuration; i++) {
-        const idx = (i * 2) % pool.length;
-        itinerary.push({
-          day: i + 1,
-          title: `Dzień ${i + 1}: Odkrywanie miasta`,
-          attractions: [pool[idx], pool[(idx + 1) % pool.length]],
-        });
-      }
+      itinerary = buildOptimizedExploreItinerary(pool, finalDuration, dest.city);
     }
 
     const proposedTrip: ProposedTrip = {
       startDate: formatDateStr(startStr),
       endDate: formatDateStr(endStr),
       durationDays: finalDuration,
+      isDayTrip,
       estimatedTemp: avgTemp,
       condition,
-      crowdLevel: 'Umiarkowany ruch turystyczny',
+      crowdLevel: isDayTrip ? 'Idealne warunki na jednodniowy wypad' : 'Umiarkowany ruch turystyczny',
       itinerary,
     };
 
@@ -870,8 +1140,9 @@ export async function fetchCityWeather(
       distanceKm: distance,
       recommendedTransport,
       hasPredefinedPlan,
+      isDayTrip,
       nearestAirport: nearestAirportCode,
-      flightDate: `${formatDateStr(startStr)} - ${formatDateStr(endStr)}`,
+      flightDate: isDayTrip ? `${formatDateStr(startStr)} (1 dzień)` : `${formatDateStr(startStr)} - ${formatDateStr(endStr)}`,
       isOffTheBeatenPath: dest.isOffTheBeatenPath,
       proposedTrip,
       weather: {
@@ -921,25 +1192,51 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
   );
 
   // Dzielimy pulę na zrównoważone kategorie:
-  // 1. Destynacje spoza gotowych szablonów (do samodzielnego zaplanowania)
-  // 2. Klasyczne gotowce lotnicze z predefiniowanym planem
-  // 3. Regionalne wypady blisko domu (pociąg / auto, <= 550 km)
-  const nonTemplatePool = validPool.filter((dest) => !CITIES_WITH_PREDEFINED_PLANS.has(dest.city));
+  // 1. Jednodniowe wypady bez noclegu w okolicy (samochód)
+  // 2. Klasyczne gotowce lotnicze z predefiniowanym planem (> 550 km)
+  // 3. Regionalne wyjazdy z gotowym planem (pociąg / auto, <= 550 km)
+  // 4. Destynacje do samodzielnego ułożenia planu w kreatorze
+  const dayTripPool = validPool.filter((dest) => !!(dest as any).isDayTrip);
   const readyFlightPool = validPool.filter(
-    (dest) => CITIES_WITH_PREDEFINED_PLANS.has(dest.city) && calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) > 550
+    (dest) => CITIES_WITH_PREDEFINED_PLANS.has(dest.city) && !(dest as any).isDayTrip && calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) > 550
   );
-  const regionalPool = validPool.filter(
-    (dest) => calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) <= 550
+  const regionalReadyPool = validPool.filter(
+    (dest) => CITIES_WITH_PREDEFINED_PLANS.has(dest.city) && !(dest as any).isDayTrip && calculateDistanceKm(userLat, userLon, dest.lat, dest.lon) <= 550
   );
+  const nonTemplatePool = validPool.filter((dest) => !CITIES_WITH_PREDEFINED_PLANS.has(dest.city));
 
   const shuffle = <T>(arr: T[]): T[] => [...arr].sort(() => Math.random() - 0.5);
 
-  // Dobieramy bogatą pulę kandydatów do weryfikacji pogodowej (~22-24 miast)
-  const candidateBatch = [
-    ...shuffle(nonTemplatePool).slice(0, 10), // 10 propozycji spoza gotowych szablonów
-    ...shuffle(readyFlightPool).slice(0, 8),   // 8 klasyków lotniczych z gotowym planem
-    ...shuffle(regionalPool).slice(0, 6),      // 6 propozycji na weekend / blisko domu
-  ];
+  // Dobieramy pulę unikalnych kandydatów (bez powtórzeń miast!) do weryfikacji pogodowej (~26 miast)
+  const candidateBatch: typeof DESTINATION_POOL = [];
+  const seenCandidateCities = new Set<string>();
+
+  const addCandidates = (pool: typeof DESTINATION_POOL, limit: number) => {
+    let count = 0;
+    for (const c of shuffle(pool)) {
+      const key = c.city.toLowerCase().trim();
+      if (!seenCandidateCities.has(key)) {
+        seenCandidateCities.add(key);
+        candidateBatch.push(c);
+        count++;
+        if (count >= limit) break;
+      }
+    }
+  };
+
+  addCandidates(readyFlightPool, 10);
+  addCandidates(dayTripPool, 6);
+  addCandidates(regionalReadyPool, 6);
+  addCandidates(nonTemplatePool, 4);
+
+  for (const c of shuffle(validPool)) {
+    const key = c.city.toLowerCase().trim();
+    if (!seenCandidateCities.has(key)) {
+      seenCandidateCities.add(key);
+      candidateBatch.push(c);
+      if (candidateBatch.length >= 26) break;
+    }
+  }
 
   // ETAP 2: Równoległa weryfikacja pogody i wykluczenie anomalii atmosferycznych
   const results = await Promise.allSettled(
@@ -947,9 +1244,14 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
   );
 
   const weatherPassed: LiveDestination[] = [];
+  const seenWeatherCities = new Set<string>();
   for (const res of results) {
     if (res.status === 'fulfilled' && res.value) {
-      weatherPassed.push(res.value);
+      const key = res.value.city.toLowerCase().trim();
+      if (!seenWeatherCities.has(key)) {
+        seenWeatherCities.add(key);
+        weatherPassed.push(res.value);
+      }
     }
   }
 
@@ -967,67 +1269,124 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
     return scoreB - scoreA;
   });
 
-  // ETAP 3: Wzbogacenie komponentu o autentyczne zdjęcia z Google Places i szczegóły planu
-  const topCities = weatherPassed.slice(0, 14); // Zwiększamy liczbę proponowanych destynacji z 6 do 14!
-  const finalRecommendations: LiveDestination[] = [];
+  // Dobieramy zróżnicowaną listę rekomendacji (16 miast),
+  // gwarantując obecność gotowych planów lotniczych, jednodniówek bez noclegu autem i wypadów regionalnych:
+  const selectedCities: LiveDestination[] = [];
+  const seenSelectedCities = new Set<string>();
 
-  for (const dest of topCities) {
-    // Pobieramy prawdziwe zdjęcie lokalizacji z Google Places
-    const googlePhoto = await fetchCityGooglePhoto(dest.city, dest.lat, dest.lon);
-    if (googlePhoto) {
-      dest.coverImage = googlePhoto;
-    }
-
-    // Dla miast z predefiniowanym planem, opcjonalnie pobieramy najpopularniejsze atrakcje z Places
-    if (dest.hasPredefinedPlan && GOOGLE_API_KEY && !GOOGLE_API_KEY.includes('TYMCZASOWY')) {
-      try {
-        const placesRes = await fetch(
-          `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${dest.lat},${dest.lon}&radius=15000&type=tourist_attraction&key=${GOOGLE_API_KEY}`
-        );
-        const placesData = await placesRes.json();
-
-        if (placesData.status === 'OK' && placesData.results && placesData.results.length > 0) {
-          const sortedPlaces = placesData.results.sort(
-            (a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0)
-          );
-
-          const tripDays = dest.proposedTrip?.durationDays || 2;
-          const placesNeeded = tripDays * 3;
-          const topPlaces = sortedPlaces.slice(0, placesNeeded);
-
-          const totalReviews = topPlaces.reduce((acc: number, val: any) => acc + (val.user_ratings_total || 0), 0);
-          const avgReviewsPerDay = totalReviews / tripDays;
-
-          let crowdLevel = 'Umiarkowany ruch turystyczny';
-          if (avgReviewsPerDay > 50000) crowdLevel = 'Bardzo popularne (duży tłum) - rezerwuj bilety wcześniej!';
-          else if (avgReviewsPerDay < 15000) crowdLevel = 'Spokojniejsza okolica, mniej turystów';
-
-          const itinerary: TripDay[] = [];
-          for (let i = 0; i < tripDays; i++) {
-            const dailyAttractions = topPlaces.slice(i * 3, (i + 1) * 3).map((p: any) => p.name);
-            if (dailyAttractions.length > 0) {
-              itinerary.push({
-                day: i + 1,
-                title: `Dzień ${i + 1}: Odkrywanie miasta`,
-                attractions: dailyAttractions,
-              });
-            }
-          }
-
-          if (dest.proposedTrip) {
-            dest.proposedTrip.crowdLevel = crowdLevel;
-            if (itinerary.length > 0) {
-              dest.proposedTrip.itinerary = itinerary;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn(`Błąd dodatkowych szczegółów Google Places dla ${dest.city}:`, e);
+  const pickFromCategory = (filterFn: (d: LiveDestination) => boolean, count: number) => {
+    const matching = weatherPassed.filter(filterFn);
+    let added = 0;
+    for (const d of matching) {
+      const key = d.city.toLowerCase().trim();
+      if (!seenSelectedCities.has(key)) {
+        seenSelectedCities.add(key);
+        selectedCities.push(d);
+        added++;
+        if (added >= count) break;
       }
     }
+  };
 
-    finalRecommendations.push(dest);
+  // 1. Minimum 5 gotowych planów lotniczych (Rzym, Barcelona, Paryż, Lizbona itd.)
+  pickFromCategory((d) => d.hasPredefinedPlan && !d.isDayTrip && d.recommendedTransport === 'flight', 5);
+  // 2. Minimum 4 jednodniówki bez noclegu autem (Kazimierz Dolny, Żelazowa Wola, Ojcowski Park itd.)
+  pickFromCategory((d) => !!d.isDayTrip, 4);
+  // 3. Minimum 3 gotowe wyjazdy regionalne (Gdańsk, Kraków, Toruń, Zakopane itd.)
+  pickFromCategory((d) => d.hasPredefinedPlan && !d.isDayTrip && d.recommendedTransport !== 'flight', 3);
+  // 4. Minimum 2 destynacje do ułożenia własnego planu w kreatorze (Bari, Zadar itd.)
+  pickFromCategory((d) => !d.hasPredefinedPlan, 2);
+  // 5. Dopełniamy pozostałymi najlepszymi pogodowo destynacjami do 16
+  for (const d of weatherPassed) {
+    const key = d.city.toLowerCase().trim();
+    if (!seenSelectedCities.has(key)) {
+      seenSelectedCities.add(key);
+      selectedCities.push(d);
+      if (selectedCities.length >= 16) break;
+    }
   }
 
-  return finalRecommendations.length > 0 ? finalRecommendations : getFallbackRecommendations(userLat, userLon);
+  const topCities = selectedCities.slice(0, 16);
+
+  const finalRecommendations = await Promise.all(
+    topCities.map(async (dest) => {
+      // 1. Pobieramy prawdziwe zdjęcie lokalizacji z Google Places lub z curated list
+      try {
+        const googlePhoto = await fetchCityGooglePhoto(dest.city, dest.lat, dest.lon);
+        if (googlePhoto) {
+          dest.coverImage = googlePhoto;
+        }
+      } catch (e) {
+        console.warn(`[Places Photo] Błąd dla ${dest.city}:`, e);
+      }
+
+      // 2. Dla miast z predefiniowanym planem, pobieramy najpopularniejsze atrakcje z Places
+      if (dest.hasPredefinedPlan && GOOGLE_API_KEY && !GOOGLE_API_KEY.includes('TYMCZASOWY')) {
+        try {
+          const placesRes = await fetchWithTimeout(
+            `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${dest.lat},${dest.lon}&radius=15000&type=tourist_attraction&key=${GOOGLE_API_KEY}`,
+            3500
+          );
+          const placesData = await placesRes.json();
+
+          if (placesData.status === 'OK' && Array.isArray(placesData.results) && placesData.results.length > 0) {
+            const excludedKeywords = ['zoo', 'safari', 'aquarium', 'oceanarium', 'papugarnia', 'fokarium', 'zwierząt', 'animal'];
+            const excludedTypes = new Set(['zoo', 'aquarium', 'amusement_park', 'bowling_alley', 'campground', 'casino', 'pet_store', 'rv_park']);
+
+            const cleanPlaces = placesData.results.filter((p: any) => {
+              const nameLower = (p.name || '').toLowerCase();
+              const hasBadKeyword = excludedKeywords.some(kw => nameLower.includes(kw));
+              const hasBadType = Array.isArray(p.types) && p.types.some((t: string) => excludedTypes.has(t));
+              return !hasBadKeyword && !hasBadType;
+            });
+
+            const poolToUse = cleanPlaces.length > 0 ? cleanPlaces : placesData.results;
+            const sortedPlaces = poolToUse.sort(
+              (a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0)
+            );
+
+            const tripDays = dest.proposedTrip?.durationDays || 2;
+            const placesNeeded = tripDays * 3;
+            const topPlaces = sortedPlaces.slice(0, placesNeeded);
+
+            const totalReviews = topPlaces.reduce((acc: number, val: any) => acc + (val.user_ratings_total || 0), 0);
+            const avgReviewsPerDay = totalReviews / tripDays;
+
+            let crowdLevel = 'Umiarkowany ruch turystyczny';
+            if (avgReviewsPerDay > 50000) crowdLevel = 'Bardzo popularne (duży tłum) - rezerwuj bilety wcześniej!';
+            else if (avgReviewsPerDay < 15000) crowdLevel = 'Spokojniejsza okolica, mniej turystów';
+
+            const placesWithCoords = topPlaces.map((p: any) => ({
+              name: p.name,
+              lat: p.geometry?.location?.lat,
+              lon: p.geometry?.location?.lng,
+            }));
+
+            const itinerary = buildOptimizedExploreItinerary(placesWithCoords, tripDays, dest.city);
+
+            if (dest.proposedTrip) {
+              dest.proposedTrip.crowdLevel = crowdLevel;
+              if (itinerary.length > 0) {
+                dest.proposedTrip.itinerary = itinerary;
+              }
+            }
+          }
+        } catch (e) {
+          // cichy fallback do istniejącego szablonu
+        }
+      }
+
+      return dest;
+    })
+  );
+
+  const resultsToReturn = finalRecommendations.length > 0 ? finalRecommendations : getFallbackRecommendations(userLat, userLon);
+
+  // Zapisujemy w trwałym cache AsyncStorage dla błyskawicznego otwierania
+  try {
+    await AsyncStorage.setItem('@destivo_cached_explore_recommendations_v2', JSON.stringify(resultsToReturn));
+    await AsyncStorage.setItem('@destivo_cached_explore_recommendations_v3', JSON.stringify(resultsToReturn));
+  } catch {}
+
+  return resultsToReturn;
 }

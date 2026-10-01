@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,12 +19,14 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations } from '../i18n/translations';
 import { generateLiveRecommendations, LiveDestination } from '../lib/liveExplore';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
 import { parseTripDate } from './TripsListScreen';
@@ -32,13 +34,19 @@ import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import { insertTimelineEventIntelligently } from '../lib/routeOptimization';
 import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
-import * as Notifications from 'expo-notifications';
 import {
   ProximityCheckResult,
   findActiveTicketForTrip,
   scheduleLocalDepartureNotification,
   dismissExpiredDepartureNotifications,
 } from '../lib/proximityAlertService';
+import {
+  fetchLiveExchangeRates,
+  formatRatesUpdatedTime,
+  convertCurrencyWithRates,
+  DEFAULT_EXCHANGE_RATES,
+} from '../lib/currencyService';
+import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
@@ -327,11 +335,11 @@ const getTripDayNumber = (startDateStr: string) => {
   return Math.max(1, diffDays);
 };
 
-const convertCurrency = (val: string, from: string, to: string) => {
+const convertCurrencyFallback = (val: string, from: string, to: string) => {
   const num = parseFloat(val);
   if (isNaN(num) || num < 0) return '';
-  const fromRate = EXCHANGE_RATES[from] || 1.0;
-  const toRate = EXCHANGE_RATES[to] || 1.0;
+  const fromRate = DEFAULT_EXCHANGE_RATES[from] || 1.0;
+  const toRate = DEFAULT_EXCHANGE_RATES[to] || 1.0;
   const res = (num * fromRate) / toRate;
   return res >= 100 ? res.toFixed(1) : res.toFixed(2);
 };
@@ -347,9 +355,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   const [recommendations, setRecommendations] = useState<LiveDestination[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'regional' | 'flights'>('all');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'dayTrips' | 'regional' | 'flights'>('all');
 
   const displayedRecommendations = useMemo(() => {
+    if (selectedFilter === 'dayTrips') {
+      return recommendations.filter((dest) => dest.isDayTrip);
+    }
     if (selectedFilter === 'regional') {
       return recommendations.filter((dest) => dest.recommendedTransport === 'car' || dest.recommendedTransport === 'train');
     }
@@ -375,6 +386,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [manualTime, setManualTime] = useState('');
 
   // Stany dla Kalkulatora Walut
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
+  const [ratesLastUpdated, setRatesLastUpdated] = useState<Date>(new Date());
+  const [enrichedSuggestions, setEnrichedSuggestions] = useState<Array<{ id: string; name: string; subtitle?: string; imageUrl?: string }>>([]);
   const [fromCurrency, setFromCurrency] = useState('EUR');
   const [toCurrency, setToCurrency] = useState('PLN');
   const [fromAmount, setFromAmount] = useState('100');
@@ -383,6 +397,25 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [currencySelectingSide, setCurrencySelectingSide] = useState<'FROM' | 'TO'>('FROM');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Pobieranie kursów walut na żywo z open.er-api.com
+  useEffect(() => {
+    let isMounted = true;
+    fetchLiveExchangeRates().then((data) => {
+      if (isMounted) {
+        setExchangeRates(data.rates);
+        setRatesLastUpdated(data.lastUpdated);
+        if (fromAmount) {
+          setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
+        }
+      }
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
+
+  const convertCurrency = useCallback((val: string, from: string, to: string) => {
+    return convertCurrencyWithRates(val, from, to, exchangeRates);
+  }, [exchangeRates]);
 
   // Stan dla alertu zbliżeniowego i szybkiego podglądu biletu
   const [isQuickPassVisible, setIsQuickPassVisible] = useState(false);
@@ -469,9 +502,36 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   useEffect(() => {
     async function loadExplore() {
+      // 1. Usunięcie starego cache v1 ze starymi/losowymi zdjęciami
+      try {
+        await AsyncStorage.removeItem('@destivo_cached_explore_recommendations_v1');
+      } catch {}
+
+      // 2. Błyskawiczne wczytanie z pamięci cache v3 lub v2 (0 ms oczekiwania dla użytkownika)
+      try {
+        const cached = (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v3')) ||
+                       (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v2'));
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const sanitized = parsed.map((item: any) => {
+              if (!item.coverImage) {
+                return { ...item, coverImage: getCuratedCityFallback(item.city) };
+              }
+              return item;
+            });
+            setRecommendations(sanitized);
+            setLoading(false);
+          }
+        }
+      } catch {}
+
+      // 3. Odświeżenie w tle najświeższych danych bezpośrednio z Google Places
       try {
         const liveData = await generateLiveRecommendations();
-        setRecommendations(liveData);
+        if (Array.isArray(liveData) && liveData.length > 0) {
+          setRecommendations(liveData);
+        }
       } catch (error) {
         console.warn(error);
       } finally {
@@ -536,7 +596,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             
             // Ekstrakcja wydarzeń do osi czasu z JSONa
             const attractionsData = JSON.parse(currentFound.attractions_data || '{}');
-            let events = attractionsData.customTimeline || [];
+            let events = (attractionsData.customTimeline || []).map((ev: any) => {
+              // Czyszczenie ewentualnego sztucznego opisu 'ok'
+              if (ev.type === 'LODGING' && ev.subtitle && ['ok', 'brak', 'none', '-'].includes(ev.subtitle.trim().toLowerCase())) {
+                return { ...ev, subtitle: '' };
+              }
+              return ev;
+            });
             
             // Jeśli nie ma customowej osi, generujemy prowizoryczną na podstawie danych
             if (events.length === 0) {
@@ -546,9 +612,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               const outboundTime = transportDetails.outboundDepartureTime || '08:00';
               const outboundSubtitle = transportDetails.outboundDepartureLocation || transportData.selectedOption?.provider || t.defaultTransportSubtitle;
               
+              const rawLodgingAddr = (lodgingData.lodgingAddress || currentFound.accommodation_address || '').trim();
+              const cleanLodgingAddr = !['ok', 'brak', 'none', '-'].includes(rawLodgingAddr.toLowerCase()) ? rawLodgingAddr : '';
+
               events = [
                 { id: '1', type: 'DEPARTURE', title: t.defaultDepartureTitle.replace('{{destination}}', currentFound.destination), timeStr: outboundTime, dateStr: currentFound.start_date, subtitle: outboundSubtitle },
-                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: transportDetails.outboundArrivalTime || '14:00', dateStr: currentFound.start_date, subtitle: lodgingData.lodgingAddress || t.defaultLodgingSubtitle },
+                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: transportDetails.outboundArrivalTime || '14:00', dateStr: currentFound.start_date, subtitle: cleanLodgingAddr || t.defaultLodgingSubtitle },
               ];
               
               const selectedAttrs = attractionsData.selected || [];
@@ -559,6 +628,28 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 const formattedHour = String(attractionHour).padStart(2, '0');
                 events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attrTitle, timeStr: `${formattedHour}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
               });
+
+              // Dodanie noclegów o 22:00 pomiędzy dniami podróży
+              const startD = parsePickerDate(currentFound.start_date);
+              const endD = parsePickerDate(currentFound.end_date || currentFound.start_date);
+              const diffTime = endD.getTime() - startD.getTime();
+              const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+              if (diffDays >= 1) {
+                for (let d = 0; d < diffDays; d++) {
+                  const nightDate = new Date(startD.getTime());
+                  nightDate.setDate(nightDate.getDate() + d);
+                  const formattedNightDate = `${String(nightDate.getDate()).padStart(2, '0')}-${String(nightDate.getMonth() + 1).padStart(2, '0')}-${nightDate.getFullYear()}`;
+                  events.push({
+                    id: `evt_night_${d}`,
+                    type: 'LODGING',
+                    title: t.lodgingNightTitle || 'Nocleg',
+                    subtitle: cleanLodgingAddr || t.defaultLodgingSubtitle,
+                    dateStr: formattedNightDate,
+                    timeStr: '22:00',
+                  });
+                }
+              }
             }
             setActiveTimeline(events);
 
@@ -712,6 +803,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
     return candidates;
   }, [activeTrip, activeTimeline, language]);
+
+  // Wzbogacanie propozycji z okolicy o prawdziwe zdjęcia z Google Places
+  useEffect(() => {
+    let isCancelled = false;
+    if (availableSuggestions.length > 0) {
+      setEnrichedSuggestions(availableSuggestions);
+      enrichAttractionsWithGooglePhotos(availableSuggestions, activeTrip?.destination || '')
+        .then((enriched) => {
+          if (!isCancelled) {
+            setEnrichedSuggestions(enriched);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setEnrichedSuggestions([]);
+    }
+    return () => { isCancelled = true; };
+  }, [availableSuggestions, activeTrip?.destination]);
 
   const handleOpenAddModal = () => {
     setManualDate(activeTrip?.start_date || '');
@@ -982,12 +1091,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   // WIDOK 1: TRWAJĄCA PODRÓŻ (REFRACTORED DESIGN)
   // ==========================================
   if (activeTrip) {
-    const currentRate = (EXCHANGE_RATES[fromCurrency] || 1) / (EXCHANGE_RATES[toCurrency] || 1);
+    const currentRate = (exchangeRates[fromCurrency] || 1) / (exchangeRates[toCurrency] || 1);
     const rateFormatted = currentRate < 0.05 ? currentRate.toFixed(4) : currentRate.toFixed(2);
-    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • Zaktualizowano 10 min temu')
+    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • Zaktualizowano: {{time}}')
       .replace('{{from}}', fromCurrency)
       .replace('{{rate}}', rateFormatted)
-      .replace('{{to}}', toCurrency);
+      .replace('{{to}}', toCurrency)
+      .replace('{{time}}', formatRatesUpdatedTime(ratesLastUpdated, language));
 
     const emergencyNum = getEmergencyNumber(activeTrip.destination);
     const destinationLabel = destinationNames[activeTrip.destination] || activeTrip.destination || (t.tripFallback || (language === 'pl' ? 'Wyprawa' : 'Trip'));
@@ -1004,12 +1114,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             bounces={true} 
             contentContainerStyle={{ 
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 320 : keyboardHeight + 80) 
+                ? (Platform.OS === 'android' ? 420 : keyboardHeight + 100) 
                 : 110 
             }} 
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
           >
           
           {/* LOGO DESTIVO NA GÓRZE NA ŚRODKU */}
@@ -1096,7 +1206,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 const isFuture = relIndex > 0;
                 const isPast = false;
                 const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
-                const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
+                const rawSub = item.subtitle || item.description || '';
+                const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.trim().toLowerCase());
+                const eventSubtitle = isDummySub
+                  ? (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle)
+                  : (rawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
 
                 return (
                   <View key={item.id || relIndex} style={styles.timelineRow}>
@@ -1378,7 +1492,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                         const originalIndex = activeTimeline.findIndex(e => e.id === item.id);
                         const isExpanded = expandedEventId === item.id;
                         const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
-                        const eventSubtitle = item.subtitle || item.description || (item.type === 'LODGING' ? t.defaultLodgingSubtitle : t.defaultAttractionSubtitle);
+                        const rawSub = item.subtitle || item.description || '';
+                        const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.trim().toLowerCase());
+                        const eventSubtitle = isDummySub
+                          ? (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle)
+                          : (rawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
 
                         return (
                           <View key={item.id || `past_${pIdx}`} style={styles.timelineRow}>
@@ -1612,9 +1730,20 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.modalOverlay}
+            style={[
+              styles.modalOverlay,
+              isKeyboardVisible && {
+                justifyContent: 'flex-start',
+                paddingTop: Platform.OS === 'android' ? 36 : 48,
+              }
+            ]}
           >
-            <View style={styles.addModalDialog}>
+            <View style={[
+              styles.addModalDialog,
+              isKeyboardVisible && {
+                maxHeight: Platform.OS === 'android' ? '75%' : '70%',
+              }
+            ]}>
               <View style={styles.modalHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="sparkles" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
@@ -1626,20 +1755,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               </View>
 
               <ScrollView 
-                style={{ maxHeight: isKeyboardVisible ? 320 : 480 }} 
-                contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 280 : 40 }}
+                style={{ flexShrink: 1 }} 
+                contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 60 : 30 }}
                 showsVerticalScrollIndicator={true}
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode="none"
               >
                 {/* SEKCJA 1: PROPOZYCJE Z OKOLICY */}
                 <View style={styles.addSectionWrap}>
                   <Text style={styles.addSectionTitle}>{t.suggestions || 'Propozycje z okolicy'}</Text>
                   <Text style={styles.addSectionSubtitle}>{t.suggestionsHint || 'Kliknij, aby błyskawicznie dodać do planu.'}</Text>
                   
-                  {availableSuggestions.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsScrollContent}>
-                      {availableSuggestions.map((sug) => (
+                  {(() => {
+                    const suggestionsToShow = enrichedSuggestions.length > 0 ? enrichedSuggestions : availableSuggestions;
+                    return suggestionsToShow.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsScrollContent}>
+                        {suggestionsToShow.map((sug) => (
                         <View key={sug.id} style={styles.suggestionCard}>
                           {sug.imageUrl ? (
                             <Image source={{ uri: sug.imageUrl }} style={styles.suggestionCardImage} />
@@ -1662,12 +1793,13 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           </View>
                         </View>
                       ))}
-                    </ScrollView>
-                  ) : (
-                    <View style={styles.noSuggestionsBox}>
-                      <Text style={styles.noSuggestionsText}>{t.noSuggestions || 'Brak więcej propozycji w okolicy.'}</Text>
-                    </View>
-                  )}
+                      </ScrollView>
+                    ) : (
+                      <View style={styles.noSuggestionsBox}>
+                        <Text style={styles.noSuggestionsText}>{t.noSuggestions || 'Brak więcej propozycji w okolicy.'}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
 
                 {/* SEKCJA 2: RĘCZNE DODAWANIE */}
@@ -1933,6 +2065,21 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
+                style={[styles.filterChip, selectedFilter === 'dayTrips' && styles.filterChipActive]}
+                onPress={() => setSelectedFilter('dayTrips')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="car-sport-outline"
+                  size={14}
+                  color={selectedFilter === 'dayTrips' ? '#0F172A' : '#94A3B8'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.filterChipText, selectedFilter === 'dayTrips' && styles.filterChipTextActive]}>
+                  {t.filterDayTrips || '1 dzień (autem)'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.filterChip, selectedFilter === 'regional' && styles.filterChipActive]}
                 onPress={() => setSelectedFilter('regional')}
                 activeOpacity={0.7}
@@ -1988,29 +2135,33 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     <View style={styles.cardTopBadgesRow}>
                       <View style={[
                         styles.planBadge,
-                        dest.hasPredefinedPlan
-                          ? styles.planBadgeReady
-                          : dest.recommendedTransport === 'train'
-                            ? styles.planBadgeTrain
-                            : dest.recommendedTransport === 'car'
-                              ? styles.planBadgeCar
-                              : styles.planBadgeDeal
+                        dest.isDayTrip
+                          ? styles.planBadgeDayTrip
+                          : dest.hasPredefinedPlan
+                            ? styles.planBadgeReady
+                            : dest.recommendedTransport === 'train'
+                              ? styles.planBadgeTrain
+                              : dest.recommendedTransport === 'car'
+                                ? styles.planBadgeCar
+                                : styles.planBadgeDeal
                       ]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           <Ionicons
-                            name={dest.hasPredefinedPlan ? "sparkles" : dest.recommendedTransport === 'train' ? "train" : dest.recommendedTransport === 'car' ? "car" : "airplane"}
+                            name={dest.isDayTrip ? "car-sport" : dest.hasPredefinedPlan ? "sparkles" : dest.recommendedTransport === 'train' ? "train" : dest.recommendedTransport === 'car' ? "car" : "airplane"}
                             size={12}
                             color="#FFFFFF"
                             style={{ marginRight: 4 }}
                           />
-                          <Text style={styles.planBadgeText}>
-                            {dest.hasPredefinedPlan
-                              ? t.readyPlanBadge
-                              : dest.recommendedTransport === 'train'
-                                ? t.routeTrainBadge
-                                : dest.recommendedTransport === 'car'
-                                  ? t.routeCarBadge
-                                  : t.routeFlightBadge}
+                          <Text style={[styles.planBadgeText, (dest.isDayTrip || dest.hasPredefinedPlan) && { color: '#FFFFFF' }]}>
+                            {dest.isDayTrip
+                              ? (t.dayTripBadge || '1 dzień • Bez noclegu')
+                              : dest.hasPredefinedPlan
+                                ? t.readyPlanBadge
+                                : dest.recommendedTransport === 'train'
+                                  ? t.routeTrainBadge
+                                  : dest.recommendedTransport === 'car'
+                                    ? t.routeCarBadge
+                                    : t.routeFlightBadge}
                           </Text>
                         </View>
                       </View>
@@ -2019,7 +2170,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Ionicons name="sunny-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
                             <Text style={styles.weatherText}>
-                              ~{dest.proposedTrip.estimatedTemp}°C • {dest.proposedTrip.startDate.slice(0, 5)} - {dest.proposedTrip.endDate.slice(0, 5)}
+                              ~{dest.proposedTrip.estimatedTemp}°C • {dest.isDayTrip ? `${dest.proposedTrip.startDate.slice(0, 5)} (1 dzień)` : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
                             </Text>
                           </View>
                         </View>
@@ -2072,20 +2223,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       <View style={styles.cardPlanFooterRow}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
                           <Ionicons
-                            name={dest.hasPredefinedPlan ? "sparkles-outline" : "construct-outline"}
+                            name={dest.isDayTrip ? "car-sport-outline" : dest.hasPredefinedPlan ? "sparkles-outline" : "construct-outline"}
                             size={14}
-                            color={dest.hasPredefinedPlan ? "#34D399" : "#F59E0B"}
+                            color={dest.isDayTrip ? "#F59E0B" : dest.hasPredefinedPlan ? "#34D399" : "#F59E0B"}
                             style={{ marginRight: 6 }}
                           />
                           <Text style={styles.cardPlanNotice}>
-                            {dest.hasPredefinedPlan
-                              ? (t.readyPlanDays || '{{days}}-dniowy gotowy plan wycieczki')
-                                  .replace('✨ ', '')
-                                  .replace(
-                                    '{{days}}',
-                                    String(dest.proposedTrip?.durationDays || 3)
-                                  )
-                              : (t.noPlanNotice || 'Wymaga własnego planu w kreatorze').replace('🛠️ ', '')}
+                            {dest.isDayTrip
+                              ? (t.dayTripPlanNotice || 'Jednodniowy wypad autem • Bez noclegu')
+                              : dest.hasPredefinedPlan
+                                ? (t.readyPlanDays || '{{days}}-dniowy gotowy plan wycieczki')
+                                    .replace('✨ ', '')
+                                    .replace(
+                                      '{{days}}',
+                                      String(dest.proposedTrip?.durationDays || 3)
+                                    )
+                                : (t.noPlanNotice || 'Wymaga własnego planu w kreatorze').replace('🛠️ ', '')}
                           </Text>
                         </View>
                         <Ionicons name="arrow-forward" size={15} color="#94A3B8" />
@@ -2227,6 +2380,10 @@ const styles = StyleSheet.create({
   planBadgeReady: {
     backgroundColor: 'rgba(16, 185, 129, 0.9)',
     borderColor: '#10B981',
+  },
+  planBadgeDayTrip: {
+    backgroundColor: 'rgba(217, 119, 6, 0.95)',
+    borderColor: '#D97706',
   },
   planBadgeTrain: {
     backgroundColor: 'rgba(99, 102, 241, 0.9)',

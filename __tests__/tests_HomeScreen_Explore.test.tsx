@@ -106,6 +106,29 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
         itinerary: [{ day: 1, title: 'Dzień 1', attractions: ['Brama Opatowska'] }],
       },
     },
+    {
+      id: 'kazimierz_01',
+      city: 'Kazimierz Dolny',
+      country: 'Polska',
+      lat: 51.3218,
+      lon: 21.9472,
+      coverImage: 'https://images.unsplash.com/photo-kazimierz.jpg',
+      shortDescription: 'Malownicze miasteczko nad Wisłą.',
+      transportCode: 'KAZ',
+      distanceKm: 145,
+      recommendedTransport: 'car' as const,
+      isDayTrip: true,
+      hasPredefinedPlan: true,
+      proposedTrip: {
+        startDate: '20.09.2026',
+        endDate: '20.09.2026',
+        durationDays: 1,
+        estimatedTemp: 21,
+        condition: 'Bez opadów, idealnie na zwiedzanie',
+        crowdLevel: 'Spokojnie',
+        itinerary: [{ day: 1, title: 'Dzień 1', attractions: ['Rynek w Kazimierzu Dolnym'] }],
+      },
+    },
   ];
 
   beforeEach(() => {
@@ -120,8 +143,8 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
     await waitFor(() => {
       expect(screen.getByText(/Alicja/i)).toBeTruthy();
       expect(screen.getByText(/Gdzie wyruszamy tym razem\?/i)).toBeTruthy();
-      expect(screen.getByText(/\+ Utwórz swoją własną podróż/i)).toBeTruthy();
-      expect(screen.getByText(/Przejdź do swoich podróży/i)).toBeTruthy();
+      expect(screen.getByText(/\+ Utwórz/i)).toBeTruthy();
+      expect(screen.getByText(/podróże/i)).toBeTruthy();
     });
   });
 
@@ -129,13 +152,13 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
     render(<HomeScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/\+ Utwórz swoją własną podróż/i)).toBeTruthy();
+      expect(screen.getByText(/\+ Utwórz/i)).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByText(/\+ Utwórz swoją własną podróż/i));
+    fireEvent.press(screen.getByText(/\+ Utwórz/i));
     expect(mockNavigation.navigate).toHaveBeenCalledWith('TripCreator');
 
-    fireEvent.press(screen.getByText(/Przejdź do swoich podróży/i));
+    fireEvent.press(screen.getByText(/podróże/i));
     expect(mockNavigation.navigate).toHaveBeenCalledWith('Trips');
   });
 
@@ -319,13 +342,13 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
       expect(screen.getByText('Sandomierz')).toBeTruthy();
     });
 
-    // Filtruj po "Blisko / Weekend"
-    fireEvent.press(screen.getByText(/Blisko \/ Weekend/i));
+    // Filtruj po "Blisko"
+    fireEvent.press(screen.getByText(/Blisko/i));
     expect(screen.getByText('Sandomierz')).toBeTruthy();
     expect(screen.queryByText('Rzym')).toBeNull();
 
-    // Filtruj po "Samolotem"
-    fireEvent.press(screen.getByText(/Samolotem/i));
+    // Filtruj po "Loty"
+    fireEvent.press(screen.getByText(/Loty|Samolotem/i));
     expect(screen.getByText('Rzym')).toBeTruthy();
     expect(screen.getByText('Bari')).toBeTruthy();
     expect(screen.queryByText('Sandomierz')).toBeNull();
@@ -646,6 +669,24 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
 
     fireEvent.press(screen.getByTestId('manual-date-picker-btn'));
     fireEvent.press(screen.getByTestId('manual-time-picker-btn'));
+  });
+
+  test('17. sekcja Explore wyświetla gotowe plany wycieczek oraz jednodniowe wypady bez noclegu (autem)', async () => {
+    render(<HomeScreen navigation={mockNavigation} />);
+
+    await waitFor(() => {
+      // Widoczne są zarówno wycieczki z gotowym planem (Rzym), jak i jednodniowy wypad autem (Kazimierz Dolny)
+      expect(screen.getByText('Rzym')).toBeTruthy();
+      expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
+      expect(screen.getByText(/1 dzień • Bez noclegu/i)).toBeTruthy();
+      expect(screen.getByText(/Jednodniowy wypad autem • Bez noclegu/i)).toBeTruthy();
+    });
+
+    // Filtruj po "1 dzień (autem)"
+    fireEvent.press(screen.getByText(/1 dzień \(autem\)/i));
+    expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
+    expect(screen.queryByText('Rzym')).toBeNull();
+    expect(screen.queryByText('Bari')).toBeNull();
   });
 });
 

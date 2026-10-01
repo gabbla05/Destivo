@@ -271,13 +271,13 @@ export const Step1DestinationScreen: React.FC<{ navigation?: any }> = ({
             { 
               paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 300 : keyboardHeight + 60) 
+                ? (Platform.OS === 'android' ? 420 : keyboardHeight + 80) 
                 : Math.max(insets.bottom, 20) + 30 
             }
           ]} 
           bounces={true}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
         >
           {/* PASEK POSTĘPU KREATORA */}
