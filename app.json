@@ -12,6 +12,10 @@
     },
     "android": {
       "package": "com.gabrynia67.destivo",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#0B1120"

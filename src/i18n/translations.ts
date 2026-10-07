@@ -528,7 +528,7 @@ export const translations = {
       errors: {
         fieldsRequired: 'Wypełnij wszystkie pola i zaakceptuj regulamin.',
         signUpFailed: 'Błąd podczas rejestracji. Spróbuj ponownie.',
-        networkError: 'Błąd połączenia z serwerem. Upewnij się, że masz połączenie z internetem',
+        networkError: 'Błąd połączenia z serwerem. Upewnij się, że masz połączenie z internetem oraz czy projekt na supabase.com nie został uśpiony (Paused).',
       },
     },
 

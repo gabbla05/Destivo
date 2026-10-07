@@ -242,8 +242,13 @@ export const LoginRegisterScreen: React.FC<LoginRegisterScreenProps> = ({
         }
       }
     } catch (error: any) {
-      const msg = error?.message || '';
-      if (msg.toLowerCase().includes('network request failed')) {
+      const msg = (error?.message || '').toLowerCase();
+      if (
+        msg.includes('network request failed') ||
+        msg.includes('failed to fetch') ||
+        msg.includes('fetch failed') ||
+        msg.includes('network')
+      ) {
         Alert.alert('DESTIVO', t.errors.networkError);
       } else {
         Alert.alert('DESTIVO', error.message || t.errors.signUpFailed);
