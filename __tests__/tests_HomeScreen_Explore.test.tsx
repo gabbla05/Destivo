@@ -137,29 +137,24 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
     (generateLiveRecommendations as jest.Mock).mockResolvedValue(mockRecommendations);
   });
 
-  test('1. renderuje powitanie użytkownika i przyciski nawigacji', async () => {
+  test('1. renderuje powitanie użytkownika i nagłówek', async () => {
     render(<HomeScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Alicja/i)).toBeTruthy();
       expect(screen.getByText(/Gdzie wyruszamy tym razem\?/i)).toBeTruthy();
-      expect(screen.getByText(/\+ Utwórz/i)).toBeTruthy();
-      expect(screen.getByText(/podróże/i)).toBeTruthy();
     });
   });
 
-  test('2. kliknięcie przycisków głównych kieruje odpowiednio do kreatora i listy podróży', async () => {
+  test('2. HomeScreen nie renderuje usuniętych przycisków Utwórz podróż i Twoje podróże', async () => {
     render(<HomeScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/\+ Utwórz/i)).toBeTruthy();
+      expect(screen.getByText(/Alicja/i)).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByText(/\+ Utwórz/i));
-    expect(mockNavigation.navigate).toHaveBeenCalledWith('TripCreator');
-
-    fireEvent.press(screen.getByText(/podróże/i));
-    expect(mockNavigation.navigate).toHaveBeenCalledWith('Trips');
+    expect(screen.queryByText(/\+ Utwórz/i)).toBeNull();
+    expect(screen.queryByText(/Twoje podróże/i)).toBeNull();
   });
 
   test('3. renderuje kafelki rekomendacji z poprawnymi danymi (Gotowy plan vs Wymaga własnego planu)', async () => {

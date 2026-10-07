@@ -452,7 +452,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-umbrella',
       category: 'weather',
       title: tItems['weather-umbrella'].title,
-      reason: tItems['weather-umbrella'].reason.replace('{{dest}}', dest || (lang === 'pl' ? 'docelowym' : 'destination')),
+      reason: (tItems['weather-umbrella']?.reason || '').replace('{{dest}}', dest || (lang === 'pl' ? 'docelowym' : 'destination')),
       checked: false,
       icon: 'umbrella-outline',
     });
@@ -461,7 +461,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-rain-jacket',
       category: 'weather',
       title: tItems['weather-rain-jacket'].title,
-      reason: tItems['weather-rain-jacket'].reason,
+      reason: tItems['weather-rain-jacket']?.reason || '',
       checked: false,
       icon: 'rainy-outline',
     });
@@ -470,7 +470,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-waterproof-shoes',
       category: 'weather',
       title: tItems['weather-waterproof-shoes'].title,
-      reason: tItems['weather-waterproof-shoes'].reason,
+      reason: tItems['weather-waterproof-shoes']?.reason || '',
       checked: false,
       icon: 'footsteps-outline',
     });
@@ -479,7 +479,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-waterproof-pouch',
       category: 'weather',
       title: tItems['weather-waterproof-pouch'].title,
-      reason: tItems['weather-waterproof-pouch'].reason,
+      reason: tItems['weather-waterproof-pouch']?.reason || '',
       checked: false,
       icon: 'shield-outline',
     });
@@ -490,7 +490,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-warm-jacket',
       category: 'weather',
       title: tItems['weather-warm-jacket'].title,
-      reason: tItems['weather-warm-jacket'].reason.replace('{{temp}}', String(weather.temp)),
+      reason: (tItems['weather-warm-jacket']?.reason || '').replace('{{temp}}', String(weather.temp)),
       checked: false,
       icon: 'snow-outline',
     });
@@ -499,7 +499,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-winter-hat-scarf',
       category: 'weather',
       title: tItems['weather-winter-hat-scarf'].title,
-      reason: tItems['weather-winter-hat-scarf'].reason,
+      reason: tItems['weather-winter-hat-scarf']?.reason || '',
       checked: false,
       icon: 'thermometer-outline',
     });
@@ -510,7 +510,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       title: tItems['weather-warm-sweater'].title,
       quantity: Math.max(1, Math.min(Math.round(duration / 3), 3)),
       unit: tUnits.pcs,
-      reason: tItems['weather-warm-sweater'].reason.replace('{{temp}}', String(weather.temp)),
+      reason: (tItems['weather-warm-sweater']?.reason || '').replace('{{temp}}', String(weather.temp)),
       checked: false,
       icon: 'shirt-outline',
     });
@@ -537,7 +537,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-sunscreen',
       category: 'weather',
       title: tItems['weather-sunscreen'].title,
-      reason: tItems['weather-sunscreen'].reason.replace('{{temp}}', String(weather.temp)),
+      reason: (tItems['weather-sunscreen']?.reason || '').replace('{{temp}}', String(weather.temp)),
       checked: false,
       icon: 'sunny-outline',
     });
@@ -546,7 +546,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-sunglasses',
       category: 'weather',
       title: tItems['weather-sunglasses'].title,
-      reason: tItems['weather-sunglasses'].reason,
+      reason: tItems['weather-sunglasses']?.reason || '',
       checked: false,
       icon: 'glasses-outline',
     });
@@ -555,7 +555,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-sun-hat',
       category: 'weather',
       title: tItems['weather-sun-hat'].title,
-      reason: tItems['weather-sun-hat'].reason,
+      reason: tItems['weather-sun-hat']?.reason || '',
       checked: false,
       icon: 'sunny-outline',
     });
@@ -564,7 +564,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-swimwear',
       category: 'weather',
       title: tItems['weather-swimwear'].title,
-      reason: tItems['weather-swimwear'].reason.replace('{{temp}}', String(weather.temp)),
+      reason: (tItems['weather-swimwear']?.reason || '').replace('{{temp}}', String(weather.temp)),
       checked: false,
       icon: 'water-outline',
     });
@@ -573,7 +573,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-water-bottle',
       category: 'weather',
       title: tItems['weather-water-bottle'].title,
-      reason: tItems['weather-water-bottle'].reason,
+      reason: tItems['weather-water-bottle']?.reason || '',
       checked: false,
       icon: 'fitness-outline',
     });
@@ -582,7 +582,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'weather-light-jacket',
       category: 'weather',
       title: tItems['weather-light-jacket'].title,
-      reason: tItems['weather-light-jacket'].reason.replace('{{temp}}', String(weather.temp)),
+      reason: (tItems['weather-light-jacket']?.reason || '').replace('{{temp}}', String(weather.temp)),
       checked: false,
       icon: 'shirt-outline',
     });
@@ -607,7 +607,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
     title: tItems['clothing-underwear'].title,
     quantity: underwearCount,
     unit: tUnits.pcs,
-    reason: tItems['clothing-underwear'].reason.replace('{{days}}', String(duration)),
+    reason: (tItems['clothing-underwear']?.reason || '').replace('{{days}}', String(duration)),
     checked: false,
     icon: 'body-outline',
   });
@@ -619,7 +619,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
     title: tItems['clothing-socks'].title,
     quantity: socksCount,
     unit: tUnits.pairs,
-    reason: tItems['clothing-socks'].reason.replace('{{days}}', String(duration)),
+    reason: (tItems['clothing-socks']?.reason || '').replace('{{days}}', String(duration)),
     checked: false,
     icon: 'footsteps-outline',
   });
@@ -631,7 +631,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
     title: tItems['clothing-tshirts'].title,
     quantity: tshirtsCount,
     unit: tUnits.pcs,
-    reason: tItems['clothing-tshirts'].reason.replace('{{days}}', String(duration)),
+    reason: (tItems['clothing-tshirts']?.reason || '').replace('{{days}}', String(duration)),
     checked: false,
     icon: 'shirt-outline',
   });
@@ -643,7 +643,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
     title: weather.temp >= 23 ? tItems['clothing-pants-warm'].title : tItems['clothing-pants-default'].title,
     quantity: pantsCount,
     unit: tUnits.pcs,
-    reason: tItems['clothing-pants-default'].reason.replace('{{days}}', String(duration)),
+    reason: (tItems['clothing-pants-default']?.reason || '').replace('{{days}}', String(duration)),
     checked: false,
     icon: 'cut-outline',
   });
@@ -655,7 +655,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
     title: tItems['clothing-sleepwear'].title,
     quantity: sleepwearCount,
     unit: tUnits.set,
-    reason: tItems['clothing-sleepwear'].reason.replace('{{days}}', String(duration)),
+    reason: (tItems['clothing-sleepwear']?.reason || '').replace('{{days}}', String(duration)),
     checked: false,
     icon: 'moon-outline',
   });
@@ -747,7 +747,7 @@ export const generatePackingList = (params: PackingListParams): PackingItem[] =>
       id: 'electronics-adapter',
       category: 'electronics',
       title: tItems['electronics-adapter'].title.replace('{{type}}', adapterCheck.type),
-      reason: tItems['electronics-adapter'].reason.replace('{{dest}}', dest),
+      reason: (tItems['electronics-adapter']?.reason || '').replace('{{dest}}', dest),
       checked: false,
       isWarning: true,
       icon: 'flash-outline',
@@ -926,7 +926,7 @@ export const addCustomPackingItem = async (
       id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       category,
       title: title.trim(),
-      reason: t.customItemDefaultReason || (language === 'pl' ? 'Dodano ręcznie przez Ciebie' : 'Added manually by you'),
+      reason: t.customItemDefaultReason ?? '',
       checked: false,
       isCustom: true,
       icon: 'bookmark-outline',

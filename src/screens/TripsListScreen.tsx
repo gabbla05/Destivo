@@ -471,6 +471,15 @@ export const TripsListScreen = ({ navigation }: any) => {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t.title}</Text>
+        <TouchableOpacity
+          style={styles.addTripBtn}
+          onPress={() => navigation?.navigate('TripCreator')}
+          activeOpacity={0.8}
+          testID="trips-add-trip-button"
+        >
+          <Ionicons name="add" size={18} color="#0F172A" />
+          <Text style={styles.addTripBtnText}>{t.addTrip}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ZAKŁADKI UPCOMING / ARCHIVED */}
@@ -528,7 +537,7 @@ export const TripsListScreen = ({ navigation }: any) => {
           <Text style={styles.emptyText}>{t.empty}</Text>
           <TouchableOpacity 
             style={styles.primaryButton}
-            onPress={() => navigation.navigate('Explore')}
+            onPress={() => navigation?.navigate('TripCreator')}
             activeOpacity={0.8}
           >
             <Text style={styles.primaryButtonText}>{t.plan}</Text>
@@ -559,6 +568,13 @@ export const TripsListScreen = ({ navigation }: any) => {
               {upcomingTrips.length === 0 ? (
                 <View style={styles.centerBox}>
                   <Text style={styles.emptyText}>{t.noUpcoming}</Text>
+                  <TouchableOpacity 
+                    style={[styles.primaryButton, { marginBottom: 14 }]}
+                    onPress={() => navigation?.navigate('TripCreator')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.primaryButtonText}>{t.addTrip}</Text>
+                  </TouchableOpacity>
                   {pastTrips.length > 0 && (
                     <TouchableOpacity 
                       style={styles.goToArchivedBtn}
@@ -814,8 +830,30 @@ const styles = StyleSheet.create({
     height: 28,
   },
 
-  header: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 10, backgroundColor: '#0B1120' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 10,
+    backgroundColor: '#0B1120',
+  },
   headerTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '800' },
+  addTripBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    gap: 4,
+  },
+  addTripBtnText: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   
   // Zakładki
   tabContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 12, gap: 10 },

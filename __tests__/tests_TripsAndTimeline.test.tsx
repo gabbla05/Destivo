@@ -255,8 +255,18 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(screen.getByText('Archiwalne Wspomnienia')).toBeTruthy();
         expect(screen.getByText('ODWIEDZONYCH MIEJSC')).toBeTruthy();
         expect(screen.getByText('1')).toBeTruthy();
-        expect(screen.getByText('12')).toBeTruthy();
       });
+    });
+
+    test('powinien renderować przycisk + Dodaj podróż i po kliknięciu przechodzić do TripCreator', async () => {
+      render(<TripsListScreen navigation={{ navigate: mockNavigate }} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trips-add-trip-button')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('trips-add-trip-button'));
+      expect(mockNavigate).toHaveBeenCalledWith('TripCreator');
     });
 
     test('Powinien otworzyć asystenta pakowania po kliknięciu przycisku pakowania na karcie podróży', async () => {

@@ -9,14 +9,14 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
-  Image,
+  ImageBackground,
   Dimensions,
   Platform,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -28,12 +28,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
-import { checkTripCollision } from '../../lib/tripCollision';
-import {
-  scheduleLocalDepartureNotification,
-  setupGeofencingForTrip,
-} from '../../lib/proximityAlertService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as Crypto from 'expo-crypto';
 
@@ -81,7 +75,6 @@ export const Step4AttractionsScreen = () => {
   const { language, isGuest } = useAuthStore();
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
-  const insets = useSafeAreaInsets();
   
   const {
     tripName,
@@ -104,6 +97,8 @@ export const Step4AttractionsScreen = () => {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GooglePlaceAttraction[]>([]);
   
+  // Sortowanie wg odległości (domyślnie rosnąco od najbliższych)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Stan wybranej atrakcji na mapie / w karuzeli
   const [selectedAttractionId, setSelectedAttractionId] = useState<string | null>(null);
@@ -159,6 +154,7 @@ export const Step4AttractionsScreen = () => {
   }, [lodgingCoords, radius]);
 
   const fetchGooglePlacesAttractions = async () => {
+    
     if (!lodgingCoords) return;
     setLoading(true);
 
@@ -224,13 +220,22 @@ export const Step4AttractionsScreen = () => {
     }
   };
 
-  // Lista nieodznaczonych atrakcji (automatycznie posortowana rosnąco wg odległości)
+  // Przełącznik sortowania wg odległości (rosnąco / malejąco)
+  const toggleSortOrder = () => {
+    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    setActiveCardIndex(0);
+    if (carouselScrollViewRef.current) {
+      carouselScrollViewRef.current.scrollTo({ x: 0, animated: true });
+    }
+  };
+
+  // Lista nieodznaczonych atrakcji (gdy dodasz atrakcję, znika z kolejki wyboru, a na jej miejsce wchodzi kolejna)
   const unselectedResults = useMemo(() => {
     const unselected = results.filter((item) => !storeAttractions.selected.includes(item.name));
-    return unselected.sort((a, b) => a.distance - b.distance);
-  }, [results, storeAttractions.selected]);
+    return unselected.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
+  }, [results, storeAttractions.selected, sortOrder]);
 
-  // Lista już dodanych atrakcji (automatycznie posortowana rosnąco wg odległości)
+  // Lista już dodanych atrakcji (gwarantowane pobieranie wszystkich dodanych elementów)
   const plannedResults = useMemo(() => {
     const list: GooglePlaceAttraction[] = [];
     storeAttractions.selected.forEach((name) => {
@@ -253,8 +258,8 @@ export const Step4AttractionsScreen = () => {
         });
       }
     });
-    return list.sort((a, b) => a.distance - b.distance);
-  }, [results, storeAttractions.selected, destination, lodgingCoords]);
+    return list.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
+  }, [results, storeAttractions.selected, destination, lodgingCoords, sortOrder]);
 
   // Lista aktualnie prezentowana na kafelkach
   const displayList = activeTab === 'discover' ? unselectedResults : plannedResults;
@@ -355,6 +360,21 @@ export const Step4AttractionsScreen = () => {
       }
 
       const tripId = Crypto.randomUUID();
+      
+      const extendedAttractions = {
+        selected: storeAttractions.selected,
+        pool: results.map((r) => ({
+          id: r.id,
+          name: r.name,
+          imageUrl: r.imageUrl,
+          address: r.address,
+          rating: r.rating,
+          lat: r.lat,
+          lon: r.lon,
+        })),
+      };
+
+      const attractionsJson = JSON.stringify(extendedAttractions);
 
       const formatToDBDate = (dateStr: string) => {
         if (!dateStr) return '';
@@ -367,200 +387,14 @@ export const Step4AttractionsScreen = () => {
         return normalized;
       };
 
-      const formatForDisplayDate = (dateStr: string) => {
-        if (!dateStr) return '';
-        const parts = dateStr.replace(/\./g, '-').split('-');
-        if (parts.length === 3) {
-          if (parts[0].length === 4) {
-            return `${parts[2]}-${parts[1]}-${parts[0]}`;
-          }
-          return dateStr;
-        }
-        return dateStr;
-      };
-
-      const parseDateHelper = (dateStr: string | null, timeStr?: string): Date => {
-        if (!dateStr) return new Date();
-        const clean = dateStr.replace(/\./g, '-');
-        const parts = clean.split('-');
-        let year: number, month: number, day: number;
-        if (parts[0].length === 4) {
-          year = Number(parts[0]);
-          month = Number(parts[1]) - 1;
-          day = Number(parts[2]);
-        } else {
-          day = Number(parts[0]);
-          month = Number(parts[1]) - 1;
-          year = Number(parts[2]);
-        }
-        const date = new Date(year, month, day);
-        if (timeStr) {
-          const cleanTime = timeStr.trim().replace(/[.,]/g, ':');
-          const [h, m] = cleanTime.split(':');
-          date.setHours(Number(h) || 0, Number(m) || 0, 0, 0);
-        }
-        return date;
-      };
-
-      const sanitizeTime = (timeStr?: string) => {
-        if (!timeStr) return '';
-        return timeStr.trim().replace(/[.,]/g, ':');
-      };
-
-      const timelineT = translations[language].timeline;
-      const outboundTime = sanitizeTime(transportDetails?.outboundDepartureTime) || '08:00';
-      const outboundLocation = transportDetails?.outboundDepartureLocation || origin || timelineT.home || 'Start';
-      const returnTime = sanitizeTime(transportDetails?.returnDepartureTime) || '12:00';
-      const returnLocation = transportDetails?.returnDepartureLocation || destination || '';
-
-      const initialTimeline: any[] = [];
-
-      // 1. Wyjazd (DEPARTURE)
-      const depDate = parseDateHelper(startDate, outboundTime);
-      initialTimeline.push({
-        id: 'evt_dep',
-        type: 'DEPARTURE',
-        title: (timelineT.departurePrefix || 'Wyjazd: {{origin}} ➔ {{destination}}')
-          .replace('{{origin}}', outboundLocation)
-          .replace('{{destination}}', destination),
-        subtitle: transportDetails?.outboundDepartureLocation || transport?.selectedOption?.provider || (transport?.selectedOption?.type ? transport.selectedOption.type.toUpperCase() : timelineT.departure || 'Wyjazd'),
-        dateStr: formatForDisplayDate(startDate),
-        timeStr: outboundTime,
-        parsedDate: depDate.toISOString(),
-      });
-
-      const cleanLodging = lodgingAddress && !['ok', 'brak', 'none', '-'].includes(lodgingAddress.trim().toLowerCase())
-        ? lodgingAddress.trim()
-        : '';
-
-      // 2. Zakwaterowanie (LODGING)
-      if (cleanLodging) {
-        const checkinTime = sanitizeTime(transportDetails?.outboundArrivalTime) || '14:00';
-        const lodgingDate = parseDateHelper(startDate, checkinTime);
-        initialTimeline.push({
-          id: 'evt_lodging',
-          type: 'LODGING',
-          title: timelineT.lodging || 'Zakwaterowanie',
-          subtitle: cleanLodging,
-          dateStr: formatForDisplayDate(startDate),
-          timeStr: checkinTime,
-          parsedDate: lodgingDate.toISOString(),
-        });
-      }
-
-      // 3. Atrakcje (ATTRACTIONS)
-      const selectedPool = results.map((r) => ({
-        id: r.id,
-        name: r.name,
-        imageUrl: r.imageUrl,
-        address: r.address,
-        rating: r.rating,
-        lat: r.lat,
-        lon: r.lon,
-      }));
-
-      storeAttractions.selected.forEach((attrName, idx) => {
-        const poolItem = selectedPool.find((p) => p.name === attrName);
-        const attrDate = parseDateHelper(startDate);
-        attrDate.setDate(attrDate.getDate() + (startDate === endDate ? 0 : 1));
-        const formattedAttrDate = `${String(attrDate.getDate()).padStart(2, '0')}-${String(attrDate.getMonth() + 1).padStart(2, '0')}-${attrDate.getFullYear()}`;
-        const attrHour = `${10 + (idx % 8)}:00`;
-        attrDate.setHours(10 + (idx % 8), 0, 0, 0);
-
-        initialTimeline.push({
-          id: `evt_attr_${idx}_${Date.now()}`,
-          type: 'ATTRACTION',
-          title: attrName,
-          subtitle: timelineT.sightseeing || 'Zwiedzanie',
-          dateStr: formattedAttrDate,
-          timeStr: attrHour,
-          parsedDate: attrDate.toISOString(),
-          lat: poolItem?.lat,
-          lon: poolItem?.lon,
-        });
-      });
-
-      // 4. Nocleg pomiędzy dniami podróży (godz. 22:00, user może edytować)
-      const startD = parseDateHelper(startDate);
-      const endD = parseDateHelper(endDate || startDate);
-      const diffTime = endD.getTime() - startD.getTime();
-      const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
-
-      if (diffDays >= 1) {
-        for (let d = 0; d < diffDays; d++) {
-          const nightDate = parseDateHelper(startDate, '22:00');
-          nightDate.setDate(nightDate.getDate() + d);
-          const formattedNightDate = `${String(nightDate.getDate()).padStart(2, '0')}-${String(nightDate.getMonth() + 1).padStart(2, '0')}-${nightDate.getFullYear()}`;
-
-          initialTimeline.push({
-            id: `evt_night_${d}_${Date.now()}`,
-            type: 'LODGING',
-            title: timelineT.lodgingNightTitle || 'Nocleg',
-            subtitle: cleanLodging,
-            dateStr: formattedNightDate,
-            timeStr: '22:00',
-            parsedDate: nightDate.toISOString(),
-          });
-        }
-      }
-
-      // 5. Powrót (RETURN)
-      if (endDate) {
-        const returnDate = parseDateHelper(endDate, returnTime);
-        initialTimeline.push({
-          id: 'evt_return',
-          type: 'RETURN',
-          title: (timelineT.returnPrefix || 'Powrót: {{destination}} ➔ {{origin}}')
-            .replace('{{destination}}', returnLocation)
-            .replace('{{origin}}', origin || timelineT.home || 'Koniec'),
-          subtitle: transportDetails?.returnDepartureLocation || timelineT.returnTrip || 'Podróż powrotna',
-          dateStr: formatForDisplayDate(endDate),
-          timeStr: returnTime,
-          parsedDate: returnDate.toISOString(),
-        });
-      }
-
-      initialTimeline.sort((a, b) => new Date(a.parsedDate).getTime() - new Date(b.parsedDate).getTime());
-
-      const extendedAttractions = {
-        selected: storeAttractions.selected,
-        pool: selectedPool,
-        customTimeline: initialTimeline,
-      };
-
-      const attractionsJson = JSON.stringify(extendedAttractions);
-
-      // Zapisujemy osobno bilet na wyjazd (TAM) oraz na powrót (POWRÓT) do Sejfu (lodging_data.vaultFiles)
-      const vaultFiles: any[] = [];
-      const outboundTicket = transportDetails?.outboundTicketFile || transportDetails?.ticketFile;
-      if (outboundTicket) {
-        vaultFiles.push({
-          ...outboundTicket,
-          tag: 'OUTBOUND_TICKET',
-        });
-      }
-      if (transportDetails?.returnTicketFile) {
-        vaultFiles.push({
-          ...transportDetails.returnTicketFile,
-          tag: 'RETURN_TICKET',
-        });
-      }
-
-      const sanitizedTransportDetails = transportDetails ? {
-        ...transportDetails,
-        outboundDepartureTime: sanitizeTime(transportDetails.outboundDepartureTime),
-        outboundArrivalTime: sanitizeTime(transportDetails.outboundArrivalTime),
-        returnDepartureTime: sanitizeTime(transportDetails.returnDepartureTime),
-        returnArrivalTime: sanitizeTime(transportDetails.returnArrivalTime),
-      } : {};
-
+      const vaultFiles = transportDetails?.ticketFile ? [transportDetails.ticketFile] : [];
       const transportJson = JSON.stringify({
         ...(transport || {}),
-        details: sanitizedTransportDetails,
+        details: transportDetails || {},
       });
       const lodgingJson = JSON.stringify({
         ...lodging,
-        lodgingAddress: cleanLodging,
+        lodgingAddress: lodgingAddress || '',
         vaultFiles,
       });
 
@@ -573,18 +407,6 @@ export const Step4AttractionsScreen = () => {
         if (rows.length > 0) {
           Alert.alert('DESTIVO', t.error_guestTripExists);
           return;
-        }
-      }
-
-      // Walidacja kolizji dat z istniejącymi podróżami (dwie podróże nie mogą trwać w tym samym czasie)
-      if (startDate) {
-        const collidingTrip = await checkTripCollision(db, userId, startDate, endDate);
-        if (collidingTrip) {
-          const errorMsg = (t.error_overlappingTrip || 'W tym terminie masz już zaplanowaną inną podróż ({{trip}}: {{range}}). Podróże nie mogą się nakładać.')
-            .replace('{{trip}}', collidingTrip.trip_name)
-            .replace('{{range}}', collidingTrip.formattedRange);
-          Alert.alert('DESTIVO', errorMsg);
-          throw new Error(errorMsg);
         }
       }
 
@@ -612,63 +434,19 @@ export const Step4AttractionsScreen = () => {
           .insert([{
             id: tripId,
             user_id: userId,
-            title: tripName || t.defaultTripName.replace('{{destination}}', destination),
+            trip_name: tripName || t.defaultTripName.replace('{{destination}}', destination),
             origin: origin || '',
             destination,
             start_date: formatToDBDate(startDate),
             end_date: formatToDBDate(endDate),
-            transport_type: transport?.selectedOption?.type || 'flight',
-            accommodation_address: cleanLodging,
+            transport_data: transportJson,
+            lodging_data: lodgingJson,
             attractions_data: attractionsJson,
           }]);
 
         if (supabaseError) {
           console.warn('Błąd bezpośredniego zapisu do Supabase w Step4:', supabaseError);
         }
-      }
-
-      // Zapisujemy kopię w AsyncStorage (aby podróże nigdy nie znikały offline ani po restarcie)
-      try {
-        const cacheKey = `destivo_cached_trips_${userId}`;
-        const existingCacheStr = await AsyncStorage.getItem(cacheKey);
-        const existingCache = existingCacheStr ? JSON.parse(existingCacheStr) : [];
-        const newTripRecord = {
-          id: tripId,
-          title: tripName || t.defaultTripName.replace('{{destination}}', destination),
-          origin: origin || '',
-          destination,
-          start_date: formatToDBDate(startDate),
-          end_date: formatToDBDate(endDate),
-        };
-        const updatedCache = [newTripRecord, ...existingCache.filter((t: any) => t.id !== tripId)];
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCache));
-      } catch (cacheErr) {
-        console.warn('Błąd zapisu do cache AsyncStorage:', cacheErr);
-      }
-
-      // 4. Energooszczędne powiadomienie lokalne oraz geofencing dworca/lotniska
-      try {
-        await scheduleLocalDepartureNotification(
-          {
-            id: tripId,
-            destination,
-            start_date: formatToDBDate(startDate),
-            transport_data: transportJson,
-            lodging_data: lodgingJson,
-          },
-          language
-        );
-
-        await setupGeofencingForTrip({
-          id: tripId,
-          origin,
-          destination,
-          start_date: formatToDBDate(startDate),
-          transport_type: transport?.selectedOption?.type || 'train',
-          transport_data: transportJson,
-        });
-      } catch (proxErr) {
-        console.warn('Proximity setup error:', proxErr);
       }
 
       Alert.alert('DESTIVO', t.saveSuccess);
@@ -690,10 +468,7 @@ export const Step4AttractionsScreen = () => {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* HEADER Z PASKIEM POSTĘPU */}
-      <View style={[
-        styles.progressSafeArea,
-        { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 16) + 8 }
-      ]}>
+      <SafeAreaView edges={['top']} style={styles.progressSafeArea}>
         <View style={styles.progressHeader}>
           <Text style={styles.progressText}>{t.step_indicator}</Text>
           <Text style={styles.progressStepName}>{t.step_title}</Text>
@@ -701,7 +476,7 @@ export const Step4AttractionsScreen = () => {
         <View style={styles.progressBarBg}>
           <View style={[styles.progressBarFill, { width: '100%' }]} />
         </View>
-      </View>
+      </SafeAreaView>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -756,6 +531,11 @@ export const Step4AttractionsScreen = () => {
             </View>
           )}
 
+          <SafeAreaView edges={['top']} style={styles.topNav} pointerEvents="box-none">
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Text style={styles.backIcon}>←</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
         </View>
 
         {/* 2. SEKCJA INTERFEJSU */}
@@ -807,27 +587,44 @@ export const Step4AttractionsScreen = () => {
               </TouchableOpacity>
             </View>
 
-            {displayList.length > 0 && (
-              <View style={styles.arrowsBox}>
-                <TouchableOpacity
-                  onPress={() => handleScrollTo(activeCardIndex - 1)}
-                  disabled={activeCardIndex <= 0}
-                  style={[styles.arrowBtn, activeCardIndex <= 0 && { opacity: 0.3 }]}
-                >
-                  <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.counterText}>
-                  {activeCardIndex + 1}/{displayList.length}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => handleScrollTo(activeCardIndex + 1)}
-                  disabled={activeCardIndex >= displayList.length - 1}
-                  style={[styles.arrowBtn, activeCardIndex >= displayList.length - 1 && { opacity: 0.3 }]}
-                >
-                  <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            )}
+            <View style={styles.navControlsRow}>
+              {/* INTERAKTYWNY PRZYCISK SORTOWANIA WG ODLEGŁOŚCI */}
+              <TouchableOpacity
+                onPress={toggleSortOrder}
+                style={styles.sortBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={sortOrder === 'asc' ? "arrow-up" : "arrow-down"}
+                  size={12}
+                  color="#F59E0B"
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={styles.sortText}>{t.sort_by_distance}</Text>
+              </TouchableOpacity>
+
+              {displayList.length > 0 && (
+                <View style={styles.arrowsBox}>
+                  <TouchableOpacity
+                    onPress={() => handleScrollTo(activeCardIndex - 1)}
+                    disabled={activeCardIndex <= 0}
+                    style={[styles.arrowBtn, activeCardIndex <= 0 && { opacity: 0.3 }]}
+                  >
+                    <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <Text style={styles.counterText}>
+                    {activeCardIndex + 1}/{displayList.length}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => handleScrollTo(activeCardIndex + 1)}
+                    disabled={activeCardIndex >= displayList.length - 1}
+                    style={[styles.arrowBtn, activeCardIndex >= displayList.length - 1 && { opacity: 0.3 }]}
+                  >
+                    <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* GŁÓWNA KARUZELA KAFELKÓW ATRAKCJI */}
@@ -888,14 +685,14 @@ export const Step4AttractionsScreen = () => {
                   return (
                     <View key={item.id} style={styles.cardWrapper}>
                       <View style={styles.card}>
-                        {/* ZDJĘCIE DOPASOWANE W 100% DO KAFELKA */}
-                        <View style={styles.cardImageContainer}>
-                          <Image
-                            source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
-                            style={styles.cardImage}
-                            resizeMode="cover"
-                            onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
-                          />
+                        {/* ZDJĘCIE DOPASOWANE W 100% DO KAFELKA (bez luk) */}
+                        <ImageBackground
+                          source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
+                          style={styles.cardImage}
+                          imageStyle={styles.cardImageInner}
+                          resizeMode="cover"
+                          onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
+                        >
                           <View style={styles.imageOverlayTop}>
                             <View style={styles.ratingBadge}>
                               <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -908,7 +705,7 @@ export const Step4AttractionsScreen = () => {
                               </Text>
                             </View>
                           </View>
-                        </View>
+                        </ImageBackground>
 
                         {/* CIAŁO KAFELKA */}
                         <View style={styles.cardBody}>
@@ -947,23 +744,14 @@ export const Step4AttractionsScreen = () => {
           </View>
         </View>
 
-        {/* AKCJE NA DOLE EKRANU */}
-        <View style={[
-          styles.bottomActions,
-          { paddingBottom: Math.max(insets.bottom, 16) + 8 }
-        ]}>
-          <TouchableOpacity style={styles.primaryButton} onPress={handleFinishPlanning} activeOpacity={0.8}>
-            <Text style={styles.primaryButtonText}>{t.button_saveTrip}</Text>
+        {/* DOLNY PASEK ZAPISU / POMINIĘCIA */}
+        <View style={styles.floatingFooter}>
+          <TouchableOpacity style={styles.finishButton} onPress={handleFinishPlanning} activeOpacity={0.9}>
+            <Text style={styles.finishButtonText}>{t.button_saveTrip}</Text>
           </TouchableOpacity>
-
-          <View style={styles.actionButtonsRow}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation?.goBack()} activeOpacity={0.7}>
-              <Text style={styles.secondaryButtonText}>{commonT.button_goBack}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tertiaryButton} onPress={handleSkip} activeOpacity={0.7}>
-              <Text style={styles.tertiaryButtonText}>{commonT.button_skip}</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.skipButton} onPress={handleSkip} activeOpacity={0.8}>
+            <Text style={styles.skipButtonText}>{commonT.button_skip}</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -974,9 +762,9 @@ const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#0B1120' },
 
   progressSafeArea: { backgroundColor: '#0B1120', paddingHorizontal: 20 },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
-  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
-  progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
   progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 8 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   
@@ -984,6 +772,10 @@ const styles = StyleSheet.create({
   mapHeader: { width: '100%', height: '34%', zIndex: 1 },
   mapFallback: { backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   
+  topNav: { position: 'absolute', top: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, zIndex: 10 },
+  backButton: { width: 44, height: 44, backgroundColor: 'rgba(11, 17, 32, 0.7)', borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+  backIcon: { color: '#FFFFFF', fontSize: 24, fontWeight: '300', lineHeight: 24 },
+
   bottomSheet: { 
     flex: 1, 
     marginTop: -16, 
@@ -991,8 +783,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24, 
     borderTopRightRadius: 24, 
     zIndex: 10, 
-    elevation: 10, 
-    paddingBottom: 140,
+    elevation: 10,
+    paddingBottom: 110,
   },
 
   // Zwarty, kompaktowy suwak promienia
@@ -1014,7 +806,7 @@ const styles = StyleSheet.create({
   },
   radiusHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   radiusLabelBox: { flexDirection: 'row', alignItems: 'center' },
-  controlsLabel: { color: '#CBD5E1', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  controlsLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   radiusValue: { color: '#F59E0B', fontSize: 14, fontWeight: '800' },
 
   // Pasek zakładek i kontrolek
@@ -1026,35 +818,38 @@ const styles = StyleSheet.create({
     marginTop: 10, 
     marginBottom: 8 
   },
-  tabsRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  tabBtn: { height: 36, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
+  tabsRow: { flexDirection: 'row', gap: 8 },
+  tabBtn: { paddingVertical: 5, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B' },
   tabBtnActive: { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: '#F59E0B' },
-  tabText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  tabText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
   tabTextActive: { color: '#F59E0B', fontWeight: '700' },
 
-  arrowsBox: { flexDirection: 'row', alignItems: 'center', height: 36, backgroundColor: '#111827', borderRadius: 10, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 6 },
-  arrowBtn: { padding: 4, justifyContent: 'center', alignItems: 'center' },
-  counterText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', marginHorizontal: 6 },
+  navControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
+  sortText: { color: '#F59E0B', fontSize: 11, fontWeight: '700' },
+  arrowsBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', borderRadius: 8, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 4 },
+  arrowBtn: { padding: 4 },
+  counterText: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginHorizontal: 4 },
 
   // Karuzela i kafelki - IDEALNIE DOPASOWANE BEZ LUK
   carouselContainer: { flex: 1, justifyContent: 'center' },
   carouselContent: { paddingHorizontal: HORIZONTAL_PADDING, alignItems: 'center' },
-  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 260 },
+  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 255 },
   card: { flex: 1, width: '100%', backgroundColor: '#111827', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B', justifyContent: 'space-between' },
   
-  cardImageContainer: { width: '100%', height: 145, position: 'relative', overflow: 'hidden' },
-  cardImage: { width: '100%', height: '100%' },
-  imageOverlayTop: { position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
+  cardImage: { width: '100%', height: 145, justifyContent: 'space-between', padding: 10 },
+  cardImageInner: { width: '100%', height: '100%', resizeMode: 'cover', borderTopLeftRadius: 15, borderTopRightRadius: 15 },
+  imageOverlayTop: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
   ratingBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   ratingText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   distanceBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   distanceText: { color: '#38BDF8', fontSize: 11, fontWeight: '700' },
 
-  cardBody: { paddingHorizontal: 14, paddingVertical: 12, justifyContent: 'space-between', flex: 1 },
+  cardBody: { paddingHorizontal: 14, paddingVertical: 10, justifyContent: 'space-between', flex: 1 },
   cardTitleRow: { marginBottom: 2 },
   cardTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '700' },
   addressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  addressText: { color: '#CBD5E1', fontSize: 12, flex: 1 },
+  addressText: { color: '#94A3B8', fontSize: 12, flex: 1 },
 
   actionButton: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', borderRadius: 12, paddingVertical: 12 },
   actionButtonAdded: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#F59E0B' },
@@ -1062,45 +857,18 @@ const styles = StyleSheet.create({
   actionButtonTextAdded: { color: '#F59E0B' },
 
   loadingBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-  loadingText: { color: '#CBD5E1', marginTop: 10, fontSize: 13 },
+  loadingText: { color: '#94A3B8', marginTop: 10, fontSize: 13 },
   emptyBox: { alignItems: 'center', justifyContent: 'center', padding: 20 },
-  emptyText: { color: '#CBD5E1', textAlign: 'center', fontSize: 13 },
+  emptyText: { color: '#94A3B8', textAlign: 'center', fontSize: 13 },
   allAddedBox: { alignItems: 'center', justifyContent: 'center', padding: 20 },
   allAddedTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
-  allAddedSubtitle: { color: '#CBD5E1', fontSize: 12, textAlign: 'center', marginBottom: 12 },
+  allAddedSubtitle: { color: '#94A3B8', fontSize: 12, textAlign: 'center', marginBottom: 12 },
   switchTabLinkBtn: { backgroundColor: 'rgba(56, 189, 248, 0.1)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.3)' },
   switchTabLinkText: { color: '#38BDF8', fontSize: 12, fontWeight: '700' },
 
-  bottomActions: { 
-    position: 'absolute', 
-    bottom: 0, 
-    left: 0, 
-    right: 0, 
-    paddingHorizontal: 20, 
-    paddingTop: 12, 
-    borderTopWidth: 1, 
-    borderTopColor: '#1E293B', 
-    backgroundColor: '#0B1120', 
-    zIndex: 20, 
-    elevation: 20 
-  },
-  primaryButton: { 
-    backgroundColor: '#F59E0B', 
-    height: 48, 
-    borderRadius: 12, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginBottom: 8, 
-    shadowColor: '#F59E0B', 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.25, 
-    shadowRadius: 6, 
-    elevation: 4 
-  },
-  primaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  actionButtonsRow: { flexDirection: 'row', gap: 12 },
-  secondaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
-  secondaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
-  tertiaryButton: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
-  tertiaryButtonText: { color: '#F59E0B', fontSize: 14, fontWeight: '700' },
+  floatingFooter: { position: 'absolute', bottom: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, backgroundColor: 'rgba(11, 17, 32, 0.96)', borderTopWidth: 1, borderTopColor: '#1E293B', zIndex: 20, elevation: 20 },
+  finishButton: { backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  finishButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '800' },
+  skipButton: { alignItems: 'center', paddingVertical: 8 },
+  skipButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' }
 });

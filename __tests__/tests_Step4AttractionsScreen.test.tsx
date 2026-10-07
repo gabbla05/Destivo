@@ -299,7 +299,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
   test('7. powinien wrócić do poprzedniego ekranu po kliknięciu przycisku Wstecz', () => {
     render(<Step4AttractionsScreen />);
     
-    const backButton = screen.getByText('Wróć');
+    const backButton = screen.getByText(/Wróć|←/);
     fireEvent.press(backButton);
 
     expect(mockNavigate.mock.calls.length).toBe(0); // Nie idziemy do przodu

@@ -160,6 +160,14 @@ describe('Dynamiczny Asystent Pakowania (Smart Packing Assistant)', () => {
       expect(powerbank?.reason).toContain('zabronione w bagażu rejestrowanym');
 
       expect(boardingPass).toBeDefined();
+      expect(boardingPass?.reason).toBe('');
+
+      const neckPillow = items.find(i => i.id === 'flight-neck-pillow');
+      expect(neckPillow).toBeDefined();
+      expect(neckPillow?.reason).toBe('');
+
+      expect(liquids?.reason).toBe('Sprawdź limit płynów na lotnisku');
+      expect(dimensions?.reason).toBe('Sprawdź wymiary walizki podręcznej u przewoźnika');
     });
 
     test('Dla samochodu generuje kamizelki odblaskowe, trójkąt, apteczkę i ładowarkę 12V', () => {

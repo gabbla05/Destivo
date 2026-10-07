@@ -2026,15 +2026,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           <Text style={styles.subText}>{t.header_subtitle}</Text>
         </View>
 
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.primaryButton} activeOpacity={0.8} onPress={() => navigation?.navigate('TripCreator')}>
-            <Text style={styles.primaryButtonText}>{t.button_planNewTrip}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.8} onPress={() => navigation?.navigate('Trips')}>
-            <Text style={styles.secondaryButtonText}>{t.button_goToMyTrips}</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.section}>
           <View style={[styles.sectionHeaderRow, { paddingHorizontal: 24, marginBottom: 4, justifyContent: 'flex-start' }]}>
             <Ionicons name="compass-outline" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
@@ -2306,11 +2297,6 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 },
   welcomeText: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.5 },
   subText: { fontSize: 15, color: '#94A3B8', marginTop: 4, fontWeight: '400' },
-  actionsContainer: { paddingHorizontal: 24, marginTop: 10, gap: 14 },
-  primaryButton: { backgroundColor: '#F59E0B', paddingVertical: 16, borderRadius: 14, alignItems: 'center', shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4 },
-  primaryButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '700' },
-  secondaryButton: { backgroundColor: '#1E293B', paddingVertical: 16, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
-  secondaryButtonText: { color: '#E2E8F0', fontSize: 15, fontWeight: '600' },
   section: { marginTop: 32, flex: 1 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', paddingHorizontal: 24 },
   sectionSubtitle: { fontSize: 13, color: '#94A3B8', marginTop: 4, marginBottom: 16, paddingHorizontal: 24 },
