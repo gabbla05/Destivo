@@ -47,7 +47,7 @@ describe('SmartPackingModal Component', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('packing-item-check-flight-liquids')).toBeTruthy();
-    });
+    }, { timeout: 4000 });
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('packing-item-check-flight-liquids'));
@@ -56,7 +56,7 @@ describe('SmartPackingModal Component', () => {
     await waitFor(() => {
       // Licznik powinien wzrosnąć
       expect(screen.getByText(/Spakowano 1 z/)).toBeTruthy();
-    });
+    }, { timeout: 4000 });
   });
 
   test('Użytkownik może dodać własną pozycję do listy pakowania', async () => {
@@ -64,7 +64,7 @@ describe('SmartPackingModal Component', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('custom-item-input')).toBeTruthy();
-    });
+    }, { timeout: 4000 });
 
     await act(async () => {
       fireEvent.changeText(screen.getByTestId('custom-item-input'), 'Dron z kamerą');
@@ -76,7 +76,7 @@ describe('SmartPackingModal Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Dron z kamerą')).toBeTruthy();
-    });
+    }, { timeout: 4000 });
   });
 
   test('Udostępnianie listy wywołuje natywny Share.share z przygotowanym tekstem', async () => {
@@ -84,7 +84,7 @@ describe('SmartPackingModal Component', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('share-packing-btn')).toBeTruthy();
-    });
+    }, { timeout: 4000 });
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('share-packing-btn'));

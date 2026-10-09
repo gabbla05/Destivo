@@ -527,7 +527,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       await waitFor(() => expect(screen.getByText('Panteon')).toBeTruthy());
 
       fireEvent.press(findPressableAncestor(screen.getByText('Panteon')));
-      fireEvent.press(screen.getByText('🔼'));
+      fireEvent.press(screen.getByText('▲'));
 
       await waitFor(() => {
         expect(screen.getByText('Zapisz układ osi czasu')).toBeTruthy();
@@ -595,7 +595,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       render(<TimelineScreen route={{ params: { tripId: 'guest-trip' } }} />);
 
       await waitFor(() => expect(screen.getByText('Rzym')).toBeTruthy());
-      fireEvent.press(screen.getByText('🗑️'));
+      fireEvent.press(screen.getByTestId('timeline-delete-trip-btn'));
 
       const alertCall = (Alert.alert as jest.Mock).mock.calls.at(-1);
       const confirmAction = alertCall[2].find((action: any) => action.text === 'Usuń podróż');

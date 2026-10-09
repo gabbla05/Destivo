@@ -677,8 +677,8 @@ describe('HomeScreen - Rekomendacje podróży i interfejs główny', () => {
       expect(screen.getByText(/Jednodniowy wypad autem • Bez noclegu/i)).toBeTruthy();
     });
 
-    // Filtruj po "1 dzień (autem)"
-    fireEvent.press(screen.getByText(/1 dzień \(autem\)/i));
+    // Filtruj po "1 dzień"
+    fireEvent.press(screen.getByText('1 dzień'));
     expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
     expect(screen.queryByText('Rzym')).toBeNull();
     expect(screen.queryByText('Bari')).toBeNull();

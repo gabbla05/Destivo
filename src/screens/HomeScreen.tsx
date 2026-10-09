@@ -30,10 +30,14 @@ import * as Notifications from 'expo-notifications';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
 import { parseTripDate } from './TripsListScreen';
-import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
-import { insertTimelineEventIntelligently } from '../lib/routeOptimization';
+import {
+  insertTimelineEventIntelligently,
+  generateSmartMultiDayTimeline,
+  haversineDistance,
+} from '../lib/routeOptimization';
 import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
+import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import {
   ProximityCheckResult,
   findActiveTicketForTrip,
@@ -604,52 +608,37 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               return ev;
             });
             
-            // Jeśli nie ma customowej osi, generujemy prowizoryczną na podstawie danych
+            // Jeśli nie ma customowej osi, generujemy inteligentną wielodniową oś na podstawie danych z bazy
             if (events.length === 0) {
               const transportData = JSON.parse(currentFound.transport_data || '{}');
               const lodgingData = JSON.parse(currentFound.lodging_data || '{}');
               const transportDetails = transportData.details || {};
-              const outboundTime = transportDetails.outboundDepartureTime || '08:00';
-              const outboundSubtitle = transportDetails.outboundDepartureLocation || transportData.selectedOption?.provider || t.defaultTransportSubtitle;
-              
               const rawLodgingAddr = (lodgingData.lodgingAddress || currentFound.accommodation_address || '').trim();
               const cleanLodgingAddr = !['ok', 'brak', 'none', '-'].includes(rawLodgingAddr.toLowerCase()) ? rawLodgingAddr : '';
 
-              events = [
-                { id: '1', type: 'DEPARTURE', title: t.defaultDepartureTitle.replace('{{destination}}', currentFound.destination), timeStr: outboundTime, dateStr: currentFound.start_date, subtitle: outboundSubtitle },
-                { id: '2', type: 'LODGING', title: t.defaultLodgingTitle, timeStr: transportDetails.outboundArrivalTime || '14:00', dateStr: currentFound.start_date, subtitle: cleanLodgingAddr || t.defaultLodgingSubtitle },
-              ];
-              
-              const selectedAttrs = attractionsData.selected || [];
-              const fallbackAttractionName = t.defaultAttractionFallback || (language === 'pl' ? 'Atrakcja' : 'Attraction');
-              selectedAttrs.forEach((attr: any, idx: number) => {
-                const attrTitle = typeof attr === 'string' ? attr : (attr.name || attr.title || `${fallbackAttractionName} ${idx + 1}`);
-                const attractionHour = 10 + ((idx * 2) % 12);
-                const formattedHour = String(attractionHour).padStart(2, '0');
-                events.push({ id: `a${idx}`, type: 'ATTRACTION', title: attrTitle, timeStr: `${formattedHour}:00`, dateStr: currentFound.start_date, subtitle: t.defaultAttractionSubtitle });
+              events = generateSmartMultiDayTimeline({
+                origin: currentFound.origin,
+                destination: currentFound.destination,
+                startDate: currentFound.start_date,
+                endDate: currentFound.end_date,
+                transportType: currentFound.transport_type,
+                outboundDepartureTime: transportDetails.outboundDepartureTime,
+                outboundDepartureLocation: transportDetails.outboundDepartureLocation,
+                outboundArrivalTime: transportDetails.outboundArrivalTime,
+                returnDepartureTime: transportDetails.returnDepartureTime,
+                returnDepartureLocation: transportDetails.returnDepartureLocation,
+                lodgingAddress: cleanLodgingAddr,
+                selectedAttractions: attractionsData.selected || [],
+                poolAttractions: attractionsData.pool || [],
+                isDayTrip: currentFound.start_date === currentFound.end_date,
+                translations: {
+                  departurePrefix: t.defaultDepartureTitle,
+                  returnPrefix: t.defaultReturnTitle,
+                  lodging: t.defaultLodgingTitle,
+                  sightseeing: t.defaultAttractionSubtitle,
+                  home: t.home,
+                },
               });
-
-              // Dodanie noclegów o 22:00 pomiędzy dniami podróży
-              const startD = parsePickerDate(currentFound.start_date);
-              const endD = parsePickerDate(currentFound.end_date || currentFound.start_date);
-              const diffTime = endD.getTime() - startD.getTime();
-              const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
-
-              if (diffDays >= 1) {
-                for (let d = 0; d < diffDays; d++) {
-                  const nightDate = new Date(startD.getTime());
-                  nightDate.setDate(nightDate.getDate() + d);
-                  const formattedNightDate = `${String(nightDate.getDate()).padStart(2, '0')}-${String(nightDate.getMonth() + 1).padStart(2, '0')}-${nightDate.getFullYear()}`;
-                  events.push({
-                    id: `evt_night_${d}`,
-                    type: 'LODGING',
-                    title: t.lodgingNightTitle || 'Nocleg',
-                    subtitle: cleanLodgingAddr || t.defaultLodgingSubtitle,
-                    dateStr: formattedNightDate,
-                    timeStr: '22:00',
-                  });
-                }
-              }
             }
             setActiveTimeline(events);
 
@@ -724,42 +713,103 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     };
   }, [activeTrip]);
 
-  const activeEventIndex = useMemo(() => {
-    if (!activeTimeline || activeTimeline.length === 0) return -1;
+  // Wyznaczenie daty "dzisiejszego" dnia planu wyjazdu:
+  // Jeśli dzisiejsza data kalendarzowa pokrywa się z jednym z dni podróży, używamy jej.
+  // W przeciwnym razie wybieramy dzień najbliższy lub pierwszy aktywny.
+  const activeDayDateStr = useMemo(() => {
+    if (!activeTimeline || activeTimeline.length === 0) {
+      return activeTrip?.start_date || '';
+    }
 
-    // 1. Sprawdź czy którekolwiek wydarzenie ma jawny status IN_PROGRESS lub isCurrent
-    const explicitIdx = activeTimeline.findIndex(
+    const now = new Date();
+    // 1. Sprawdź, czy którekolwiek wydarzenie ma dzisiejszą datę
+    const todayMatch = activeTimeline.find((ev) => {
+      if (!ev.dateStr) return false;
+      const d = parseEventDateTime(ev.dateStr);
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    });
+    if (todayMatch && todayMatch.dateStr) {
+      return todayMatch.dateStr;
+    }
+
+    // 2. Jeśli jesteśmy przed wyjazdem (dziś < start), użyj pierwszego dnia
+    const firstEvDate = parseEventDateTime(activeTimeline[0].dateStr || activeTrip?.start_date);
+    if (now.getTime() < firstEvDate.getTime()) {
+      return activeTimeline[0].dateStr || activeTrip?.start_date || '';
+    }
+
+    // 3. Sprawdź pierwsze przyszłe lub dzisiejsze wydarzenie
+    const futureEv = activeTimeline.find((ev) => {
+      const d = parseEventDateTime(ev.dateStr || activeTrip?.start_date, '23:59');
+      return d.getTime() >= now.getTime();
+    });
+    if (futureEv && futureEv.dateStr) {
+      return futureEv.dateStr;
+    }
+
+    // 4. Jeśli cała podróż już minęła, zwróć ostatni dzień
+    return activeTimeline[activeTimeline.length - 1].dateStr || activeTrip?.start_date || '';
+  }, [activeTimeline, activeTrip]);
+
+  const todayTimelineEvents = useMemo(() => {
+    if (!activeTimeline || activeTimeline.length === 0) return [];
+    if (!activeDayDateStr) return activeTimeline;
+    const filtered = activeTimeline.filter((e) => e.dateStr === activeDayDateStr);
+    return filtered.length > 0 ? filtered : activeTimeline;
+  }, [activeTimeline, activeDayDateStr]);
+
+  const todayActiveEventIndex = useMemo(() => {
+    if (todayTimelineEvents.length === 0) return 0;
+
+    // 1. Jawny status IN_PROGRESS lub isCurrent
+    const explicitIdx = todayTimelineEvents.findIndex(
       (e) => e.status === 'IN_PROGRESS' || e.status === 'in_progress' || e.isCurrent === true
     );
     if (explicitIdx !== -1) return explicitIdx;
 
-    // 2. Wyszukaj punkt najbliższy obecnej dacie i godzinie
+    // 2. Sprawdź, czy ten dzień to dzisiaj w kalendarzu
+    const now = new Date();
+    const d = parseEventDateTime(activeDayDateStr);
+    const isCalendarToday =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+
+    if (!isCalendarToday) {
+      const isFutureDay = parseEventDateTime(activeDayDateStr, '23:59').getTime() > now.getTime();
+      return isFutureDay ? 0 : todayTimelineEvents.length - 1;
+    }
+
+    // 3. Dzisiejszy dzień: znajdź trwający lub najbliższy punkt
     const nowMs = Date.now();
-    let closestIdx = 0;
-    let minDiff = Infinity;
-
-    activeTimeline.forEach((ev, idx) => {
-      const evDate = parseEventDateTime(ev.dateStr || activeTrip?.start_date, ev.timeStr || ev.time);
-      const diff = Math.abs(nowMs - evDate.getTime());
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIdx = idx;
+    for (let i = 0; i < todayTimelineEvents.length; i++) {
+      const evDate = parseEventDateTime(
+        todayTimelineEvents[i].dateStr || activeDayDateStr,
+        todayTimelineEvents[i].timeStr || todayTimelineEvents[i].time
+      );
+      // Punkt, który jeszcze nie minął lub rozpoczął się w ciągu ostatnich 90 min
+      if (evDate.getTime() + 90 * 60 * 1000 >= nowMs) {
+        return i;
       }
-    });
+    }
 
-    return closestIdx;
-  }, [activeTimeline, activeTrip]);
+    // Jeśli wszystkie dzisiejsze punkty minęły
+    return todayTimelineEvents.length - 1;
+  }, [todayTimelineEvents, activeDayDateStr]);
 
   const pastEvents = useMemo(() => {
-    if (!activeTimeline || activeEventIndex <= 0) return [];
-    return activeTimeline.slice(0, activeEventIndex);
-  }, [activeTimeline, activeEventIndex]);
+    if (todayActiveEventIndex <= 0) return [];
+    return todayTimelineEvents.slice(0, todayActiveEventIndex);
+  }, [todayTimelineEvents, todayActiveEventIndex]);
 
   const activeAndUpcomingEvents = useMemo(() => {
-    if (!activeTimeline || activeTimeline.length === 0) return [];
-    if (activeEventIndex < 0) return activeTimeline;
-    return activeTimeline.slice(activeEventIndex);
-  }, [activeTimeline, activeEventIndex]);
+    if (todayTimelineEvents.length === 0) return [];
+    return todayTimelineEvents.slice(todayActiveEventIndex);
+  }, [todayTimelineEvents, todayActiveEventIndex]);
 
   const availableSuggestions = useMemo(() => {
     if (!activeTrip) return [];
@@ -823,8 +873,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   }, [availableSuggestions, activeTrip?.destination]);
 
   const handleOpenAddModal = () => {
-    setManualDate(activeTrip?.start_date || '');
-    const nextHour = Math.min(22, 10 + (activeTimeline.length % 11));
+    setManualDate(activeDayDateStr || activeTrip?.start_date || '');
+    const nextHour = Math.min(22, 10 + (todayTimelineEvents.length % 11));
     setManualTime(nextHour < 10 ? `0${nextHour}:00` : `${nextHour}:00`);
     setManualTitle('');
     setManualSubtitle('');
@@ -841,6 +891,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       type: 'ATTRACTION',
       title: item.name,
       subtitle: item.subtitle || t.defaultAttractionSubtitle || (language === 'pl' ? 'Polecane miejsce' : 'Recommended attraction'),
+      isFromPool: true,
     };
 
     const updated = insertTimelineEventIntelligently(
@@ -850,7 +901,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       activeTrip?.destination,
       activeTrip?.accommodation_address,
       activeTrip?.transport_type,
-      activeTrip?.start_date
+      activeDayDateStr
     );
 
     setActiveTimeline(updated);
@@ -864,24 +915,44 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         ...currentAttractions,
         customTimeline: updated,
       };
-      if (isUserGuest) {
-        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
-          JSON.stringify(updatedAttractions),
-          activeTrip.id,
-        ]);
-      } else {
-        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
-          JSON.stringify(updatedAttractions),
-          activeTrip.id,
-        ]);
+      const serialized = JSON.stringify(updatedAttractions);
+
+      // 1. Zapis do SQLite
+      await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+        serialized,
+        activeTrip.id,
+      ]);
+
+      // 2. Kopia zapasowa w AsyncStorage (odporność na restart aplikacji)
+      try {
+        await AsyncStorage.setItem(`destivo_timeline_${activeTrip.id}`, serialized);
+        const userId = user?.id || 'guest';
+        const cacheKey = `destivo_cached_trips_${userId}`;
+        const cachedStr = await AsyncStorage.getItem(cacheKey);
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          if (Array.isArray(cached)) {
+            const updatedCache = cached.map((t: any) =>
+              t.id === activeTrip.id ? { ...t, attractions_data: serialized } : t
+            );
+            await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCache));
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('HomeScreen AsyncStorage cache warning:', cacheErr);
+      }
+
+      // 3. Zapis do Supabase dla zalogowanego
+      if (!isUserGuest) {
         await supabase
           .from('trips')
-          .update({ attractions_data: JSON.stringify(updatedAttractions) })
+          .update({ attractions_data: serialized })
           .eq('id', activeTrip.id);
       }
+
       setActiveTrip((prev: any) => ({
         ...prev,
-        attractions_data: JSON.stringify(updatedAttractions),
+        attractions_data: serialized,
       }));
     } catch (err) {
       console.warn('Błąd zapisu nowej atrakcji:', err);
@@ -917,19 +988,33 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         ...currentAttractions,
         customTimeline: updated,
       };
-      if (isUserGuest) {
-        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
-          JSON.stringify(updatedAttractions),
-          activeTrip.id,
-        ]);
-      } else {
-        await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
-          JSON.stringify(updatedAttractions),
-          activeTrip.id,
-        ]);
+      const serialized = JSON.stringify(updatedAttractions);
+
+      await db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
+        serialized,
+        activeTrip.id,
+      ]);
+
+      try {
+        await AsyncStorage.setItem(`destivo_timeline_${activeTrip.id}`, serialized);
+        const userId = user?.id || 'guest';
+        const cacheKey = `destivo_cached_trips_${userId}`;
+        const cachedStr = await AsyncStorage.getItem(cacheKey);
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          if (Array.isArray(cached)) {
+            const updatedCache = cached.map((t: any) =>
+              t.id === activeTrip.id ? { ...t, attractions_data: serialized } : t
+            );
+            await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCache));
+          }
+        }
+      } catch {}
+
+      if (!isUserGuest) {
         await supabase
           .from('trips')
-          .update({ attractions_data: JSON.stringify(updatedAttractions) })
+          .update({ attractions_data: serialized })
           .eq('id', activeTrip.id);
       }
     } catch (err) {
@@ -966,6 +1051,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       console.warn('Błąd zapisu zoptymalizowanej osi na HomeScreen:', err);
     }
   };
+
+  const handleOpenFullTimeline = useCallback(() => {
+    if (!activeTrip) return;
+    try {
+      navigation?.navigate('Trips', {
+        screen: 'Timeline',
+        params: { trip: activeTrip },
+      });
+      return;
+    } catch {}
+    try {
+      navigation?.navigate('Timeline', { trip: activeTrip });
+      return;
+    } catch {}
+    try {
+      navigation?.getParent()?.navigate('Timeline', { trip: activeTrip });
+    } catch {}
+  }, [navigation, activeTrip]);
 
   const handleFromAmountChange = (val: string) => {
     setFromAmount(val);
@@ -1177,292 +1280,430 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           <View style={styles.itinerarySection}>
             <View style={[styles.sectionHeaderRow, { justifyContent: 'space-between' }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                <Ionicons name="compass-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
                 <Text style={styles.sectionHeaderTitle}>{t.dailyItineraryTitle || 'Plan Dnia'}</Text>
+                {Boolean(activeDayDateStr) && (
+                  <View style={styles.activeDayBadge}>
+                    <Text style={styles.activeDayBadgeText}>{activeDayDateStr}</Text>
+                  </View>
+                )}
               </View>
 
-              {activeTimeline.filter(e => e.type === 'ATTRACTION').length >= 2 && (
-                <TouchableOpacity
-                  style={styles.optimizeHomeBtn}
-                  activeOpacity={0.8}
-                  onPress={() => setIsOptimizeModalVisible(true)}
-                  testID="home-optimize-btn"
-                >
-                  <Ionicons name="map-outline" size={12} color="#0F172A" style={{ marginRight: 4 }} />
-                  <Text style={styles.optimizeHomeBtnText}>{timelineT.optimizeRouteBtn || 'Ułóż trasę'}</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={styles.fullTimelineHeaderBtn}
+                activeOpacity={0.7}
+                onPress={handleOpenFullTimeline}
+                testID="home-view-full-timeline-btn"
+              >
+                <Text style={styles.fullTimelineHeaderBtnText}>Pełny plan</Text>
+                <Ionicons name="chevron-forward" size={13} color="#F59E0B" style={{ marginLeft: 3 }} />
+              </TouchableOpacity>
             </View>
             
-            <View style={styles.timelineWrapper}>
-              {activeAndUpcomingEvents.length > 1 && (
-                <View style={styles.timelineLineAbsolute} />
-              )}
-              
-              {activeAndUpcomingEvents.map((item, relIndex) => {
-                const originalIndex = activeTimeline.findIndex(e => e.id === item.id);
-                const isExpanded = expandedEventId === item.id;
-                const isInProgress = relIndex === 0;
-                const isFuture = relIndex > 0;
-                const isPast = false;
-                const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
-                const rawSub = item.subtitle || item.description || '';
-                const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.trim().toLowerCase());
-                const eventSubtitle = isDummySub
-                  ? (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle)
-                  : (rawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
+            {activeAndUpcomingEvents.length === 0 ? (
+              <View style={styles.emptyDayBox}>
+                <Ionicons name="checkmark-circle-outline" size={32} color="#10B981" style={{ marginBottom: 6 }} />
+                <Text style={styles.emptyDayTitle}>Wszystkie zaplanowane punkty zostały zrealizowane</Text>
+                <Text style={styles.emptyDaySubtitle}>Ciesz się wolnym czasem lub dodaj nowy punkt do planu</Text>
+              </View>
+            ) : (
+              <View style={styles.timelineWrapper}>
+                {activeAndUpcomingEvents.length > 1 && (
+                  <View style={styles.timelineLineAbsolute} />
+                )}
+                
+                {(() => {
+                  let activeTripLodgingAddress = '';
+                  if (activeTrip) {
+                    try {
+                      const lData = typeof activeTrip.lodging_data === 'string' ? JSON.parse(activeTrip.lodging_data || '{}') : (activeTrip.lodging_data || {});
+                      if (lData?.lodgingAddress && typeof lData.lodgingAddress === 'string' && lData.lodgingAddress.trim().length > 0) {
+                        activeTripLodgingAddress = lData.lodgingAddress.trim();
+                      }
+                    } catch {}
+                    if (!activeTripLodgingAddress && activeTrip?.accommodation_address && typeof activeTrip.accommodation_address === 'string' && activeTrip.accommodation_address.trim().length > 0) {
+                      activeTripLodgingAddress = activeTrip.accommodation_address.trim();
+                    }
+                  }
 
-                return (
-                  <View key={item.id || relIndex} style={styles.timelineRow}>
-                    {/* WĘZEŁ NA OSI */}
-                    <View style={styles.nodeColumn}>
-                      {isInProgress ? (
-                        <View style={[styles.nodeCircle, styles.nodeCircleActive]}>
-                          <View style={styles.nodeActiveInnerDot} />
-                        </View>
-                      ) : (
-                        <View style={[styles.nodeCircle, styles.nodeCircleFuture]}>
-                          <View style={styles.nodeFutureInnerDot} />
-                        </View>
-                      )}
-                    </View>
-                    
-                    {/* KARTA WYDARZENIA */}
-                    <TouchableOpacity 
-                      style={[
-                        styles.timelineCard,
-                        isInProgress && styles.timelineCardActive,
-                        isExpanded && styles.eventCardExpanded
-                      ]} 
-                      activeOpacity={0.85} 
-                      onPress={() => setExpandedEventId(isExpanded ? null : item.id)}
-                    >
-                      {/* BADGE "IN PROGRESS" I POGODA DLA AKTYWNEGO */}
-                      {isInProgress && (
-                        <View style={styles.inProgressHeaderRow}>
-                          <View style={styles.inProgressBadge}>
-                            <Text style={styles.inProgressBadgeText}>{t.inProgressBadge || 'IN PROGRESS'}</Text>
-                          </View>
-                          <View style={styles.inProgressWeather}>
-                            <Ionicons name="sunny" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                            <Text style={styles.inProgressWeatherText}>24°C</Text>
-                          </View>
-                        </View>
-                      )}
+                  const hasNoLodgingAddress = (e: any) => {
+                    if (e.type !== 'LODGING') return false;
+                    if (activeTripLodgingAddress && activeTripLodgingAddress.trim().length >= 3) return false;
+                    if (e.subtitle && typeof e.subtitle === 'string') {
+                      const defaultSubs = [
+                        (translations.pl.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                        (translations.en.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                        'zameldowanie i odbiór kluczy',
+                        'check-in and key pickup',
+                        'brak zapisanego adresu noclegu',
+                        'no hotel address provided',
+                      ];
+                      if (!defaultSubs.includes(e.subtitle.trim().toLowerCase())) return false;
+                    }
+                    return true;
+                  };
 
-                      <View style={styles.cardHeaderFlex}>
-                        <View style={styles.cardTitleRow}>
-                          <View style={styles.cardTypeIconWrap}>
-                            {renderTimelineIcon(item.type)}
+                  return activeAndUpcomingEvents.map((item, relIndex) => {
+                    const originalIndex = activeTimeline.findIndex(e => e.id === item.id);
+                    const isExpanded = expandedEventId === item.id;
+                    const isInProgress = relIndex === 0;
+                    const isNext = relIndex === 1;
+                    const isFuture = relIndex > 0;
+                    const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
+                    const rawSub = item.subtitle || item.description || '';
+                    const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.trim().toLowerCase());
+                    const eventSubtitle = isDummySub
+                      ? (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle)
+                      : (rawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
+
+                    const prevItem = relIndex > 0 ? activeAndUpcomingEvents[relIndex - 1] : null;
+                    const isNewDay = Boolean(item.dateStr && prevItem && prevItem.dateStr && item.dateStr !== prevItem.dateStr);
+
+                    return (
+                      <React.Fragment key={item.id || relIndex}>
+                        {/* ROZDZIELNIK KOLEJNEGO DNIA */}
+                        {isNewDay && (
+                          <View style={styles.homeDaySeparator}>
+                            <View style={styles.homeDaySeparatorBadge}>
+                              <Ionicons name="calendar-outline" size={11} color="#F59E0B" style={{ marginRight: 5 }} />
+                              <Text style={styles.homeDaySeparatorText}>{item.dateStr}</Text>
+                            </View>
                           </View>
+                        )}
+
+                        {/* MINIMALNY ŁĄCZNIK TRANZYTOWY DLA KOLEJNYCH PUNKTÓW DZIŚ */}
+                        {(() => {
+                          if (relIndex <= 0 || isNewDay || !prevItem) return null;
+                          if (hasNoLodgingAddress(prevItem) || hasNoLodgingAddress(item)) return null;
+
+                        if (prevItem.lat && prevItem.lon && item.lat && item.lon) {
+                          const dist = haversineDistance(prevItem.lat, prevItem.lon, item.lat, item.lon);
+                          const isWalk = dist < 1.8;
+                          return (
+                            <View style={styles.homeTransitBadgeWrap}>
+                              <View style={styles.homeTransitBadge}>
+                                <Ionicons
+                                  name={isWalk ? 'walk-outline' : 'bus-outline'}
+                                  size={11}
+                                  color="#94A3B8"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.homeTransitBadgeText}>
+                                  {isWalk ? `${Math.round(dist * 1000)} m • Pieszo` : `${dist.toFixed(1)} km • Komunikacja`}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      <View style={styles.timelineRow}>
+                        {/* WĘZEŁ NA OSI */}
+                        <View style={styles.nodeColumn}>
+                          {isInProgress ? (
+                            <View style={[styles.nodeCircle, styles.nodeCircleActive]}>
+                              <View style={styles.nodeActiveInnerDot} />
+                            </View>
+                          ) : (
+                            <View style={[styles.nodeCircle, styles.nodeCircleFuture]}>
+                              <View style={styles.nodeFutureInnerDot} />
+                            </View>
+                          )}
+                        </View>
+                        
+                        {/* KARTA WYDARZENIA */}
+                        <TouchableOpacity 
+                          style={[
+                            styles.timelineCard,
+                            isInProgress && styles.timelineCardActive,
+                            isExpanded && styles.eventCardExpanded
+                          ]} 
+                          activeOpacity={0.85} 
+                          onPress={() => setExpandedEventId(isExpanded ? null : item.id)}
+                        >
+                          {/* BADGE "W TRAKCIE" I POGODA DLA AKTYWNEGO */}
+                          {isInProgress && (
+                            <View style={styles.inProgressHeaderRow}>
+                              <View style={styles.inProgressBadge}>
+                                <Ionicons name="radio-button-on" size={10} color="#F59E0B" style={{ marginRight: 4 }} />
+                                <Text style={styles.inProgressBadgeText}>{t.inProgressBadge || 'W TRAKCIE'}</Text>
+                              </View>
+                              <View style={styles.inProgressWeather}>
+                                <Ionicons name="sunny" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                                <Text style={styles.inProgressWeatherText}>24°C</Text>
+                              </View>
+                            </View>
+                          )}
+
+                          {/* SUBTELNY BADGE NASTĘPNIE */}
+                          {isNext && (
+                            <View style={styles.nextUpBadgeRow}>
+                              <View style={styles.nextUpBadge}>
+                                <Ionicons name="time-outline" size={10} color="#94A3B8" style={{ marginRight: 4 }} />
+                                <Text style={styles.nextUpBadgeText}>NASTĘPNIE</Text>
+                              </View>
+                            </View>
+                          )}
+
+                          <View style={styles.cardHeaderFlex}>
+                            <View style={styles.cardTitleRow}>
+                              <View style={[styles.cardTypeIconWrap, isInProgress && styles.cardTypeIconWrapActive]}>
+                                {renderTimelineIcon(item.type)}
+                              </View>
+                              <Text 
+                                style={[
+                                  styles.cardTitle,
+                                  isInProgress && styles.cardTitleActive,
+                                  isFuture && styles.cardTitleFuture
+                                ]}
+                              >
+                                {item.title}
+                              </Text>
+                            </View>
+                            <Ionicons name="pencil-outline" size={15} color="#64748B" />
+                          </View>
+
                           <Text 
                             style={[
-                              styles.cardTitle,
-                              isInProgress && styles.cardTitleActive,
-                              isFuture && styles.cardTitleFuture
+                              styles.cardTime,
+                              isInProgress && styles.cardTimeActive,
+                              isFuture && styles.cardTimeFuture
                             ]}
                           >
-                            {item.title}
+                            {eventTime} • {getTimelineTypeLabel(item.type)}
                           </Text>
-                        </View>
-                        <Ionicons name="pencil-outline" size={15} color="#64748B" />
+
+                          <Text 
+                            style={[
+                              styles.cardDesc,
+                              isInProgress && styles.cardDescActive,
+                              isFuture && styles.cardDescFuture
+                            ]} 
+                            numberOfLines={isExpanded ? 0 : 2}
+                          >
+                            {eventSubtitle}
+                          </Text>
+
+                          {/* PRZYCISKI AKCJI "TRASA" I "BILETY" DLA IN PROGRESS */}
+                          {(() => {
+                            if (!isInProgress) return null;
+
+                            const isTransportEvent = item.type === 'DEPARTURE' || item.type === 'RETURN' || item.type === 'TRANSPORT';
+                            const isLodgingEvent = item.type === 'LODGING';
+                            const isAttractionEvent = item.type === 'ATTRACTION';
+
+                            let userLodgingAddress = '';
+                            if (isLodgingEvent) {
+                              try {
+                                const lData = typeof activeTrip.lodging_data === 'string' ? JSON.parse(activeTrip.lodging_data || '{}') : (activeTrip.lodging_data || {});
+                                if (lData?.lodgingAddress && typeof lData.lodgingAddress === 'string' && lData.lodgingAddress.trim().length > 0) {
+                                  userLodgingAddress = lData.lodgingAddress.trim();
+                                }
+                              } catch {}
+                              if (!userLodgingAddress && activeTrip?.accommodation_address && typeof activeTrip.accommodation_address === 'string' && activeTrip.accommodation_address.trim().length > 0) {
+                                userLodgingAddress = activeTrip.accommodation_address.trim();
+                              }
+                              if (!userLodgingAddress && item.subtitle && typeof item.subtitle === 'string') {
+                                const defaultSubs = [
+                                  (translations.pl.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                                  (translations.en.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
+                                  'zameldowanie i odbiór kluczy',
+                                  'check-in and key pickup',
+                                  'brak zapisanego adresu noclegu',
+                                  'no hotel address provided',
+                                ];
+                                if (!defaultSubs.includes(item.subtitle.trim().toLowerCase())) {
+                                  userLodgingAddress = item.subtitle.trim();
+                                }
+                              }
+                            }
+
+                            const showDirectionsBtn = (isLodgingEvent && Boolean(userLodgingAddress)) || (isAttractionEvent && Boolean(item.title));
+                            const showTicketsBtn = isTransportEvent;
+
+                            if (!showDirectionsBtn && !showTicketsBtn) return null;
+
+                            return (
+                              <View style={styles.inProgressActionsRow}>
+                                {showDirectionsBtn && (
+                                  <TouchableOpacity
+                                    style={styles.inProgressDirectionsBtn}
+                                    activeOpacity={0.8}
+                                    onPress={() => {
+                                      const destTarget = isLodgingEvent ? userLodgingAddress : item.title;
+                                      const query = encodeURIComponent(`${destTarget}, ${activeTrip.destination || ''}`);
+                                      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${query}`);
+                                    }}
+                                  >
+                                    <Ionicons name="navigate-outline" size={14} color="#0F172A" style={{ marginRight: 6 }} />
+                                    <Text style={styles.inProgressDirectionsBtnText}>{t.directionsBtn || 'Trasa'}</Text>
+                                  </TouchableOpacity>
+                                )}
+
+                                {showTicketsBtn && (
+                                  <TouchableOpacity
+                                    style={styles.inProgressTicketsBtn}
+                                    activeOpacity={0.8}
+                                    onPress={() => {
+                                      const ticketData = findActiveTicketForTrip(activeTrip);
+                                      const isReturn = item.type === 'RETURN';
+                                      const selectedTicketFile = isReturn
+                                        ? (ticketData?.returnTicket || ticketData?.file || null)
+                                        : (ticketData?.outboundTicket || ticketData?.file || null);
+                                      const selectedDepTime = sanitizeTimeStr(item.timeStr) || (isReturn ? ticketData?.returnDepartureTime : ticketData?.outboundDepartureTime) || ticketData?.departureTime || '12:00';
+                                      const selectedStation = item.subtitle || (isReturn ? ticketData?.returnStation : ticketData?.outboundStation) || ticketData?.stationName || activeTrip.origin || '';
+
+                                      setQuickPassResult({
+                                        shouldAlert: true,
+                                        reason: 'TIME',
+                                        minutesUntilDeparture: null,
+                                        distanceMeters: null,
+                                        stationName: selectedStation,
+                                        ticketFile: selectedTicketFile,
+                                        departureTime: selectedDepTime,
+                                        destination: activeTrip.destination || '',
+                                        transportType: activeTrip.transport_type || 'train',
+                                        activeLeg: isReturn ? 'return' : 'outbound',
+                                        outboundTicket: ticketData?.outboundTicket || null,
+                                        returnTicket: ticketData?.returnTicket || null,
+                                        outboundDepartureTime: ticketData?.outboundDepartureTime,
+                                        returnDepartureTime: ticketData?.returnDepartureTime,
+                                        outboundStation: ticketData?.outboundStation,
+                                        returnStation: ticketData?.returnStation,
+                                      });
+                                      setIsQuickPassVisible(true);
+                                    }}
+                                  >
+                                    <Ionicons name="ticket-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+                                    <Text style={styles.inProgressTicketsBtnText}>{t.ticketsBtn || 'Bilety'}</Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            );
+                          })()}
+
+                          {/* SEKCJA ROZWIJANA (EDYCJA) */}
+                          {isExpanded && (
+                            <View style={styles.expandedSection}>
+                              <View style={styles.inputGroup}>
+                                <Text style={styles.inputLabel}>{t.dateLabel}</Text>
+                                <View style={styles.inputWithIconRow}>
+                                  <TextInput 
+                                    style={styles.inputWithIconText} 
+                                    value={item.dateStr} 
+                                    onChangeText={(val) => handleEventEdit(item.id, 'dateStr', val)}
+                                  />
+                                  <TouchableOpacity
+                                    style={styles.inputIconBtn}
+                                    onPress={() => setActivePicker({ type: 'editDate', eventId: item.id, currentDate: parsePickerDate(item.dateStr || activeTrip?.start_date) })}
+                                    activeOpacity={0.7}
+                                    testID={`date-picker-btn-${item.id}`}
+                                  >
+                                    <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                              <View style={styles.inputGroup}>
+                                <Text style={styles.inputLabel}>{t.timeLabel}</Text>
+                                <View style={styles.inputWithIconRow}>
+                                  <TextInput 
+                                    style={styles.inputWithIconText} 
+                                    value={item.timeStr} 
+                                    onChangeText={(val) => handleEventEdit(item.id, 'timeStr', val)}
+                                  />
+                                  <TouchableOpacity
+                                    style={styles.inputIconBtn}
+                                    onPress={() => setActivePicker({ type: 'editTime', eventId: item.id, currentTime: parsePickerTime(item.timeStr) })}
+                                    activeOpacity={0.7}
+                                    testID={`time-picker-btn-${item.id}`}
+                                  >
+                                    <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                              <View style={styles.inputGroup}>
+                                <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
+                                <TextInput 
+                                  style={styles.input} 
+                                  value={item.title} 
+                                  onChangeText={(val) => handleEventEdit(item.id, 'title', val)}
+                                />
+                              </View>
+                              <View style={styles.inputGroup}>
+                                <Text style={styles.inputLabel}>{t.eventSubtitleLabel}</Text>
+                                <TextInput 
+                                  style={styles.input} 
+                                  value={item.subtitle} 
+                                  onChangeText={(val) => handleEventEdit(item.id, 'subtitle', val)}
+                                />
+                              </View>
+                              
+                              {/* PRZYCISKI AKCJI (USUŃ I PRZESUŃ) */}
+                              <View style={styles.cardActionsRow}>
+                                <View style={styles.moveActions}>
+                                  <TouchableOpacity style={[styles.actionBtn, originalIndex === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'UP')}>
+                                    <Ionicons name="chevron-up" size={15} color={originalIndex === 0 ? "#475569" : "#94A3B8"} />
+                                  </TouchableOpacity>
+                                  <TouchableOpacity style={[styles.actionBtn, originalIndex === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'DOWN')}>
+                                    <Ionicons name="chevron-down" size={15} color={originalIndex === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
+                                  </TouchableOpacity>
+                                </View>
+                                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
+                                  <Text style={styles.deleteBtnText}>{t.delete}</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )}
+                        </TouchableOpacity>
                       </View>
 
-                      <Text 
-                        style={[
-                          styles.cardTime,
-                          isInProgress && styles.cardTimeActive,
-                          isFuture && styles.cardTimeFuture
-                        ]}
-                      >
-                        {eventTime} • {getTimelineTypeLabel(item.type)}
-                      </Text>
-
-                      <Text 
-                        style={[
-                          styles.cardDesc,
-                          isInProgress && styles.cardDescActive,
-                          isFuture && styles.cardDescFuture
-                        ]} 
-                        numberOfLines={isExpanded ? 0 : 2}
-                      >
-                        {eventSubtitle}
-                      </Text>
-
-                      {/* PRZYCISKI AKCJI "DIRECTIONS" I "TICKETS" DLA IN PROGRESS */}
-                      {(() => {
-                        if (!isInProgress) return null;
-
-                        const isTransportEvent = item.type === 'DEPARTURE' || item.type === 'RETURN' || item.type === 'TRANSPORT';
-                        const isLodgingEvent = item.type === 'LODGING';
-                        const isAttractionEvent = item.type === 'ATTRACTION';
-
-                        let userLodgingAddress = '';
-                        if (isLodgingEvent) {
-                          try {
-                            const lData = typeof activeTrip.lodging_data === 'string' ? JSON.parse(activeTrip.lodging_data || '{}') : (activeTrip.lodging_data || {});
-                            if (lData?.lodgingAddress && typeof lData.lodgingAddress === 'string' && lData.lodgingAddress.trim().length > 0) {
-                              userLodgingAddress = lData.lodgingAddress.trim();
-                            }
-                          } catch {}
-                          if (!userLodgingAddress && activeTrip?.accommodation_address && typeof activeTrip.accommodation_address === 'string' && activeTrip.accommodation_address.trim().length > 0) {
-                            userLodgingAddress = activeTrip.accommodation_address.trim();
-                          }
-                          if (!userLodgingAddress && item.subtitle && typeof item.subtitle === 'string') {
-                            const defaultSubs = [
-                              (translations.pl.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
-                              (translations.en.homeScreen.defaultLodgingSubtitle || '').toLowerCase(),
-                              'zameldowanie i odbiór kluczy',
-                              'check-in and key pickup',
-                              'brak zapisanego adresu noclegu',
-                              'no hotel address provided',
-                            ];
-                            if (!defaultSubs.includes(item.subtitle.trim().toLowerCase())) {
-                              userLodgingAddress = item.subtitle.trim();
-                            }
-                          }
-                        }
-
-                        const showDirectionsBtn = (isLodgingEvent && Boolean(userLodgingAddress)) || (isAttractionEvent && Boolean(item.title));
-                        const showTicketsBtn = isTransportEvent;
-
-                        if (!showDirectionsBtn && !showTicketsBtn) return null;
-
+                      {/* KONTEKSTOWA KARTA OBIADOWA W GODZINACH 12-15 */}
+                      {isInProgress && (() => {
+                        const currentHour = new Date().getHours();
+                        const isLunchTime = currentHour >= 12 && currentHour < 15;
+                        if (!isLunchTime) return null;
                         return (
-                          <View style={styles.inProgressActionsRow}>
-                            {showDirectionsBtn && (
-                              <TouchableOpacity
-                                style={styles.inProgressDirectionsBtn}
-                                activeOpacity={0.8}
-                                onPress={() => {
-                                  const destTarget = isLodgingEvent ? userLodgingAddress : item.title;
-                                  const query = encodeURIComponent(`${destTarget}, ${activeTrip.destination || ''}`);
-                                  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-                                }}
-                              >
-                                <Ionicons name="navigate-outline" size={14} color="#0F172A" style={{ marginRight: 6 }} />
-                                <Text style={styles.inProgressDirectionsBtnText}>{t.directionsBtn || 'Trasa'}</Text>
-                              </TouchableOpacity>
-                            )}
-
-                            {showTicketsBtn && (
-                              <TouchableOpacity
-                                style={styles.inProgressTicketsBtn}
-                                activeOpacity={0.8}
-                                onPress={() => {
-                                  const ticketData = findActiveTicketForTrip(activeTrip);
-                                  const isReturn = item.type === 'RETURN';
-                                  const selectedTicketFile = isReturn
-                                    ? (ticketData?.returnTicket || ticketData?.file || null)
-                                    : (ticketData?.outboundTicket || ticketData?.file || null);
-                                  const selectedDepTime = sanitizeTimeStr(item.timeStr) || (isReturn ? ticketData?.returnDepartureTime : ticketData?.outboundDepartureTime) || ticketData?.departureTime || '12:00';
-                                  const selectedStation = item.subtitle || (isReturn ? ticketData?.returnStation : ticketData?.outboundStation) || ticketData?.stationName || activeTrip.origin || '';
-
-                                  setQuickPassResult({
-                                    shouldAlert: true,
-                                    reason: 'TIME',
-                                    minutesUntilDeparture: null,
-                                    distanceMeters: null,
-                                    stationName: selectedStation,
-                                    ticketFile: selectedTicketFile,
-                                    departureTime: selectedDepTime,
-                                    destination: activeTrip.destination || '',
-                                    transportType: activeTrip.transport_type || 'train',
-                                    activeLeg: isReturn ? 'return' : 'outbound',
-                                    outboundTicket: ticketData?.outboundTicket || null,
-                                    returnTicket: ticketData?.returnTicket || null,
-                                    outboundDepartureTime: ticketData?.outboundDepartureTime,
-                                    returnDepartureTime: ticketData?.returnDepartureTime,
-                                    outboundStation: ticketData?.outboundStation,
-                                    returnStation: ticketData?.returnStation,
-                                  });
-                                  setIsQuickPassVisible(true);
-                                }}
-                              >
-                                <Ionicons name="ticket-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
-                                <Text style={styles.inProgressTicketsBtnText}>{t.ticketsBtn || 'Bilety'}</Text>
-                              </TouchableOpacity>
-                            )}
+                          <View style={styles.lunchCard}>
+                            <View style={styles.lunchIconWrap}>
+                              <Ionicons name="restaurant-outline" size={16} color="#F59E0B" />
+                            </View>
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={styles.lunchTitle}>Pora na przerwę lub obiad?</Text>
+                              <Text style={styles.lunchSubtitle}>Polecane lokale gastronomiczne w okolicy</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.lunchActionBtn}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                const query = encodeURIComponent(`restauracje w pobliżu, ${activeTrip?.destination || ''}`);
+                                Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                              }}
+                            >
+                              <Ionicons name="compass-outline" size={12} color="#0F172A" style={{ marginRight: 4 }} />
+                              <Text style={styles.lunchActionBtnText}>Miejsca</Text>
+                            </TouchableOpacity>
                           </View>
                         );
                       })()}
+                    </React.Fragment>
+                  );
+                });
+              })()}
 
-                      {/* SEKCJA ROZWIJANA (EDYCJA) */}
-                      {isExpanded && (
-                        <View style={styles.expandedSection}>
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>{t.dateLabel}</Text>
-                            <View style={styles.inputWithIconRow}>
-                              <TextInput 
-                                style={styles.inputWithIconText} 
-                                value={item.dateStr} 
-                                onChangeText={(val) => handleEventEdit(item.id, 'dateStr', val)}
-                              />
-                              <TouchableOpacity
-                                style={styles.inputIconBtn}
-                                onPress={() => setActivePicker({ type: 'editDate', eventId: item.id, currentDate: parsePickerDate(item.dateStr || activeTrip?.start_date) })}
-                                activeOpacity={0.7}
-                                testID={`date-picker-btn-${item.id}`}
-                              >
-                                <Ionicons name="calendar-outline" size={18} color="#F59E0B" />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>{t.timeLabel}</Text>
-                            <View style={styles.inputWithIconRow}>
-                              <TextInput 
-                                style={styles.inputWithIconText} 
-                                value={item.timeStr} 
-                                onChangeText={(val) => handleEventEdit(item.id, 'timeStr', val)}
-                              />
-                              <TouchableOpacity
-                                style={styles.inputIconBtn}
-                                onPress={() => setActivePicker({ type: 'editTime', eventId: item.id, currentTime: parsePickerTime(item.timeStr) })}
-                                activeOpacity={0.7}
-                                testID={`time-picker-btn-${item.id}`}
-                              >
-                                <Ionicons name="time-outline" size={18} color="#F59E0B" />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>{t.eventTitleLabel}</Text>
-                            <TextInput 
-                              style={styles.input} 
-                              value={item.title} 
-                              onChangeText={(val) => handleEventEdit(item.id, 'title', val)}
-                            />
-                          </View>
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>{t.eventSubtitleLabel}</Text>
-                            <TextInput 
-                              style={styles.input} 
-                              value={item.subtitle} 
-                              onChangeText={(val) => handleEventEdit(item.id, 'subtitle', val)}
-                            />
-                          </View>
-                          
-                          {/* PRZYCISKI AKCJI (USUŃ I PRZESUŃ) */}
-                          <View style={styles.cardActionsRow}>
-                            <View style={styles.moveActions}>
-                              <TouchableOpacity style={[styles.actionBtn, originalIndex === 0 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'UP')}>
-                                <Ionicons name="chevron-up" size={15} color={originalIndex === 0 ? "#475569" : "#94A3B8"} />
-                              </TouchableOpacity>
-                              <TouchableOpacity style={[styles.actionBtn, originalIndex === activeTimeline.length - 1 && styles.actionBtnDisabled]} onPress={() => moveEvent(originalIndex, 'DOWN')}>
-                                <Ionicons name="chevron-down" size={15} color={originalIndex === activeTimeline.length - 1 ? "#475569" : "#94A3B8"} />
-                              </TouchableOpacity>
-                            </View>
-                            <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteEvent(item.id)}>
-                              <Text style={styles.deleteBtnText}>{t.delete}</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
+                {/* PRZYCISK PRZEJŚCIA DO PEŁNEJ OSI CZASU Z ZAKŁADKAMI DNI */}
+                <TouchableOpacity
+                  style={styles.openFullTimelineBtn}
+                  activeOpacity={0.8}
+                  onPress={handleOpenFullTimeline}
+                  testID="open-full-timeline-bottom-btn"
+                >
+                  <Ionicons name="calendar-outline" size={15} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.openFullTimelineBtnText}>Otwórz pełną oś czasu wyjazdu</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#F59E0B" style={{ marginLeft: 6 }} />
+                </TouchableOpacity>
+              </View>
+            )}
 
               {/* MINIONE PUNKTY (UKRYTE DOMYŚLNIE, ROZWIJANE NA ŻYCZENIE NA DOLE) */}
               {pastEvents.length > 0 && (
@@ -1614,7 +1855,6 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 </View>
               )}
             </View>
-          </View>
 
           {/* INTERAKTYWNY KALKULATOR WALUT */}
           <View style={styles.converterSection}>
@@ -1947,6 +2187,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             }
           })()}
           destinationCity={activeTrip?.destination || 'Rome'}
+          targetDay="ALL"
+          tripStartDate={activeTrip?.start_date}
+          tripEndDate={activeTrip?.end_date}
         />
 
         {/* MODAL BILETU W ZASIĘGU RĘKI (PROXIMITY QUICK PASS) */}
@@ -2027,19 +2270,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         </View>
 
         <View style={styles.section}>
-          <View style={[styles.sectionHeaderRow, { paddingHorizontal: 24, marginBottom: 4, justifyContent: 'flex-start' }]}>
-            <Ionicons name="compass-outline" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
-            <Text style={[styles.sectionHeaderTitle, { fontSize: 18 }]}>{t.section_liveTitle}</Text>
-          </View>
-          <Text style={styles.sectionSubtitle}>{t.section_liveSubtitle}</Text>
-          
           {/* Filter Chips */}
           {!loading && recommendations.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterChipsContainer}
-            >
+            <View style={styles.filterChipsContainer}>
               <TouchableOpacity
                 style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
                 onPress={() => setSelectedFilter('all')}
@@ -2047,11 +2280,14 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               >
                 <Ionicons
                   name="globe-outline"
-                  size={14}
+                  size={13}
                   color={selectedFilter === 'all' ? '#0F172A' : '#94A3B8'}
-                  style={{ marginRight: 6 }}
+                  style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
+                <Text 
+                  style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}
+                  numberOfLines={1}
+                >
                   {t.filterAll || 'Wszystkie'}
                 </Text>
               </TouchableOpacity>
@@ -2062,12 +2298,15 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               >
                 <Ionicons
                   name="car-sport-outline"
-                  size={14}
+                  size={13}
                   color={selectedFilter === 'dayTrips' ? '#0F172A' : '#94A3B8'}
-                  style={{ marginRight: 6 }}
+                  style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.filterChipText, selectedFilter === 'dayTrips' && styles.filterChipTextActive]}>
-                  {t.filterDayTrips || '1 dzień (autem)'}
+                <Text 
+                  style={[styles.filterChipText, selectedFilter === 'dayTrips' && styles.filterChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {t.filterDayTrips || '1 dzień'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -2077,12 +2316,15 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               >
                 <Ionicons
                   name="car-outline"
-                  size={14}
+                  size={13}
                   color={selectedFilter === 'regional' ? '#0F172A' : '#94A3B8'}
-                  style={{ marginRight: 6 }}
+                  style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.filterChipText, selectedFilter === 'regional' && styles.filterChipTextActive]}>
-                  {t.filterWeekend || 'Blisko / Weekend'}
+                <Text 
+                  style={[styles.filterChipText, selectedFilter === 'regional' && styles.filterChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {t.filterWeekend || 'Blisko'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -2092,15 +2334,18 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               >
                 <Ionicons
                   name="airplane-outline"
-                  size={14}
+                  size={13}
                   color={selectedFilter === 'flights' ? '#0F172A' : '#94A3B8'}
-                  style={{ marginRight: 6 }}
+                  style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.filterChipText, selectedFilter === 'flights' && styles.filterChipTextActive]}>
-                  {t.filterFlights || 'Samolotem'}
+                <Text 
+                  style={[styles.filterChipText, selectedFilter === 'flights' && styles.filterChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {t.filterFlights || 'Loty'}
                 </Text>
               </TouchableOpacity>
-            </ScrollView>
+            </View>
           )}
 
           {loading ? (
@@ -2294,10 +2539,10 @@ const styles = StyleSheet.create({
   },
   
   // --- STANDARDOWY HOME ---
-  header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 },
+  header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 6 },
   welcomeText: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.5 },
   subText: { fontSize: 15, color: '#94A3B8', marginTop: 4, fontWeight: '400' },
-  section: { marginTop: 32, flex: 1 },
+  section: { marginTop: 8, flex: 1 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', paddingHorizontal: 24 },
   sectionSubtitle: { fontSize: 13, color: '#94A3B8', marginTop: 4, marginBottom: 16, paddingHorizontal: 24 },
   exploreProjectsContainer: { gap: 16, paddingHorizontal: 24, paddingBottom: 24 },
@@ -2328,18 +2573,20 @@ const styles = StyleSheet.create({
   },
 
   filterChipsContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 12,
-    gap: 8,
+    paddingHorizontal: 20,
+    paddingTop: 2,
+    paddingBottom: 16,
+    gap: 6,
     flexDirection: 'row',
   },
   filterChip: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
     paddingVertical: 7,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: '#1E293B',
     borderWidth: 1,
     borderColor: '#334155',
@@ -2350,7 +2597,7 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 11.5,
     fontWeight: '600',
   },
   filterChipTextActive: {
@@ -2482,14 +2729,28 @@ const styles = StyleSheet.create({
   headerTripTitle: { fontSize: 26, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.3, marginBottom: 4 },
   headerLocationSubtitle: { fontSize: 14, color: '#94A3B8', fontWeight: '500', marginBottom: 18 },
   topQuickActionsRow: { flexDirection: 'row', gap: 12 },
-  addAttractionTopBtn: { flex: 1, backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', elevation: 3 },
+  addAttractionTopBtn: { flex: 1, flexDirection: 'row', backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', elevation: 3 },
   addAttractionTopBtnText: { color: '#0F172A', fontSize: 14, fontWeight: '800' },
-  safeVaultTopBtn: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  safeVaultTopBtn: { flex: 1, flexDirection: 'row', backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   safeVaultTopBtnText: { color: '#F8FAFC', fontSize: 14, fontWeight: '700' },
 
   // Itinerary & Timeline
   itinerarySection: { paddingHorizontal: 20, paddingTop: 10, marginTop: 6 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginBottom: 16, paddingHorizontal: 4 },
+  activeDayBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+  },
+  activeDayBadgeText: {
+    color: '#F59E0B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   optimizeHomeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2509,6 +2770,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sectionHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  fullTimelineHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+  },
+  fullTimelineHeaderBtnText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   timelineWrapper: { position: 'relative' },
   timelineLineAbsolute: { position: 'absolute', left: 21, top: 20, bottom: 20, width: 2, backgroundColor: '#1E293B', zIndex: 0 },
   timelineRow: { flexDirection: 'row', marginBottom: 18, alignItems: 'flex-start' },
@@ -2529,9 +2805,10 @@ const styles = StyleSheet.create({
   timelineCardActive: { backgroundColor: '#131D31', borderColor: '#F59E0B', borderWidth: 1.5, shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
   eventCardExpanded: { borderColor: '#38BDF8' },
 
-  cardHeaderFlex: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  cardHeaderFlex: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
   cardTypeIconWrap: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(56, 189, 248, 0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  cardTypeIconWrapActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)' },
   cardTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: '700', flex: 1 },
   cardTitlePast: { color: '#94A3B8' },
   cardTitleActive: { color: '#FFFFFF', fontWeight: '800' },
@@ -2550,7 +2827,7 @@ const styles = StyleSheet.create({
 
   // In Progress specifics
   inProgressHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  inProgressBadge: { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderWidth: 1, borderColor: '#F59E0B', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  inProgressBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(245, 158, 11, 0.15)', borderWidth: 1, borderColor: '#F59E0B', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   inProgressBadgeText: { color: '#F59E0B', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   inProgressWeather: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.8)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   inProgressWeatherText: { color: '#F8FAFC', fontSize: 11, fontWeight: '700' },
@@ -2625,6 +2902,153 @@ const styles = StyleSheet.create({
     borderTopColor: '#1E293B',
   },
 
+  // Smart Itinerary elements
+  homeDaySeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+    marginLeft: 32,
+  },
+  homeDaySeparatorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  homeDaySeparatorText: {
+    color: '#F59E0B',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  homeTransitBadgeWrap: {
+    marginLeft: 32,
+    marginVertical: 4,
+  },
+  homeTransitBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  homeTransitBadgeText: {
+    color: '#94A3B8',
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  nextUpBadgeRow: {
+    marginBottom: 6,
+  },
+  nextUpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
+  },
+  nextUpBadgeText: {
+    color: '#94A3B8',
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  lunchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderRadius: 14,
+    padding: 12,
+    marginLeft: 32,
+    marginVertical: 8,
+  },
+  lunchIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  lunchTitle: {
+    color: '#F8FAFC',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  lunchSubtitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  lunchActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  lunchActionBtnText: {
+    color: '#0F172A',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  emptyDayBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  emptyDayTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyDaySubtitle: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  openFullTimelineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#131D31',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  openFullTimelineBtnText: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
   // Currency Converter
   converterSection: { paddingHorizontal: 20, marginTop: 24 },
   converterCard: { backgroundColor: '#111827', borderRadius: 18, padding: 18, borderWidth: 1, borderColor: '#1E293B' },
@@ -2653,13 +3077,13 @@ const styles = StyleSheet.create({
   addSectionTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: '800', marginBottom: 2 },
   addSectionSubtitle: { color: '#CBD5E1', fontSize: 12, marginBottom: 12 },
   suggestionsScrollContent: { paddingVertical: 4, gap: 12 },
-  suggestionCard: { width: 170, backgroundColor: '#0B1120', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  suggestionCard: { width: 175, height: 215, backgroundColor: '#0B1120', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
   suggestionCardImage: { width: '100%', height: 95 },
   suggestionImagePlaceholder: { width: '100%', height: 95, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' },
-  suggestionCardBody: { padding: 10 },
+  suggestionCardBody: { padding: 10, flex: 1, justifyContent: 'space-between' },
   suggestionCardTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  suggestionCardSubtitle: { color: '#CBD5E1', fontSize: 12, marginBottom: 10 },
-  suggestionAddBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', paddingVertical: 6, borderRadius: 8 },
+  suggestionCardSubtitle: { color: '#CBD5E1', fontSize: 11, marginBottom: 6 },
+  suggestionAddBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F59E0B', paddingVertical: 7, borderRadius: 8 },
   suggestionAddBtnText: { color: '#0F172A', fontSize: 12, fontWeight: '800' },
   noSuggestionsBox: { backgroundColor: '#0B1120', padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' },
   noSuggestionsText: { color: '#CBD5E1', fontSize: 12, fontStyle: 'italic' },

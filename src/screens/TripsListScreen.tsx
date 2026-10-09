@@ -227,9 +227,39 @@ export const TripsListScreen = ({ navigation }: any) => {
                   ? trip.lodging_data
                   : (existingLocal?.lodging_data || JSON.stringify({ lodgingAddress: trip.accommodation_address || '' }));
 
-                const finalAttractionsData = (trip.attractions_data && trip.attractions_data !== '{}')
+                let finalAttractionsData = (trip.attractions_data && trip.attractions_data !== '{}')
                   ? trip.attractions_data
                   : (existingLocal?.attractions_data || '{}');
+
+                if (existingLocal?.attractions_data && existingLocal.attractions_data !== '{}') {
+                  try {
+                    const localParsed = JSON.parse(existingLocal.attractions_data);
+                    const remoteParsed = JSON.parse(trip.attractions_data || '{}');
+                    const localCount = localParsed?.customTimeline?.length || 0;
+                    const remoteCount = remoteParsed?.customTimeline?.length || 0;
+                    if (localCount >= remoteCount) {
+                      finalAttractionsData = existingLocal.attractions_data;
+                      if (localCount > remoteCount) {
+                        supabase
+                          .from('trips')
+                          .update({ attractions_data: finalAttractionsData })
+                          .eq('id', trip.id)
+                          .then(() => {}, () => {});
+                      }
+                    }
+                  } catch {}
+                }
+
+                try {
+                  const cachedTimelineStr = await AsyncStorage.getItem(`destivo_timeline_${trip.id}`);
+                  if (cachedTimelineStr) {
+                    const cachedParsed = JSON.parse(cachedTimelineStr);
+                    const curParsed = JSON.parse(finalAttractionsData || '{}');
+                    if ((cachedParsed?.customTimeline?.length || 0) > (curParsed?.customTimeline?.length || 0)) {
+                      finalAttractionsData = cachedTimelineStr;
+                    }
+                  }
+                } catch {}
 
                 await db.execute(
                   `INSERT OR REPLACE INTO trips (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)

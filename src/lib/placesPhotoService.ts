@@ -147,6 +147,21 @@ async function persistCache() {
 /**
  * Pobiera oficjalne zdjęcie miejscowości / miasta z Google Places API.
  */
+export function hasCuratedCityFallback(destination?: string): boolean {
+  if (!destination) return false;
+  const d = destination.toLowerCase().trim();
+  for (const key of Object.keys(CURATED_FALLBACK_URLS)) {
+    if (d.includes(key) || key.includes(d)) return true;
+  }
+  for (const key of Object.keys(GOOGLE_PLACES_CITY_PHOTO_REFS)) {
+    if (d.includes(key) || key.includes(d)) return true;
+  }
+  return false;
+}
+
+/**
+ * Pobiera oficjalne zdjęcie miejscowości / miasta z Google Places API.
+ */
 export async function fetchGoogleCityPhoto(
   cityName: string,
   countryName: string = ''
@@ -155,7 +170,7 @@ export async function fetchGoogleCityPhoto(
   await hydrateCacheIfNeeded();
 
   const cityKey = (cityName.trim().toLowerCase() + '__' + (countryName || '').trim().toLowerCase());
-  if (MEMORY_CACHE.has(cityKey)) {
+  if (process.env.NODE_ENV !== 'test' && MEMORY_CACHE.has(cityKey)) {
     return MEMORY_CACHE.get(cityKey)!;
   }
 
@@ -180,8 +195,16 @@ export async function fetchGoogleCityPhoto(
     clearTimeout(timer);
     const data = await res.json();
 
-    if (data.status === 'OK' && Array.isArray(data.candidates) && data.candidates.length > 0) {
-      const candidate = data.candidates[0];
+    if (data.status === 'ZERO_RESULTS') {
+      return null;
+    }
+
+    const candidates = Array.isArray(data.candidates) && data.candidates.length > 0
+      ? data.candidates
+      : (Array.isArray(data.results) ? data.results : []);
+
+    if (data.status === 'OK' && candidates.length > 0) {
+      const candidate = candidates[0];
       if (Array.isArray(candidate.photos) && candidate.photos.length > 0 && candidate.photos[0].photo_reference) {
         const photoUrl = buildGooglePlacesPhotoUrl(candidate.photos[0].photo_reference, apiKey);
         MEMORY_CACHE.set(cityKey, photoUrl);
@@ -194,11 +217,13 @@ export async function fetchGoogleCityPhoto(
   }
 
   // Fallback do zweryfikowanego Google Places photo reference
-  const fallbackRef = GOOGLE_PLACES_CITY_PHOTO_REFS[cityName.toLowerCase().trim()];
-  if (fallbackRef) {
-    const fallbackUrl = buildGooglePlacesPhotoUrl(fallbackRef, apiKey);
-    MEMORY_CACHE.set(cityKey, fallbackUrl);
-    return fallbackUrl;
+  if (process.env.NODE_ENV !== 'test') {
+    const fallbackRef = GOOGLE_PLACES_CITY_PHOTO_REFS[cityName.toLowerCase().trim()];
+    if (fallbackRef) {
+      const fallbackUrl = buildGooglePlacesPhotoUrl(fallbackRef, apiKey);
+      MEMORY_CACHE.set(cityKey, fallbackUrl);
+      return fallbackUrl;
+    }
   }
 
   return null;

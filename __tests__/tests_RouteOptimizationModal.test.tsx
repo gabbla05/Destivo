@@ -112,14 +112,13 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(screen.queryByText(/CPU time/i)).toBeNull();
     expect(screen.queryByText(/\(TSP\)/i)).toBeNull();
 
-    // Opcje dojazdu (pieszo, komunikacja miejska, auto) oraz przycisk Google Maps
-    expect(screen.getAllByText('Pieszo').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Komunikacja miejska').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Samochód / taxi').length).toBeGreaterThan(0);
+    // Usunięte zbędne przyciski trybów (pieszo, komunikacja, auto) - zostawiona rekomendacja i przycisk Google Maps
+    expect(screen.queryByText('Samochód / taxi')).toBeNull();
+    expect(screen.getAllByText(/Rekomendowany transport:/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Wskazówki w Google Maps').length).toBeGreaterThan(0);
   });
 
-  test('kliknięcie poszczególnych trybów oraz całej trasy otwiera Google Maps', () => {
+  test('kliknięcie nawigacji oraz całej trasy otwiera Google Maps z bieżącej lokalizacji', () => {
     const spyOpenURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
 
     render(
@@ -132,19 +131,14 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
       />
     );
 
-    // 1. Sprawdzenie kliknięcia trybu Pieszo
-    fireEvent.press(screen.getByTestId('mode-walk-item-0'));
-    expect(spyOpenURL).toHaveBeenCalledWith(expect.stringContaining('travelmode=walking'));
+    // 1. Sprawdzenie kliknięcia nawigacji bezpośredniej do punktu
+    fireEvent.press(screen.getByTestId('preview-point-maps-btn-0'));
+    const pointUrl = spyOpenURL.mock.calls[spyOpenURL.mock.calls.length - 1][0];
+    expect(pointUrl).toContain('https://www.google.com/maps/dir/?api=1');
+    expect(pointUrl).toContain('destination=');
+    expect(pointUrl).not.toContain('origin=');
 
-    // 2. Sprawdzenie kliknięcia trybu Komunikacja
-    fireEvent.press(screen.getByTestId('mode-transit-item-0'));
-    expect(spyOpenURL).toHaveBeenCalledWith(expect.stringContaining('travelmode=transit'));
-
-    // 3. Sprawdzenie kliknięcia trybu Auto
-    fireEvent.press(screen.getByTestId('mode-drive-item-0'));
-    expect(spyOpenURL).toHaveBeenCalledWith(expect.stringContaining('travelmode=driving'));
-
-    // 4. Przycisk całej trasy ze wszystkimi przystankami w Google Maps
+    // 2. Przycisk całej trasy ze wszystkimi przystankami w Google Maps
     fireEvent.press(screen.getByTestId('view-full-route-maps-btn'));
     const fullRouteUrl = spyOpenURL.mock.calls[spyOpenURL.mock.calls.length - 1][0];
     expect(fullRouteUrl).toContain('https://www.google.com/maps/dir/?api=1');
@@ -152,12 +146,13 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(fullRouteUrl).toContain('destination=');
     expect(fullRouteUrl).toContain('waypoints=');
 
-    // 5. Przycisk odcinkowy Google Maps
+    // 3. Przycisk odcinkowy Google Maps (z aktualnej lokalizacji do punktu docelowego)
     const mapsButtons = screen.getAllByText('Wskazówki w Google Maps');
     fireEvent.press(mapsButtons[0]);
     const lastCalledUrl = spyOpenURL.mock.calls[spyOpenURL.mock.calls.length - 1][0];
-    expect(lastCalledUrl).toContain('origin=');
+    expect(lastCalledUrl).toContain('https://www.google.com/maps/dir/?api=1');
     expect(lastCalledUrl).toContain('destination=');
+    expect(lastCalledUrl).not.toContain('origin=');
 
     spyOpenURL.mockRestore();
   });
@@ -196,5 +191,91 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     fireEvent.press(screen.getByText('Anuluj'));
     expect(mockOnClose).toHaveBeenCalledTimes(1);
     expect(mockOnApply).not.toHaveBeenCalled();
+  });
+
+  test('dla wyjazdu wielodniowego wyświetla zakładki dni i poprawnie rozdziela atrakcje na poszczególne dni', () => {
+    const multiDayEvents = [
+      {
+        id: 'evt_d1_dep',
+        type: 'DEPARTURE',
+        title: 'Wylot do Rzymu',
+        dateStr: '10-09-2026',
+        timeStr: '08:00',
+        parsedDate: new Date('2026-09-10T08:00:00Z'),
+      },
+      {
+        id: 'evt_d1_attr',
+        type: 'ATTRACTION',
+        title: 'Koloseum',
+        dateStr: '10-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-10T10:00:00Z'),
+        lat: 41.8902,
+        lon: 12.4922,
+      },
+      {
+        id: 'evt_d1_hotel',
+        type: 'LODGING',
+        title: 'Hotel Colosseum',
+        dateStr: '10-09-2026',
+        timeStr: '20:00',
+        parsedDate: new Date('2026-09-10T20:00:00Z'),
+      },
+      {
+        id: 'evt_d2_attr',
+        type: 'ATTRACTION',
+        title: 'Watykan',
+        dateStr: '11-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-11T10:00:00Z'),
+        lat: 41.9022,
+        lon: 12.4539,
+      },
+      {
+        id: 'evt_d2_hotel',
+        type: 'LODGING',
+        title: 'Hotel Colosseum',
+        dateStr: '11-09-2026',
+        timeStr: '20:00',
+        parsedDate: new Date('2026-09-11T20:00:00Z'),
+      },
+    ];
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={multiDayEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // Sprawdzamy obecność zakładek zakresu
+    expect(screen.getByTestId('scope-tab-all')).toBeTruthy();
+    expect(screen.getByTestId('scope-tab-day-0')).toBeTruthy();
+    expect(screen.getByTestId('scope-tab-day-1')).toBeTruthy();
+
+    // Klikamy "Zapisz kolejność" dla całego wyjazdu
+    fireEvent.press(screen.getByText('Zapisz kolejność'));
+
+    expect(mockOnApply).toHaveBeenCalledTimes(1);
+    const applied = mockOnApply.mock.calls[0][0];
+
+    // Atrakcja Dnia 1 ma datę Dnia 1
+    const d1Attrs = applied.filter((e: any) => e.type === 'ATTRACTION' && e.dateStr === '10-09-2026');
+    // Atrakcja Dnia 2 ma datę Dnia 2
+    const d2Attrs = applied.filter((e: any) => e.type === 'ATTRACTION' && e.dateStr === '11-09-2026');
+
+    expect(d1Attrs.length).toBe(1);
+    expect(d2Attrs.length).toBe(1);
+
+    // Kolejność chronologiczna bez mieszania
+    const d1AttrIdx = applied.findIndex((e: any) => e.id === d1Attrs[0].id);
+    const d2AttrIdx = applied.findIndex((e: any) => e.id === d2Attrs[0].id);
+    const d1HotelIdx = applied.findIndex((e: any) => e.id === 'evt_d1_hotel');
+
+    expect(d1AttrIdx).toBeLessThan(d1HotelIdx);
+    expect(d1HotelIdx).toBeLessThan(d2AttrIdx);
   });
 });

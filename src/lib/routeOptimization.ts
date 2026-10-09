@@ -1636,16 +1636,102 @@ export const buildGoogleMapsDirectionsUrl = (
 };
 
 /**
+ * Buduje link nawigacji w Google Maps do danego punktu docelowego z bieżącej lokalizacji użytkownika.
+ * Brak parametru 'origin' sprawia, że Google Maps automatycznie używa aktualnej pozycji GPS telefonu.
+ */
+export const buildGoogleMapsNavigationToDestinationUrl = (
+  destination: { lat?: number; lon?: number; title?: string; subtitle?: string },
+  city?: string,
+  mode?: 'walking' | 'transit' | 'driving'
+): string => {
+  const cleanCity = city?.trim() || '';
+  const rawTitle = destination.title?.trim() || '';
+  const lower = rawTitle.toLowerCase();
+  const isLodging =
+    lower.includes('zameldowanie') ||
+    lower.includes('check-in') ||
+    lower.includes('check in') ||
+    lower.includes('lodging') ||
+    lower.includes('hotel');
+  const isTransitStation =
+    lower.includes('wyjazd') ||
+    lower.includes('powrot') ||
+    lower.includes('powrót') ||
+    lower.includes('departure') ||
+    lower.includes('return') ||
+    rawTitle.includes('➔');
+
+  let destParam = '';
+  if (
+    isLodging &&
+    destination.subtitle &&
+    destination.subtitle.trim() &&
+    !destination.subtitle.toLowerCase().includes('zwiedzanie') &&
+    !destination.subtitle.toLowerCase().includes('rekomendowane')
+  ) {
+    const address = destination.subtitle.trim();
+    destParam = cleanCity && !address.toLowerCase().includes(cleanCity.toLowerCase())
+      ? encodeURIComponent(`${address}, ${cleanCity}`)
+      : encodeURIComponent(address);
+  } else if (isTransitStation) {
+    const isTrain = lower.includes('pociag') || lower.includes('kolej') || lower.includes('train') || lower.includes('station');
+    destParam = cleanCity
+      ? encodeURIComponent(isTrain ? `Central Station, ${cleanCity}` : `Airport, ${cleanCity}`)
+      : encodeURIComponent(isTrain ? 'Central Station' : 'Airport');
+  } else if (destination.lat !== undefined && destination.lon !== undefined && !isNaN(destination.lat) && !isNaN(destination.lon)) {
+    destParam = `${destination.lat},${destination.lon}`;
+  } else {
+    const cleanTitle = rawTitle.replace(/^(zwiedzanie|atrakcja)[\s:\-–—]+/i, '').trim();
+    if (cleanCity && cleanTitle) {
+      destParam = !cleanTitle.toLowerCase().includes(cleanCity.toLowerCase())
+        ? encodeURIComponent(`${cleanTitle}, ${cleanCity}`)
+        : encodeURIComponent(cleanTitle);
+    } else if (cleanTitle) {
+      destParam = encodeURIComponent(cleanTitle);
+    } else {
+      destParam = encodeURIComponent(cleanCity || 'City Center');
+    }
+  }
+
+  const modeParam = mode ? `&travelmode=${mode}` : '';
+  return `https://www.google.com/maps/dir/?api=1&destination=${destParam}${modeParam}`;
+};
+
+/**
  * Buduje link do Google Maps z pełną trasą i wszystkimi kolejnymi przystankami (waypoints).
  * Ustawia kolejno pierwszy punkt jako start (origin), ostatni jako cel (destination),
  * a wszystkie pośrednie punkty zwiedzania jako przystanki (waypoints).
+ * Odfiltrowuje punkty noclegowe bez podanego fizycznego adresu, zapobiegając fałszywym trasom.
  */
 export const buildGoogleMapsFullRouteUrl = (
-  points: Array<{ lat?: number; lon?: number; title?: string; subtitle?: string }>,
+  rawPoints: Array<{ lat?: number; lon?: number; title?: string; subtitle?: string }>,
   city?: string
 ): string => {
-  if (!points || points.length === 0) return 'https://www.google.com/maps';
+  if (!rawPoints || rawPoints.length === 0) return 'https://www.google.com/maps';
   const cleanCity = city?.trim() || '';
+
+  // Wykluczamy noclegi, które nie mają faktycznego adresu (żeby nie nawigować do fikcyjnego centrum)
+  const points = rawPoints.filter((p) => {
+    const rawTitle = (p.title || '').trim().toLowerCase();
+    const isLodging =
+      rawTitle.includes('zameldowanie') ||
+      rawTitle.includes('check-in') ||
+      rawTitle.includes('check in') ||
+      rawTitle.includes('lodging') ||
+      rawTitle.includes('hotel');
+    if (isLodging) {
+      const sub = (p.subtitle || '').trim().toLowerCase();
+      const isMissingAddress =
+        !sub ||
+        ['ok', 'brak', 'none', '-'].includes(sub) ||
+        sub.includes('zwiedzanie') ||
+        sub.includes('rekomendowane');
+      return !isMissingAddress;
+    }
+    return true;
+  });
+
+  const effectivePoints = points.length > 0 ? points : rawPoints;
 
   const formatPt = (p: { lat?: number; lon?: number; title?: string; subtitle?: string }): string => {
     const rawTitle = (p.title || '').trim();
@@ -1697,7 +1783,7 @@ export const buildGoogleMapsFullRouteUrl = (
       return encodeURIComponent(cleanTitle);
     }
 
-    if (p.lat !== undefined && p.lon !== undefined) {
+    if (p.lat !== undefined && p.lon !== undefined && !isNaN(p.lat) && !isNaN(p.lon)) {
       return `${p.lat},${p.lon}`;
     }
 
@@ -1708,17 +1794,17 @@ export const buildGoogleMapsFullRouteUrl = (
     return encodeURIComponent(cleanCity || 'City Center');
   };
 
-  if (points.length === 1) {
-    const singleParam = formatPt(points[0]);
+  if (effectivePoints.length === 1) {
+    const singleParam = formatPt(effectivePoints[0]);
     return `https://www.google.com/maps/search/?api=1&query=${singleParam}`;
   }
 
-  const originParam = formatPt(points[0]);
-  const destParam = formatPt(points[points.length - 1]);
+  const originParam = formatPt(effectivePoints[0]);
+  const destParam = formatPt(effectivePoints[effectivePoints.length - 1]);
 
   // Google Maps Universal URL obsługuje do 9 przystanków pośrednich (waypoints)
-  const waypoints = points
-    .slice(1, points.length - 1)
+  const waypoints = effectivePoints
+    .slice(1, effectivePoints.length - 1)
     .slice(0, 9)
     .map(formatPt)
     .join('%7C');
@@ -1792,6 +1878,19 @@ export interface IntelligentInsertionResult {
   parsedDate: Date;
 }
 
+export const isLodgingEvent = (e?: { type?: string; title?: string } | null): boolean => {
+  if (!e) return false;
+  if (e.type === 'LODGING') return true;
+  const raw = (e.title || '').trim().toLowerCase();
+  return (
+    raw.includes('zameldowanie') ||
+    raw.includes('nocleg') ||
+    raw.includes('hotel') ||
+    raw.includes('check-in') ||
+    raw.includes('check in')
+  );
+};
+
 /**
  * Inteligentnie wyznacza indeks wstawienia oraz optymalną godzinę i datę
  * dla nowej atrakcji tak, aby znalazła się między punktami leżącymi najbliżej niej
@@ -1862,7 +1961,98 @@ export const findIntelligentInsertionSlot = <
     targetLon = resolved.lon;
   }
 
-  const fallbackDateStr = defaultDateStr || (events.length > 0 ? events[0].dateStr : '01-01-2026');
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isDayInPast = (dStr?: string): boolean => {
+    if (!dStr || !dStr.trim()) return false;
+    const parsed = parseTimelineDate(dStr, '23:59');
+    return parsed.getTime() < todayMidnight;
+  };
+
+  const isToday = (dStr?: string): boolean => {
+    if (!dStr || !dStr.trim()) return false;
+    const parsed = parseTimelineDate(dStr, '00:00');
+    return (
+      parsed.getFullYear() === now.getFullYear() &&
+      parsed.getMonth() === now.getMonth() &&
+      parsed.getDate() === now.getDate()
+    );
+  };
+
+
+  /**
+   * Sprawdza realtime czy na danym dniu jest jeszcze sens dodawać nową atrakcję turystyczną,
+   * czy dzień jest już w praktyce zakończony pod kątem zwiedzania (np. wieczór po 18:00,
+   * minęły już wszystkie atrakcje i pozostał wyłącznie nocleg / powrót, lub za mało czasu na zwiedzanie).
+   */
+  const isDayExhaustedForSightseeing = (dStr?: string): boolean => {
+    if (!dStr || !dStr.trim()) return true;
+    if (isDayInPast(dStr)) return true;
+
+    const dayEvts = events.filter((e) => e.dateStr === dStr);
+    if (dayEvts.length === 0) return false;
+
+    // Punkty na tym dniu
+    const upcomingEvents = isToday(dStr)
+      ? dayEvts.filter((e) => {
+          if (e.isPast) return false;
+          if (e.timeStr && timeStrToMinutes(e.timeStr) <= nowMinutes) return false;
+          return true;
+        })
+      : dayEvts;
+
+    // Jeśli na tym dniu nie ma już żadnych przyszłych punktów -> dzień zakończony
+    if (upcomingEvents.length === 0) {
+      return true;
+    }
+
+    // Jeśli dzisiaj jest po 18:00 -> za późno na nowe zwiedzanie
+    if (isToday(dStr) && nowMinutes >= 18 * 60) {
+      return true;
+    }
+
+    // KRYTYCZNY WARUNEK: Jeśli na tym dniu jedynym punktem jaki pozostał jest NOCLEG lub POWRÓT (zero pozostałych atrakcji)
+    const remainingAttractions = upcomingEvents.filter((e) => e.type === 'ATTRACTION');
+    if (remainingAttractions.length === 0) {
+      const lodgingEvt = upcomingEvents.find((e) => isLodgingEvent(e) || e.type === 'RETURN');
+      if (lodgingEvt) {
+        if (isToday(dStr)) {
+          const lodgingM = lodgingEvt.timeStr ? timeStrToMinutes(lodgingEvt.timeStr) : 20 * 60;
+          if (nowMinutes >= 16 * 60 + 30 || (lodgingM - nowMinutes) < 120) {
+            return true;
+          }
+        } else {
+          // Dla dnia przyszłego: jeśli na danym dniu zaplanowano wyłącznie nocleg lub powrót
+          if (upcomingEvents.length === 1) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const allDates = Array.from(
+    new Set(events.map((e) => e.dateStr).filter((d): d is string => Boolean(d && d.trim())))
+  );
+
+  const futureDates = allDates.filter((d) => !isDayInPast(d));
+  // Preferujemy dni, które nie są wyczerpane na zwiedzanie
+  const viableSightseeingDates = futureDates.filter((d) => !isDayExhaustedForSightseeing(d));
+  const candidateDates =
+    viableSightseeingDates.length > 0
+      ? viableSightseeingDates
+      : futureDates.length > 0
+      ? futureDates
+      : allDates;
+
+  const fallbackDateStr =
+    candidateDates.length > 0
+      ? candidateDates[0]
+      : defaultDateStr || (events.length > 0 ? events[0].dateStr : '01-01-2026');
 
   if (events.length === 0) {
     return {
@@ -1902,124 +2092,204 @@ export const findIntelligentInsertionSlot = <
     };
   }
 
-  const attractions = events
-    .map((e, idx) => ({ evt: e, idx }))
-    .filter((x) => x.evt.type === 'ATTRACTION');
+  // 1. Określamy wybrany dzień docelowy (targetDateStr):
+  let targetDateStr: string = candidateDates.length > 0 ? candidateDates[0] : fallbackDateStr;
 
-  let bestSlot = maxIdx;
+  if (defaultDateStr && defaultDateStr.trim()) {
+    const cleanDefault = defaultDateStr.trim();
+    const isExhausted = isDayExhaustedForSightseeing(cleanDefault);
+    const hasNextDay = allDates.some(
+      (d) => parseTimelineDate(d, '00:00').getTime() > parseTimelineDate(cleanDefault, '00:00').getTime()
+    );
 
-  if (attractions.length > 0) {
-    // 1. Znajdujemy atrakcję leżącą najbliżej dodawanego punktu
-    let closestAttractionIdx = attractions[0].idx;
-    let minDistance = Infinity;
-
-    for (const { evt, idx } of attractions) {
-      const c = getEventCoords(evt);
-      const dist = haversineDistance(c.lat, c.lon, targetLat, targetLon);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestAttractionIdx = idx;
+    // Używamy cleanDefault tylko wtedy, gdy dzień nie minął i NIE jest wyczerpany na zwiedzanie (lub nie ma kolejnego dnia w podróży)
+    if (!isDayInPast(cleanDefault) && (!isExhausted || !hasNextDay)) {
+      targetDateStr = cleanDefault;
+    } else {
+      // cleanDefault minął lub został tylko nocleg/wieczór! Szukamy najbliższego dnia przyszłego w candidateDates
+      const laterCandidate = candidateDates.find(
+        (d) => parseTimelineDate(d, '00:00').getTime() > parseTimelineDate(cleanDefault, '00:00').getTime()
+      );
+      if (laterCandidate) {
+        targetDateStr = laterCandidate;
+      } else if (candidateDates.length > 0) {
+        targetDateStr = candidateDates[0];
       }
-    }
-
-    // 2. Mamy dwie pozycje wstawienia względem najbliższej atrakcji:
-    // - Opcja A: bezpośrednio PRZED nią (między poprzednikiem a najbliższą)
-    // - Opcja B: bezpośrednio PO niej (między najbliższą a następnikiem)
-    const canInsertBefore = closestAttractionIdx >= minIdx;
-    const canInsertAfter = closestAttractionIdx + 1 <= maxIdx;
-
-    if (canInsertBefore && canInsertAfter) {
-      const cCoords = getEventCoords(events[closestAttractionIdx]);
-      const prevCoords = getEventCoords(events[closestAttractionIdx - 1]);
-      const nextCoords = getEventCoords(events[closestAttractionIdx + 1]);
-
-      // Koszt objazdu / dodatkowy dystans dla Opcji A
-      const dPrevTarget = haversineDistance(prevCoords.lat, prevCoords.lon, targetLat, targetLon);
-      const dTargetC = haversineDistance(targetLat, targetLon, cCoords.lat, cCoords.lon);
-      const dPrevC = haversineDistance(prevCoords.lat, prevCoords.lon, cCoords.lat, cCoords.lon);
-      const detourBefore = dPrevTarget + dTargetC - dPrevC;
-
-      // Koszt objazdu / dodatkowy dystans dla Opcji B
-      const dTargetNext = haversineDistance(targetLat, targetLon, nextCoords.lat, nextCoords.lon);
-      const dCNext = haversineDistance(cCoords.lat, cCoords.lon, nextCoords.lat, nextCoords.lon);
-      const detourAfter = dTargetC + dTargetNext - dCNext;
-
-      if (detourBefore <= detourAfter) {
-        bestSlot = closestAttractionIdx;
-      } else {
-        bestSlot = closestAttractionIdx + 1;
-      }
-    } else if (canInsertBefore) {
-      bestSlot = closestAttractionIdx;
-    } else if (canInsertAfter) {
-      bestSlot = closestAttractionIdx + 1;
     }
   } else {
-    // Brak innych atrakcji (same punkty logistyczne jak DEPARTURE, LODGING, RETURN)
-    let minDetour = Infinity;
-    for (let k = minIdx; k <= maxIdx; k++) {
-      const prevEvt = events[k - 1];
-      const nextEvt = k < events.length ? events[k] : null;
-      if (prevEvt && nextEvt) {
-        const pC = getEventCoords(prevEvt);
-        const nC = getEventCoords(nextEvt);
-        const detour =
-          haversineDistance(pC.lat, pC.lon, targetLat, targetLon) +
-          haversineDistance(targetLat, targetLon, nC.lat, nC.lon) -
-          haversineDistance(pC.lat, pC.lon, nC.lat, nC.lon);
-        if (detour < minDetour) {
-          minDetour = detour;
-          bestSlot = k;
+    // Brak podanego defaultDateStr: wybieramy dzień mający punkt leżący najbliżej geograficznie
+    const eligibleEvents = events.filter((e) => candidateDates.includes(e.dateStr));
+    if (eligibleEvents.length > 0) {
+      let closestDist = Infinity;
+      let closestEvtDate = candidateDates[0];
+      for (const ev of eligibleEvents) {
+        const c = getEventCoords(ev);
+        const d = haversineDistance(c.lat, c.lon, targetLat, targetLon);
+        if (d < closestDist) {
+          closestDist = d;
+          closestEvtDate = ev.dateStr;
         }
-      } else {
-        bestSlot = k;
+      }
+      targetDateStr = closestEvtDate;
+    }
+  }
+
+  // 2. Znajdujemy optymalne miejsce ("jak najbardziej po drodze") na wybranym dniu:
+  let dayIndices = events
+    .map((e, idx) => ({ e, idx }))
+    .filter((x) => x.e.dateStr === targetDateStr);
+
+  let targetIsToday = isToday(targetDateStr);
+
+  // KRYTYCZNA OCHRONA: Sprawdzamy czy na tym dniu jest nocleg lub powrót
+  let dayLodging = dayIndices.find((item) => isLodgingEvent(item.e));
+  let dayReturn = dayIndices.find((item) => item.e.type === 'RETURN');
+
+  let maxAllowedSlotOnDay = maxIdx;
+  if (dayReturn) {
+    maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayReturn.idx);
+  }
+  if (dayLodging) {
+    // Atrakcja NIGDY nie może być po noclegu na tym samym dniu!
+    maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayLodging.idx);
+  }
+  if (!dayLodging && !dayReturn && dayIndices.length > 0) {
+    maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayIndices[dayIndices.length - 1].idx + 1);
+  }
+
+  let minAllowedSlotOnDay = minIdx;
+  if (dayIndices.length > 0) {
+    minAllowedSlotOnDay = Math.max(minIdx, dayIndices[0].idx);
+    const dayDeparture = dayIndices.find((item) => item.e.type === 'DEPARTURE');
+    if (dayDeparture) {
+      minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayDeparture.idx + 1);
+    }
+  }
+
+  // Nigdy nie wstawiamy przed minionymi wydarzeniami dzisiaj!
+  if (targetIsToday) {
+    for (const item of dayIndices) {
+      const itemM = item.e.timeStr ? timeStrToMinutes(item.e.timeStr) : 0;
+      if (item.e.isPast || itemM <= nowMinutes) {
+        if (item.idx + 1 > minAllowedSlotOnDay) {
+          minAllowedSlotOnDay = item.idx + 1;
+        }
       }
     }
   }
 
-  // Wyznaczamy datę i optymalną godzinę wstawianego punktu
+  // Jeśli na tym dniu nie ma już wolnego miejsca przed noclegiem (np. minęły wszystkie sloty dzisiaj i został tylko nocleg)
+  if (minAllowedSlotOnDay > maxAllowedSlotOnDay) {
+    const nextDayStr = allDates.find(
+      (d) => parseTimelineDate(d, '00:00').getTime() > parseTimelineDate(targetDateStr, '00:00').getTime()
+    );
+    if (nextDayStr) {
+      targetDateStr = nextDayStr;
+      targetIsToday = isToday(targetDateStr);
+      dayIndices = events
+        .map((e, idx) => ({ e, idx }))
+        .filter((x) => x.e.dateStr === targetDateStr);
+      dayLodging = dayIndices.find((item) => isLodgingEvent(item.e));
+      dayReturn = dayIndices.find((item) => item.e.type === 'RETURN');
+
+      maxAllowedSlotOnDay = maxIdx;
+      if (dayReturn) maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayReturn.idx);
+      if (dayLodging) maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayLodging.idx);
+      if (!dayLodging && !dayReturn && dayIndices.length > 0) {
+        maxAllowedSlotOnDay = Math.min(maxAllowedSlotOnDay, dayIndices[dayIndices.length - 1].idx + 1);
+      }
+
+      minAllowedSlotOnDay = minIdx;
+      if (dayIndices.length > 0) {
+        minAllowedSlotOnDay = Math.max(minIdx, dayIndices[0].idx);
+        const dayDeparture = dayIndices.find((item) => item.e.type === 'DEPARTURE');
+        if (dayDeparture) minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayDeparture.idx + 1);
+      }
+    }
+  }
+
+  const startSlot = Math.min(maxIdx, minAllowedSlotOnDay);
+  const endSlot = Math.min(maxIdx, maxAllowedSlotOnDay);
+
+  let bestSlot = startSlot;
+
+  if (startSlot <= endSlot && dayIndices.length > 0) {
+    let minDetour = Infinity;
+
+    for (let slot = startSlot; slot <= endSlot; slot++) {
+      const prevEvt = slot > 0 ? events[slot - 1] : null;
+      const nextEvt = slot < events.length ? events[slot] : null;
+
+      let detour = 0;
+      if (prevEvt && nextEvt) {
+        const pCoords = getEventCoords(prevEvt);
+        const nCoords = getEventCoords(nextEvt);
+        const dPrevTarget = haversineDistance(pCoords.lat, pCoords.lon, targetLat, targetLon);
+        const dTargetNext = haversineDistance(targetLat, targetLon, nCoords.lat, nCoords.lon);
+        const dPrevNext = haversineDistance(pCoords.lat, pCoords.lon, nCoords.lat, nCoords.lon);
+        detour = dPrevTarget + dTargetNext - dPrevNext;
+      } else if (prevEvt) {
+        const pCoords = getEventCoords(prevEvt);
+        detour = haversineDistance(pCoords.lat, pCoords.lon, targetLat, targetLon);
+      } else if (nextEvt) {
+        const nCoords = getEventCoords(nextEvt);
+        detour = haversineDistance(targetLat, targetLon, nCoords.lat, nCoords.lon);
+      }
+
+      if (detour < minDetour) {
+        minDetour = detour;
+        bestSlot = slot;
+      }
+    }
+  } else {
+    // Dzień docelowy nie ma jeszcze punktów lub slot jest wymuszony
+    const pDate = parseTimelineDate(targetDateStr, '12:00');
+    let chronologicalSlot = events.findIndex((e) => {
+      const eDate = e.parsedDate || parseTimelineDate(e.dateStr, e.timeStr);
+      return eDate.getTime() > pDate.getTime();
+    });
+    if (chronologicalSlot === -1) chronologicalSlot = events.length;
+    bestSlot = Math.max(minIdx, Math.min(maxIdx, chronologicalSlot));
+  }
+
+  // 3. Wyznaczamy optymalną godzinę wstawianego punktu na danym dniu
   const prevEvt = bestSlot > 0 ? events[bestSlot - 1] : null;
   const nextEvt = bestSlot < events.length ? events[bestSlot] : null;
 
-  let targetDateStr = fallbackDateStr;
   let targetTimeStr = '12:00';
 
-  if (prevEvt && nextEvt) {
-    if (prevEvt.dateStr === nextEvt.dateStr) {
-      targetDateStr = prevEvt.dateStr;
-      const prevM = timeStrToMinutes(prevEvt.timeStr);
-      const nextM = timeStrToMinutes(nextEvt.timeStr);
-      if (nextM > prevM + 15) {
-        targetTimeStr = minutesToTimeStr(Math.round((prevM + nextM) / 2));
-      } else {
-        targetTimeStr = minutesToTimeStr(Math.min(22 * 60, prevM + 45));
-      }
-    } else {
-      // Różne dni między punktem poprzednim a następnym - przypisujemy do tego dnia,
-      // którego punkt jest bliżej pod kątem odległości geograficznej
-      const prevCoords = getEventCoords(prevEvt);
-      const nextCoords = getEventCoords(nextEvt);
-      const distToPrev = haversineDistance(prevCoords.lat, prevCoords.lon, targetLat, targetLon);
-      const distToNext = haversineDistance(nextCoords.lat, nextCoords.lon, targetLat, targetLon);
-
-      if (distToPrev <= distToNext) {
-        targetDateStr = prevEvt.dateStr;
-        const prevM = timeStrToMinutes(prevEvt.timeStr);
-        targetTimeStr = minutesToTimeStr(Math.min(21 * 60, prevM + 60));
-      } else {
-        targetDateStr = nextEvt.dateStr;
-        const nextM = timeStrToMinutes(nextEvt.timeStr);
-        targetTimeStr = minutesToTimeStr(Math.max(9 * 60, nextM - 60));
-      }
-    }
-  } else if (prevEvt) {
-    targetDateStr = prevEvt.dateStr;
+  if (prevEvt && nextEvt && prevEvt.dateStr === targetDateStr && nextEvt.dateStr === targetDateStr) {
     const prevM = timeStrToMinutes(prevEvt.timeStr);
-    targetTimeStr = minutesToTimeStr(Math.min(21 * 60, prevM + 60));
-  } else if (nextEvt) {
-    targetDateStr = nextEvt.dateStr;
     const nextM = timeStrToMinutes(nextEvt.timeStr);
-    targetTimeStr = minutesToTimeStr(Math.max(9 * 60, nextM - 60));
+    if (nextM > prevM + 20) {
+      targetTimeStr = minutesToTimeStr(Math.round((prevM + nextM) / 2));
+    } else {
+      targetTimeStr = minutesToTimeStr(Math.min(21 * 60, prevM + 45));
+    }
+  } else if (prevEvt && prevEvt.dateStr === targetDateStr) {
+    const prevM = timeStrToMinutes(prevEvt.timeStr);
+    targetTimeStr = minutesToTimeStr(Math.min(20 * 60, prevM + 60));
+  } else if (nextEvt && nextEvt.dateStr === targetDateStr) {
+    const nextM = timeStrToMinutes(nextEvt.timeStr);
+    targetTimeStr = minutesToTimeStr(Math.max(10 * 60, nextM - 60));
+  } else {
+    targetTimeStr = '11:30';
+  }
+
+  // Jeśli wstawiamy przed noclegiem na tym samym dniu, godzina MUSI być przed noclegiem:
+  if (nextEvt && isLodgingEvent(nextEvt) && nextEvt.dateStr === targetDateStr) {
+    const lodgingM = timeStrToMinutes(nextEvt.timeStr || '20:00');
+    if (timeStrToMinutes(targetTimeStr) >= lodgingM) {
+      targetTimeStr = minutesToTimeStr(Math.max(10 * 60, lodgingM - 90));
+    }
+  }
+
+  // KRYTYCZNA OCHRONA: Jeśli to dzisiaj, godzina NIE MOŻE być w przeszłości
+  if (targetIsToday) {
+    const minSafeFutureMinutes = Math.min(22 * 60, Math.max(nowMinutes + 20, 9 * 60));
+    if (timeStrToMinutes(targetTimeStr) < minSafeFutureMinutes) {
+      targetTimeStr = minutesToTimeStr(minSafeFutureMinutes);
+    }
   }
 
   const parsedDate = parseTimelineDate(targetDateStr, targetTimeStr);
@@ -2067,12 +2337,13 @@ export const insertTimelineEventIntelligently = <
   transportType?: string,
   defaultDateStr?: string
 ): T[] => {
-  const hasCustomDate = Boolean(newEventData.dateStr && newEventData.dateStr.trim());
-  const hasCustomTime = Boolean(newEventData.timeStr && newEventData.timeStr.trim());
+  const isCandidateFromPool = Boolean((newEventData as any).isFromPool);
+  const hasCustomDate = !isCandidateFromPool && Boolean(newEventData.dateStr && newEventData.dateStr.trim());
+  const hasCustomTime = !isCandidateFromPool && Boolean(newEventData.timeStr && newEventData.timeStr.trim());
 
   let insertion: IntelligentInsertionResult;
   if (hasCustomDate && hasCustomTime) {
-    const pDate = parseTimelineDate(newEventData.dateStr!, newEventData.timeStr!);
+    let pDate = parseTimelineDate(newEventData.dateStr!, newEventData.timeStr!);
     let slot = events.findIndex((e) => {
       const eDate = e.parsedDate || parseTimelineDate(e.dateStr, e.timeStr);
       return eDate.getTime() > pDate.getTime();
@@ -2082,11 +2353,26 @@ export const insertTimelineEventIntelligently = <
     if (events.length > 0 && events[0].type === 'DEPARTURE') minIdx = 1;
     let maxIdx = events.length;
     if (events.length > 0 && events[events.length - 1].type === 'RETURN') maxIdx = events.length - 1;
-    const finalSlot = Math.max(minIdx, Math.min(maxIdx, slot));
+    let finalSlot = Math.max(minIdx, Math.min(maxIdx, slot));
+
+    // KRYTYCZNA OCHRONA: Nawet przy podaniu ręcznym atrakcja NIE MOŻE być po noclegu na tym samym dniu!
+    const dayIndices = events
+      .map((e, idx) => ({ e, idx }))
+      .filter((x) => x.e.dateStr === newEventData.dateStr);
+    const dayLodging = dayIndices.find((item) => isLodgingEvent(item.e));
+    let finalTimeStr = newEventData.timeStr!;
+
+    if (dayLodging && finalSlot > dayLodging.idx) {
+      finalSlot = dayLodging.idx;
+      const lodgingM = dayLodging.e.timeStr ? timeStrToMinutes(dayLodging.e.timeStr) : 20 * 60;
+      finalTimeStr = minutesToTimeStr(Math.max(9 * 60, lodgingM - 90));
+      pDate = parseTimelineDate(newEventData.dateStr!, finalTimeStr);
+    }
+
     insertion = {
       insertIndex: finalSlot,
       dateStr: newEventData.dateStr!,
-      timeStr: newEventData.timeStr!,
+      timeStr: finalTimeStr,
       parsedDate: pDate,
     };
   } else {
@@ -2139,6 +2425,762 @@ export const insertTimelineEventIntelligently = <
     }
   }
 
+  // KRYTYCZNY INWARIANT: Żadna atrakcja (ATTRACTION) na danym dniu NIE MOŻE znajdować się po noclegu (LODGING)!
+  const allUniqueDates = Array.from(
+    new Set(result.map((e) => e.dateStr).filter((d): d is string => Boolean(d && d.trim())))
+  );
+
+  for (let i = 0; i < result.length; i++) {
+    const cur = result[i];
+    if (isLodgingEvent(cur)) {
+      for (let j = i + 1; j < result.length; j++) {
+        if (result[j].dateStr === cur.dateStr && result[j].type === 'ATTRACTION') {
+          const nextDay = allUniqueDates.find(
+            (d) => parseTimelineDate(d, '00:00').getTime() > parseTimelineDate(cur.dateStr, '00:00').getTime()
+          );
+          if (nextDay) {
+            result[j] = {
+              ...result[j],
+              dateStr: nextDay,
+              timeStr: '11:00',
+              parsedDate: parseTimelineDate(nextDay, '11:00'),
+            };
+          } else {
+            const lodgingM = cur.timeStr ? timeStrToMinutes(cur.timeStr) : 20 * 60;
+            const newM = Math.max(9 * 60, lodgingM - 60);
+            const newT = minutesToTimeStr(newM);
+            result[j] = {
+              ...result[j],
+              timeStr: newT,
+              parsedDate: parseTimelineDate(cur.dateStr, newT),
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // Ostateczne sortowanie chronologiczne gwarantujące spójność całej osi
+  result.sort((a, b) => {
+    const timeA = (a.parsedDate || parseTimelineDate(a.dateStr, a.timeStr)).getTime();
+    const timeB = (b.parsedDate || parseTimelineDate(b.dateStr, b.timeStr)).getTime();
+    return timeA - timeB;
+  });
+
   return result;
 };
+
+export interface SmartTimelineGenerationConfig {
+  origin?: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  transportType?: string;
+  outboundDepartureTime?: string;
+  outboundDepartureLocation?: string;
+  outboundArrivalTime?: string;
+  returnDepartureTime?: string;
+  returnDepartureLocation?: string;
+  lodgingAddress?: string;
+  selectedAttractions: (string | { name?: string; title?: string; id?: string })[];
+  poolAttractions?: { name: string; lat?: number; lon?: number; [key: string]: any }[];
+  isDayTrip?: boolean;
+  translations?: {
+    departurePrefix?: string;
+    returnPrefix?: string;
+    departure?: string;
+    returnTrip?: string;
+    lodging?: string;
+    sightseeing?: string;
+    home?: string;
+  };
+}
+
+/**
+ * Automatyczny generator inteligentnej, wielodniowej osi czasu.
+ * - Wyznacza optymalną trasę geograficzną (TSP) dla wybranych atrakcji.
+ * - Mądrze rozdziela atrakcje pomiędzy pełne dni podróży z naturalnymi przerwami.
+ * - Eliminuje zbędny spam kafelkami 'Nocleg' o 22:00.
+ * - Gwarantuje brak jakichkolwiek emoji (wyłącznie ikony wektorowe).
+ */
+export const generateSmartMultiDayTimeline = (
+  config: SmartTimelineGenerationConfig
+): any[] => {
+  const normDate = (dStr: string | null | undefined): string => {
+    if (!dStr) return '';
+    const clean = dStr.replace(/\./g, '-');
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[0]}`;
+      }
+      return `${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[2]}`;
+    }
+    return dStr;
+  };
+
+  const startNorm = normDate(config.startDate);
+  const endNorm = normDate(config.endDate) || startNorm;
+
+  const parseD = (dStr: string): Date => {
+    const parts = normDate(dStr).split('-');
+    if (parts.length === 3) {
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    }
+    return new Date();
+  };
+
+  const formatD = (d: Date): string => {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  const startD = parseD(startNorm);
+  const endD = parseD(endNorm);
+
+  const dayDates: string[] = [];
+  const curD = new Date(startD);
+  const maxSafetyDays = 30;
+  let safety = 0;
+
+  if (config.isDayTrip || curD.getTime() >= endD.getTime()) {
+    dayDates.push(startNorm);
+  } else {
+    while (curD.getTime() <= endD.getTime() && safety < maxSafetyDays) {
+      dayDates.push(formatD(curD));
+      curD.setDate(curD.getDate() + 1);
+      safety++;
+    }
+  }
+
+  if (dayDates.length === 0) {
+    dayDates.push(startNorm);
+  }
+
+  const totalDays = dayDates.length;
+  const events: any[] = [];
+
+  // 1. WYJAZD (DEPARTURE)
+  const outboundTime = config.outboundDepartureTime || '08:00';
+  const depTitle = config.translations?.departurePrefix
+    ? config.translations.departurePrefix
+        .replace('{{origin}}', config.origin || config.translations.home || 'Start')
+        .replace('{{destination}}', config.destination)
+    : `Wyjazd: ${config.origin || 'Start'} ➔ ${config.destination}`;
+  const depSubtitle =
+    config.outboundDepartureLocation ||
+    config.translations?.departure ||
+    (config.transportType ? `Podróż (${config.transportType.toUpperCase()})` : 'Rozpoczęcie podróży');
+
+  events.push({
+    id: 'evt_dep',
+    type: 'DEPARTURE',
+    title: depTitle,
+    subtitle: depSubtitle,
+    dateStr: dayDates[0],
+    timeStr: outboundTime,
+    parsedDate: parseTimelineDate(dayDates[0], outboundTime),
+    isCompleted: false,
+  });
+
+  // 2. ZAMELDOWANIE (LODGING) - Tylko 1. dnia po przyjeździe (bez spamu co noc)
+  const rawAccom = (config.lodgingAddress || '').trim();
+  const hasValidLodging =
+    !config.isDayTrip &&
+    rawAccom.length > 0 &&
+    !['ok', 'brak', 'none', '-'].includes(rawAccom.toLowerCase());
+
+  if (hasValidLodging) {
+    const checkinTime = config.outboundArrivalTime || '14:00';
+    events.push({
+      id: 'evt_lodging',
+      type: 'LODGING',
+      title: config.translations?.lodging || 'Zakwaterowanie',
+      subtitle: rawAccom,
+      dateStr: dayDates[0],
+      timeStr: checkinTime,
+      parsedDate: parseTimelineDate(dayDates[0], checkinTime),
+      isCompleted: false,
+    });
+  }
+
+  // 3. POWRÓT (RETURN) - Ostatniego dnia
+  const returnTime =
+    config.returnDepartureTime || (totalDays === 1 ? '19:00' : '17:00');
+  const lastDateStr = dayDates[dayDates.length - 1];
+  const retTitle = config.translations?.returnPrefix
+    ? config.translations.returnPrefix
+        .replace('{{destination}}', config.returnDepartureLocation || config.destination)
+        .replace('{{origin}}', config.origin || config.translations.home || 'Koniec')
+    : `Powrót: ${config.destination} ➔ ${config.origin || 'Koniec'}`;
+  const retSubtitle =
+    config.returnDepartureLocation ||
+    config.translations?.returnTrip ||
+    'Powrót do domu';
+
+  const returnEvent = {
+    id: 'evt_return',
+    type: 'RETURN',
+    title: retTitle,
+    subtitle: retSubtitle,
+    dateStr: lastDateStr,
+    timeStr: returnTime,
+    parsedDate: parseTimelineDate(lastDateStr, returnTime),
+    isCompleted: false,
+  };
+
+  // 4. ATRAKCJE - AUTO-TSP I INTELIGENTNE ROZMIESZCZENIE PO DNIACH
+  const rawAttractions = config.selectedAttractions || [];
+  const attrNames: string[] = rawAttractions
+    .map((a) => (typeof a === 'string' ? a : a.name || a.title || ''))
+    .filter((n) => n && n.trim().length > 0);
+
+  const pool = config.poolAttractions || [];
+  const geoPoints: GeoPoint[] = attrNames.map((name, idx) => {
+    const poolItem = pool.find(
+      (p) => normalizeAttractionTitle(p.name || '') === normalizeAttractionTitle(name)
+    );
+    return {
+      id: `attr_pt_${idx}`,
+      title: name,
+      lat: poolItem?.lat || 0,
+      lon: poolItem?.lon || 0,
+      originalIndex: idx,
+    };
+  });
+
+  // Automatyczny TSP dla punktów ze współrzędnymi
+  const validGeo = geoPoints.filter((p) => p.lat !== 0 && p.lon !== 0);
+  let orderedNames = attrNames;
+
+  if (validGeo.length >= 2) {
+    try {
+      const tsp = optimizeSightseeingRoute(validGeo, false);
+      const tspOrderedNames = tsp.orderedPoints.map((p) => p.title);
+      const remainder = attrNames.filter((n) => !tspOrderedNames.includes(n));
+      orderedNames = [...tspOrderedNames, ...remainder];
+    } catch {
+      orderedNames = attrNames;
+    }
+  }
+
+  const M = orderedNames.length;
+  if (M > 0) {
+    // Podział na dni
+    const dayQuotas: number[] = new Array(totalDays).fill(0);
+
+    if (totalDays === 1) {
+      dayQuotas[0] = M;
+    } else if (totalDays === 2) {
+      const day1Q = M >= 3 ? Math.min(2, Math.floor(M / 2)) : Math.min(1, M);
+      dayQuotas[0] = day1Q;
+      dayQuotas[1] = M - day1Q;
+    } else {
+      // 3 lub więcej dni:
+      // Dzień 1 (przylot): 0 lub 1 punkt (gdy dużo atrakcji)
+      const day1Q = M >= 5 ? 1 : (M >= 8 ? 2 : 0);
+      dayQuotas[0] = day1Q;
+
+      // Ostatni dzień: 0 lub 1 poranny punkt
+      const lastQ = (M - day1Q >= 4) ? 1 : 0;
+      dayQuotas[totalDays - 1] = lastQ;
+
+      // Środkowe dni
+      const middleDaysCount = totalDays - 2;
+      let remaining = M - day1Q - lastQ;
+
+      for (let d = 1; d < totalDays - 1; d++) {
+        const daysLeft = totalDays - 1 - d;
+        const take = Math.ceil(remaining / daysLeft);
+        dayQuotas[d] = take;
+        remaining -= take;
+      }
+    }
+
+    const timeSlotsForCount = (count: number, isDayOne: boolean, isLastDay: boolean): string[] => {
+      if (count === 1) {
+        return isDayOne ? ['16:30'] : isLastDay ? ['10:30'] : ['11:30'];
+      }
+      if (count === 2) {
+        return isDayOne ? ['15:30', '18:00'] : isLastDay ? ['10:00', '12:30'] : ['10:30', '14:30'];
+      }
+      if (count === 3) {
+        return ['10:00', '13:00', '16:00'];
+      }
+      if (count === 4) {
+        return ['09:30', '12:00', '14:30', '17:00'];
+      }
+      const slots: string[] = [];
+      let startHour = 9.5;
+      for (let s = 0; s < count; s++) {
+        const h = Math.floor(startHour);
+        const m = (startHour % 1) * 60;
+        slots.push(`${String(h).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`);
+        startHour += 1.75;
+      }
+      return slots;
+    };
+
+    let nameIndex = 0;
+    for (let dayIdx = 0; dayIdx < totalDays; dayIdx++) {
+      const quota = dayQuotas[dayIdx];
+      if (quota === 0) continue;
+
+      const dDateStr = dayDates[dayIdx];
+      const isD1 = dayIdx === 0;
+      const isDN = dayIdx === totalDays - 1;
+      const slots = getTimeSlotsForDayAttractions(quota, isD1, isDN);
+
+      for (let s = 0; s < quota && nameIndex < M; s++) {
+        const attrName = orderedNames[nameIndex];
+        const poolItem = pool.find(
+          (p) => normalizeAttractionTitle(p.name || '') === normalizeAttractionTitle(attrName)
+        );
+        const slotTime = slots[s] || `${10 + s}:00`;
+
+        events.push({
+          id: `evt_attr_${dayIdx}_${s}_${Date.now()}_${nameIndex}`,
+          type: 'ATTRACTION',
+          title: attrName,
+          subtitle: config.translations?.sightseeing || 'Zwiedzanie',
+          dateStr: dDateStr,
+          timeStr: slotTime,
+          parsedDate: parseTimelineDate(dDateStr, slotTime),
+          lat: poolItem?.lat,
+          lon: poolItem?.lon,
+          isCompleted: false,
+        });
+
+        nameIndex++;
+      }
+    }
+  }
+
+  events.push(returnEvent);
+
+  // Sortowanie po parsedDate
+  events.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
+  return events;
+};
+
+// Generowanie realistycznych godzin zwiedzania w zależności od liczby punktów w ciągu dnia
+export const getTimeSlotsForDayAttractions = (
+  count: number,
+  isDayOne: boolean = false,
+  isLastDay: boolean = false
+): string[] => {
+  if (count <= 0) return [];
+  if (count === 1) {
+    return isDayOne ? ['16:30'] : isLastDay ? ['10:30'] : ['11:30'];
+  }
+  if (count === 2) {
+    return isDayOne ? ['15:30', '18:00'] : isLastDay ? ['10:00', '12:30'] : ['10:30', '14:30'];
+  }
+  if (count === 3) {
+    return ['10:00', '13:00', '16:00'];
+  }
+  if (count === 4) {
+    return ['09:30', '12:00', '14:30', '17:00'];
+  }
+  const slots: string[] = [];
+  let startHour = 9.5;
+  for (let s = 0; s < count; s++) {
+    const h = Math.floor(startHour);
+    const m = (startHour % 1) * 60;
+    slots.push(`${String(h).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`);
+    startHour += 1.75;
+  }
+  return slots;
+};
+
+export interface OptimizeMultiDayTimelineParams {
+  events: any[];
+  targetDay?: string;
+  poolAttractions?: Array<{ name?: string; lat?: number; lon?: number }>;
+  destinationCity?: string;
+  lodgingCoords?: { lat: number; lon: number } | null;
+  tripStartDate?: string;
+  tripEndDate?: string;
+  streetDistances?: Record<string, number>;
+  liveRouteInfos?: Record<string, StreetRouteInfo>;
+}
+
+// Globalna, wielodniowa optymalizacja trasy (TSP) bez jakiegokolwiek mieszania dni
+export const optimizeMultiDayTimeline = (
+  params: OptimizeMultiDayTimelineParams
+): any[] => {
+  const {
+    events,
+    targetDay = 'ALL',
+    poolAttractions = [],
+    destinationCity = 'Rome',
+    lodgingCoords = null,
+    streetDistances = {},
+    liveRouteInfos = {},
+  } = params;
+
+  if (!events || events.length === 0) return [];
+
+  // 1. Ekstrakcja posortowanych chronologicznie unikalnych dni wyjazdu
+  const uniqueDays = Array.from(
+    new Set(
+      events
+        .map((e) => e.dateStr)
+        .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+    )
+  ).sort((a, b) => {
+    const tA = parseTimelineDate(a, '00:00').getTime();
+    const tB = parseTimelineDate(b, '00:00').getTime();
+    return tA - tB;
+  });
+
+  if (uniqueDays.length === 0) {
+    return events;
+  }
+
+  // 2. Tryb pojedynczego dnia (targetDay !== 'ALL')
+  if (targetDay && targetDay !== 'ALL') {
+    const dayAttractions = events.filter(
+      (e) => e.type === 'ATTRACTION' && e.dateStr === targetDay
+    );
+
+    if (dayAttractions.length < 2) {
+      return events;
+    }
+
+    const geoPoints: GeoPoint[] = dayAttractions.map((e, idx) => {
+      const coords = resolvePointCoordinates(
+        e.title,
+        poolAttractions,
+        destinationCity,
+        lodgingCoords,
+        { lat: e.lat, lon: e.lon }
+      );
+      return {
+        id: e.id,
+        title: e.title,
+        subtitle: e.subtitle,
+        lat: coords.lat,
+        lon: coords.lon,
+        originalIndex: idx,
+      };
+    });
+
+    const tsp = optimizeSightseeingRoute(geoPoints, false);
+    const orderedPoints = tsp.orderedPoints;
+
+    const isDayOne = uniqueDays.indexOf(targetDay) === 0;
+    const hasDep = events.some((e) => e.type === 'DEPARTURE' && e.dateStr === targetDay);
+    const startHour = isDayOne && hasDep ? 14 : 10;
+    const startMinute = 0;
+
+    const legTransits = orderedPoints.slice(0, -1).map((pt, idx) => {
+      const nextPt = orderedPoints[idx + 1];
+      const legKey = `${pt.id}_${nextPt.id}`;
+      const routeInfo = liveRouteInfos[legKey];
+      const customDist = streetDistances[legKey];
+      const est = routeInfo || calculateTransitEstimates(pt, nextPt, customDist);
+      return est.recommendedMode === 'walking' ? est.walkMinutes : est.transitMinutes;
+    });
+
+    const orderedCandidates = orderedPoints.map((gp) => {
+      const original = dayAttractions.find((e) => e.id === gp.id);
+      return {
+        ...(original || {}),
+        id: gp.id,
+        type: 'ATTRACTION',
+        title: gp.title,
+        subtitle: gp.subtitle || original?.subtitle,
+        dateStr: targetDay,
+        lat: gp.lat,
+        lon: gp.lon,
+        parsedDate: parseTimelineDate(targetDay, `${startHour}:00`),
+      };
+    });
+
+    const retimedDayAttractions = recalculateItineraryTimes(
+      orderedCandidates,
+      startHour,
+      startMinute,
+      legTransits
+    ).map((item) => ({
+      ...item,
+      dateStr: targetDay,
+      parsedDate: parseTimelineDate(targetDay, item.timeStr),
+    }));
+
+    let dayIdx = 0;
+    const updatedEvents = events.map((e) => {
+      if (e.type === 'ATTRACTION' && e.dateStr === targetDay) {
+        const repl = retimedDayAttractions[dayIdx];
+        dayIdx++;
+        return repl || e;
+      }
+      return e;
+    });
+
+    return updatedEvents.sort((a, b) => {
+      const tA = a.parsedDate instanceof Date ? a.parsedDate.getTime() : 0;
+      const tB = b.parsedDate instanceof Date ? b.parsedDate.getTime() : 0;
+      if (tA !== tB) return tA - tB;
+      const priority = (type: string) => {
+        if (type === 'DEPARTURE') return 1;
+        if (type === 'ATTRACTION') return 2;
+        if (type === 'LODGING') return 3;
+        if (type === 'RETURN') return 4;
+        return 2.5;
+      };
+      return priority(a.type) - priority(b.type);
+    });
+  }
+
+  // 3. Tryb optymalizacji CAŁEGO WYJAZDU (targetDay === 'ALL')
+  const allAttractions = events.filter((e) => e.type === 'ATTRACTION');
+  if (allAttractions.length < 2) {
+    return events;
+  }
+
+  const N = uniqueDays.length;
+  const M = allAttractions.length;
+
+  // Przypadek jedniodniowy
+  if (N <= 1) {
+    const singleDate = uniqueDays[0];
+    const geoPoints: GeoPoint[] = allAttractions.map((e, idx) => {
+      const coords = resolvePointCoordinates(
+        e.title,
+        poolAttractions,
+        destinationCity,
+        lodgingCoords,
+        { lat: e.lat, lon: e.lon }
+      );
+      return {
+        id: e.id,
+        title: e.title,
+        subtitle: e.subtitle,
+        lat: coords.lat,
+        lon: coords.lon,
+        originalIndex: idx,
+      };
+    });
+
+    const tsp = optimizeSightseeingRoute(geoPoints, false);
+    const orderedPoints = tsp.orderedPoints;
+
+    const legTransits = orderedPoints.slice(0, -1).map((pt, idx) => {
+      const nextPt = orderedPoints[idx + 1];
+      const legKey = `${pt.id}_${nextPt.id}`;
+      const routeInfo = liveRouteInfos[legKey];
+      const customDist = streetDistances[legKey];
+      const est = routeInfo || calculateTransitEstimates(pt, nextPt, customDist);
+      return est.recommendedMode === 'walking' ? est.walkMinutes : est.transitMinutes;
+    });
+
+    const orderedCandidates = orderedPoints.map((gp) => {
+      const original = allAttractions.find((e) => e.id === gp.id);
+      return {
+        ...(original || {}),
+        id: gp.id,
+        type: 'ATTRACTION',
+        title: gp.title,
+        subtitle: gp.subtitle || original?.subtitle,
+        dateStr: singleDate,
+        lat: gp.lat,
+        lon: gp.lon,
+        parsedDate: parseTimelineDate(singleDate, '10:00'),
+      };
+    });
+
+    const timed = recalculateItineraryTimes(orderedCandidates, 10, 0, legTransits);
+    let attrIdx = 0;
+    const finalTimeline = events.map((event) => {
+      if (event.type === 'ATTRACTION') {
+        const replacement = timed[attrIdx];
+        attrIdx++;
+        return replacement || event;
+      }
+      return event;
+    });
+
+    return finalTimeline.sort((a, b) => {
+      const tA = a.parsedDate instanceof Date ? a.parsedDate.getTime() : 0;
+      const tB = b.parsedDate instanceof Date ? b.parsedDate.getTime() : 0;
+      if (tA !== tB) return tA - tB;
+      const priority = (type: string) => {
+        if (type === 'DEPARTURE') return 1;
+        if (type === 'ATTRACTION') return 2;
+        if (type === 'LODGING') return 3;
+        if (type === 'RETURN') return 4;
+        return 2.5;
+      };
+      return priority(a.type) - priority(b.type);
+    });
+  }
+
+  // Wyjazd wielodniowy (N >= 2):
+  // 3a. TSP na wszystkich punktach programu
+  const geoPoints: GeoPoint[] = allAttractions.map((e, idx) => {
+    const coords = resolvePointCoordinates(
+      e.title,
+      poolAttractions,
+      destinationCity,
+      lodgingCoords,
+      { lat: e.lat, lon: e.lon }
+    );
+    return {
+      id: e.id,
+      title: e.title,
+      subtitle: e.subtitle,
+      lat: coords.lat,
+      lon: coords.lon,
+      originalIndex: idx,
+    };
+  });
+
+  const tsp = optimizeSightseeingRoute(geoPoints, false);
+  const orderedPoints = tsp.orderedPoints;
+
+  // 3b. Obliczanie zrównoważonych limitów (quotas) na poszczególne dni
+  const existingCounts = uniqueDays.map(
+    (d) => events.filter((e) => e.type === 'ATTRACTION' && e.dateStr === d).length
+  );
+  const isBalanced =
+    existingCounts.every((c) => c <= 4) &&
+    existingCounts.reduce((a, b) => a + b, 0) === M &&
+    (N <= 2 || existingCounts.slice(1, N - 1).every((c) => c >= 1));
+
+  let quotas: number[] = new Array(N).fill(0);
+  if (isBalanced) {
+    quotas = [...existingCounts];
+  } else {
+    if (N === 2) {
+      const d1 = M >= 3 ? Math.min(2, Math.floor(M / 2)) : Math.min(1, M);
+      quotas[0] = d1;
+      quotas[1] = M - d1;
+    } else {
+      const d1 = M >= 5 ? 1 : (M >= 8 ? 2 : 0);
+      quotas[0] = d1;
+      const lastQ = (M - d1 >= 4) ? 1 : 0;
+      quotas[N - 1] = lastQ;
+      let remaining = M - d1 - lastQ;
+      for (let d = 1; d < N - 1; d++) {
+        const daysLeft = N - 1 - d;
+        const take = Math.ceil(remaining / daysLeft);
+        quotas[d] = Math.min(take, remaining);
+        remaining -= quotas[d];
+      }
+      if (remaining > 0) {
+        for (let d = 1; d < N && remaining > 0; d++) {
+          quotas[d]++;
+          remaining--;
+        }
+      }
+    }
+  }
+
+  // 3c. Podział trasy TSP na poszczególne dni z czystym przypisaniem dat i godzin
+  let pointCursor = 0;
+  const attractionsByDay: Record<string, any[]> = {};
+
+  for (let dayIdx = 0; dayIdx < N; dayIdx++) {
+    const dayDateStr = uniqueDays[dayIdx];
+    const count = quotas[dayIdx] || 0;
+    const dayPoints = orderedPoints.slice(pointCursor, pointCursor + count);
+    pointCursor += count;
+
+    if (dayPoints.length === 0) {
+      attractionsByDay[dayDateStr] = [];
+      continue;
+    }
+
+    const isDayOne = dayIdx === 0;
+    const dayDep = events.find((e) => e.type === 'DEPARTURE' && e.dateStr === dayDateStr);
+    let startHour = 10;
+    let startMin = 0;
+    if (isDayOne && dayDep) {
+      startHour = 14;
+      startMin = 0;
+    }
+
+    const dayCandidates = dayPoints.map((gp) => {
+      const original = allAttractions.find((e) => e.id === gp.id);
+      return {
+        ...(original || {}),
+        id: gp.id,
+        type: 'ATTRACTION',
+        title: gp.title,
+        subtitle: gp.subtitle || original?.subtitle,
+        dateStr: dayDateStr,
+        lat: gp.lat,
+        lon: gp.lon,
+        parsedDate: parseTimelineDate(dayDateStr, `${startHour}:00`),
+      };
+    });
+
+    const dayLegTransits = dayPoints.slice(0, -1).map((pt, idx) => {
+      const nextPt = dayPoints[idx + 1];
+      const legKey = `${pt.id}_${nextPt.id}`;
+      const routeInfo = liveRouteInfos[legKey];
+      const customDist = streetDistances[legKey];
+      const est = routeInfo || calculateTransitEstimates(pt, nextPt, customDist);
+      return est.recommendedMode === 'walking' ? est.walkMinutes : est.transitMinutes;
+    });
+
+    const timed = recalculateItineraryTimes(dayCandidates, startHour, startMin, dayLegTransits);
+    attractionsByDay[dayDateStr] = timed.map((c) => ({
+      ...c,
+      dateStr: dayDateStr,
+      parsedDate: parseTimelineDate(dayDateStr, c.timeStr),
+    }));
+  }
+
+  // 3d. Składanie finalnej osi czasu dzień po dniu (eliminacja jakiegokolwiek mieszania dat)
+  const finalTimeline: any[] = [];
+  const daySet = new Set(uniqueDays);
+
+  for (let dayIdx = 0; dayIdx < N; dayIdx++) {
+    const dayDateStr = uniqueDays[dayIdx];
+    const dayNonAttractions = events.filter(
+      (e) => e.type !== 'ATTRACTION' && e.dateStr === dayDateStr
+    );
+
+    const departureEvt = dayNonAttractions.find((e) => e.type === 'DEPARTURE');
+    const lodgingEvt = dayNonAttractions.find((e) => e.type === 'LODGING');
+    const returnEvt = dayNonAttractions.find((e) => e.type === 'RETURN');
+    const otherEvts = dayNonAttractions.filter(
+      (e) => !['DEPARTURE', 'LODGING', 'RETURN'].includes(e.type)
+    );
+
+    if (departureEvt) finalTimeline.push(departureEvt);
+    const dayAttrs = attractionsByDay[dayDateStr] || [];
+    finalTimeline.push(...dayAttrs);
+    finalTimeline.push(...otherEvts);
+    if (lodgingEvt) finalTimeline.push(lodgingEvt);
+    if (returnEvt) finalTimeline.push(returnEvt);
+  }
+
+  // Bezpieczeństwo: dołączamy ewentualne punkty bez określonego dnia
+  const orphanEvents = events.filter(
+    (e) => e.type !== 'ATTRACTION' && (!e.dateStr || !daySet.has(e.dateStr))
+  );
+  finalTimeline.push(...orphanEvents);
+
+  // Końcowe posortowanie chronologiczne
+  return finalTimeline.sort((a, b) => {
+    const tA = a.parsedDate instanceof Date ? a.parsedDate.getTime() : 0;
+    const tB = b.parsedDate instanceof Date ? b.parsedDate.getTime() : 0;
+    if (tA !== tB) return tA - tB;
+    const priority = (type: string) => {
+      if (type === 'DEPARTURE') return 1;
+      if (type === 'ATTRACTION') return 2;
+      if (type === 'LODGING') return 3;
+      if (type === 'RETURN') return 4;
+      return 2.5;
+    };
+    return priority(a.type) - priority(b.type);
+  });
+};
+
 

@@ -7,6 +7,7 @@ import {
   buildGooglePlacesPhotoUrl,
   GOOGLE_PLACES_CITY_PHOTO_REFS,
   fetchGoogleCityPhoto,
+  hasCuratedCityFallback,
   getGoogleApiKey,
 } from './placesPhotoService';
 import {
@@ -452,6 +453,71 @@ export const CITIES_WITH_PREDEFINED_PLANS = new Set([
   'Łódź',
 ]);
 
+// Baza rozbudowanych, ikonicznych atrakcji (8-12 na miasto, 4-5 na jednodniowe wypady)
+export const DEFAULT_ATTRACTIONS_BY_CITY: Record<string, string[]> = {
+  Rzym: ['Koloseum i Forum Romanum', 'Watykan i Bazylika św. Piotra', 'Muzea Watykańskie', 'Fontanna di Trevi i Panteon', 'Plac Hiszpański', 'Zatybrze (Trastevere)', 'Plac Navona', 'Zamek Świętego Anioła', 'Villa Borghese'],
+  Barcelona: ['Sagrada Família', 'Park Güell', 'Dzielnica Gotycka (Barri Gòtic)', 'Katedra w Barcelonie', 'Casa Batlló', 'Casa Milà (La Pedrera)', 'Wzgórze Montjuïc', 'Plaża Barceloneta', 'Targ La Boqueria', 'Park Ciutadella'],
+  Paryż: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame', 'Montmartre i Sacré-Cœur', 'Ogrody Tuileries', 'Pola Elizejskie i Łuk Triumfalny', 'Sainte-Chapelle', 'Dzielnica Łacińska', 'Rejs po Sekwanie'],
+  Londyn: ['Big Ben i Pałac Westminsterski', 'British Museum', 'Tower Bridge i Tower of London', 'London Eye', 'Pałac Buckingham', 'Opactwo Westminsterskie', 'Covent Garden', 'Hyde Park', 'Targ Borough Market'],
+  Ateny: ['Akropol i Partenon', 'Muzeum Akropolu', 'Dzielnica Plaka', 'Świątynia Zeusa Olimpijskiego', 'Agora Ateńska', 'Wzgórze Likawitos', 'Ogród Narodowy', 'Plac Syntagma'],
+  Kraków: ['Rynek Główny i Sukiennice', 'Bazylika Mariacka', 'Zamek Królewski na Wawelu', 'Katedra Wawelska', 'Kazimierz (Dzielnica Żydowska)', 'Planty Krakowskie', 'Kopiec Kościuszki', 'Kładka Ojca Bernatka', 'Muzeum Czartoryskich'],
+  Praga: ['Most Karola', 'Zamek na Hradczanach', 'Katedra św. Wita', 'Rynek Staromiejski i Zegar Astronomiczny', 'Złota Uliczka', 'Dzielnica Malá Strana', 'Wzgórze Petřín', 'Wyszehrad', 'Tańczący Dom'],
+  Wiedeń: ['Pałac Schönbrunn i ogrody', 'Katedra św. Szczepana', 'Pałac Hofburg', 'Pałac Belweder', 'Opera Wiedeńska', 'Dzielnica Muzeów MuseumsQuartier', 'Ulica Graben', 'Prater i Diabelski Młyn'],
+  Budapeszt: ['Parlament w Budapeszcie', 'Baszta Rybacka', 'Kościół Macieja', 'Zamek w Budzie', 'Termy Széchenyi', 'Most Łańcuchowy', 'Bazylika św. Stefana', 'Wielka Hala Targowa', 'Wzgórze Gellerta'],
+  Berlin: ['Brama Brandenburska', 'Wyspa Muzeów', 'Reichstag i szklana kopuła', 'East Side Gallery', 'Checkpoint Charlie', 'Katedra Berlińska', 'Alexanderplatz i wieża telewizyjna', 'Pałac Charlottenburg'],
+  Gdańsk: ['Długi Targ i Fontanna Neptuna', 'Żuraw nad Motławą', 'Bazylika Mariacka', 'Ulica Mariacka', 'Europejskie Centrum Solidarności', 'Muzeum II Wojny Światowej', 'Park Oliwski i Katedra w Oliwie', 'Molo w Brzeźnie'],
+  Wrocław: ['Rynek i Gotycki Ratusz', 'Ostrów Tumski i Katedra', 'Panorama Racławicka', 'Szlak Wrocławskich Krasnali', 'Wyspa Słodowa', 'Hala Stulecia i Pawilon Czterech Kopuł', 'Ogród Japoński', 'Most Tumski'],
+  Lizbona: ['Klasztor Hieronimitów', 'Wieża Belém', 'Dzielnica Alfama', 'Zamek św. Jerzego', 'Punkt widokowy Miradouro da Senhora do Monte', 'Winda Santa Justa', 'Plac Praça do Comércio', 'Dzielnica Bairro Alto', 'Tramwaj 28'],
+  Madryt: ['Muzeum Prado', 'Pałac Królewski w Madrycie', 'Park El Retiro i Pałac Kryształowy', 'Plaza Mayor', 'Plac Puerta del Sol', 'Ulica Gran Vía', 'Świątynia Debod', 'Muzeum Królowej Zofii'],
+  Amsterdam: ['Rijksmuseum', 'Muzeum Van Gogha', 'Kanały Prinsengracht i Keizersgracht', 'Dom Anny Frank', 'Dzielnica Jordaan', 'Plac Dam i Pałac Królewski', 'Targ Kwiatowy Bloemenmarkt', 'Vondelpark'],
+  Kopenhaga: ['Port Nyhavn', 'Ogrody Tivoli', 'Pałac Amalienborg i zmiana warty', 'Syrenka Kopenhaska', 'Zamek Rosenborg', 'Okrągła Wieża Rundetårn', 'Pałac Christiansborg', 'Ulica Strøget'],
+  Mediolan: ['Katedra Duomo i taras widokowy', 'Galleria Vittorio Emanuele II', 'Zamek Sforzów', 'Park Sempione', 'Kościół Santa Maria delle Grazie', 'Dzielnica Navigli i kanały', 'Dzielnica Brera i Pinakoteka', 'Teatr La Scala'],
+  Wenecja: ['Plac i Bazylika św. Marka', 'Most Rialto i targ', 'Pałac Dożów', 'Most Westchnień', 'Canale Grande', 'Bazylika Santa Maria della Salute', 'Wyspa Burano', 'Wyspa Murano'],
+  Dubrownik: ['Średniowieczne mury obronne', 'Ulica Stradun', 'Fort Lovrijenac', 'Wzgórze Srđ i kolejka linowa', 'Brama Pile', 'Pałac Rektorów', 'Stary Port miejski', 'Wyspa Lokrum'],
+  Zurych: ['Jezioro Zuryskie i promenada', 'Stare Miasto Altstadt', 'Kościół Grossmünster', 'Kościół Fraumünster', 'Ulica Bahnhofstrasse', 'Wzgórze Lindenhof', 'Szwajcarskie Muzeum Narodowe', 'Wzgórze Uetliberg'],
+  Edynburg: ['Zamek w Edynburgu', 'Trakt Royal Mile', 'Wzgórze Calton Hill', 'Wygasły wulkan Arthur\'s Seat', 'Pałac Holyroodhouse', 'Zaułek Victoria Street', 'Katedra św. Idziego', 'Dean Village'],
+  Dublin: ['Kolegium Trójcy Świętej (Book of Kells)', 'Dzielnica Temple Bar', 'Katedra św. Patryka', 'Browar Guinness Storehouse', 'Katedra Christ Church', 'Zamek Dubliński', 'Most Ha\'penny Bridge', 'Park St Stephen\'s Green'],
+  Walencja: ['Miasto Sztuki i Nauki', 'Ogrody Turia', 'Katedra w Walencji i wieża Miguelete', 'Targ Mercado Central', 'Plaża Malvarrosa', 'Giełda Jedwabiu Lonja de la Seda', 'Zabytkowe bramy Torres de Serranos', 'Dzielnica El Carmen'],
+  Neapol: ['Spaccanapoli', 'Zamek Castel dell\'Ovo', 'Podziemny Neapol (Napoli Sotterranea)', 'Katedra w Neapolu', 'Plac Piazza del Plebiscito', 'Zamek Castel Sant\'Elmo', 'Klasztor Santa Chiara', 'Galeria Umberto I'],
+  Porto: ['Dzielnica Ribeira nad rzeką Douro', 'Most Ponte Dom Luís I', 'Księgarnia Livraria Lello', 'Katedra Sé do Porto', 'Wieża i Kościół Clérigos', 'Dworzec São Bento', 'Vila Nova de Gaia i piwnice wina Porto', 'Ogrody Pałacu Kryształowego'],
+  Stambuł: ['Hagia Sophia', 'Błękitny Meczet', 'Pałac Topkapi', 'Wielki Bazar (Kapalıçarşı)', 'Cysterna Bazyliki', 'Wieża Galata', 'Bazar Przypraw', 'Ulica Istiklal', 'Rejs statkiem po Bosforze'],
+  Nicea: ['Promenada Anglików', 'Wzgórze Zamkowe (Colline du Château)', 'Stare Miasto Vieux Nice', 'Targ kwiatowy Cours Saleya', 'Plac Masséna', 'Katedra św. Reparaty', 'Muzeum Marca Chagalla', 'Przystań Port Lympia'],
+  Monachium: ['Plac Marienplatz i Nowy Ratusz', 'Ogród Angielski (Englischer Garten)', 'Pałac Nymphenburg', 'Kościół Frauenkirche', 'Rezydencja w Monachium (Residenz)', 'Targ Viktualienmarkt', 'Muzeum BMW i Park Olimpijski', 'Plac Odeonsplatz'],
+  Valletta: ['Konkatedra św. Jana', 'Górne Ogrody Barrakka', 'Fort św. Elma', 'Pałac Wielkich Mistrzów', 'Ulica Republic Street', 'Dolne Ogrody Barrakka', 'Teatr Manoel', 'Rejs łodzią dgħajsa do Trzech Miast'],
+  Reykjavik: ['Kościół Hallgrímskirkja', 'Błękitna Laguna (Blue Lagoon)', 'Koncertowa Harpa', 'Trasa Złotego Kręgu (Gullfoss i Geysir)', 'Park Narodowy Thingvellir', 'Ulica Laugavegur', 'Rzeźba Solfar', 'Stary Port'],
+  Alghero: ['Stare Miasto z katalońskimi murami', 'Klify Capo Caccia', 'Grota Neptuna', 'Plaża Spiaggia delle Bombarde', 'Katedra Niepokalanego Poczęcia NMP', 'Plaża Spiaggia di Maria Pia', 'Nurag Palmavera', 'Promenada Lungomare Dante'],
+  Kotor: ['Starówka w Kotorze i Katedra św. Tryfona', 'Mury twierdzy San Giovanni', 'Wyspa Matki Boskiej na Skale', 'Zatoka Boka Kotorska', 'Brama Morska i Plac Broni', 'Cerkiew św. Mikołaja', 'Miasteczko Perast', 'Błękitna Grota'],
+  Lublana: ['Zamek w Lublanie (Ljubljanski grad)', 'Potrójny Most i Smoczy Most', 'Park Tivoli', 'Wypad nad Jezioro Bled', 'Plac Prešerena', 'Centralny Targ w Lublanie', 'Katedra św. Mikołaja', 'Rejs statkiem po Lublanicy'],
+  Bergen: ['Zabytkowa dzielnica Bryggen (UNESCO)', 'Wjazd kolejką linową na górę Fløyen', 'Targ Rybny Fisketorget', 'Fiord Hardangerfjord', 'Twierdza Bergenhus', 'Szczyt Ulriken', 'Muzeum Sztuki KODE', 'Kościół św. Marii'],
+  Colmar: ['Dzielnica Mała Wenecja (La Petite Venise)', 'Zabytkowy dom Maison des Têtes', 'Muzeum Unterlinden', 'Winiarski Szlak Alzacji', 'Dom Pfistera', 'Kościół św. Marcina', 'Dzielnica Garbarzy', 'Miasteczko Riquewihr'],
+  Sintra: ['Baśniowy Pałac Pena', 'Posiadłość Quinta da Regaleira', 'Zamek Maurów', 'Przylądek Cabo da Roca', 'Narodowy Pałac w Sintra', 'Pałac Monserrate', 'Krzyż Cruz Alta', 'Ogrody Pena'],
+  'San Sebastián': ['Plaża La Concha', 'Stare Miasto Parte Vieja (bary pintxos)', 'Wzgórze Monte Urgull', 'Pałac Miramar', 'Bazylika Santa María del Coro', 'Rzeźba Grzebień Wiatru', 'Plaża Zurriola', 'Wzgórze Monte Igueldo'],
+  Tallinn: ['Średniowieczny Rynek Raekoja plats', 'Wzgórze Toompea i Zamek', 'Baszta Gruba Małgorzata', 'Kreatywna dzielnica Telliskivi', 'Sobór św. Aleksandra Newskiego', 'Kościół św. Olafa', 'Platforma widokowa Kohtuotsa', 'Pałac Kadriorg'],
+  Matera: ['Dzielnica Sasso Barisano', 'Dzielnica Sasso Caveoso', 'Katedra w Materze', 'Kościoły rupestralne w skałach', 'Park Murgia Materana', 'Podziemny zbiornik Palombaro Lungo', 'Dom jaskiniowy Casa Grotta', 'Muzeum MUSMA'],
+  Tromsø: ['Katedra Arktyczna', 'Kolejka Fjellheisen z panoramą fiordu', 'Muzeum Polarne', 'Wyprawa na zorzę polarną', 'Centrum Polaria', 'Port w Tromsø', 'Drewniany kościół Domkirke', 'Rejs po fiordach'],
+  Ochryda: ['Cerkiew św. Jana w Kaneo nad jeziorem', 'Twierdza Samuela', 'Starożytny teatr w Ochrydzie', 'Klasztor św. Nauma', 'Cerkiew św. Zofii', 'Plaoshnik', 'Promenada nad jeziorem', 'Zatoka Kości'],
+  Girona: ['Katedra w Gironie i monumentalne schody', 'Kolorowe domy nad rzeką Onyar', 'Dzielnica żydowska El Call', 'Średniowieczne mury miejskie', 'Most Eiffla', 'Łaźnie arabskie', 'Klasztor Sant Pere de Galligants', 'Plac Plaça de la Independència'],
+  Hallstatt: ['Punkt widokowy nad jeziorem Hallstatt', 'Kopalnia soli Salzwelten', 'Kostnica Beinhaus', 'Platforma widokowa Skywalk', 'Rynek miejski Marktplatz', 'Kościół ewangelicki', 'Rejs łodzią po jeziorze', 'Wodospad Waldbachstrub'],
+  Brno: ['Modernistyczna Willa Tugendhat (UNESCO)', 'Zamek Špilberk', 'Katedra św. Piotra i Pawła', 'Labirynt podziemny pod Targiem Warzywnym', 'Stary Ratusz ze smokiem brneńskim', 'Plac Wolności', 'Willa Löw-Beer', 'Zamek Veveří'],
+  Sandomierz: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi', 'Brama Opatowska', 'Zamek Królewski w Sandomierzu', 'Bazylika Katedralna', 'Ucho Igielne', 'Góry Pieprzowe'],
+  Szczawnica: ['Spływ Przełomem Dunajca', 'Wjazd kolejką na Palenicę', 'Pijalnia wód mineralnych', 'Wąwóz Homole i Pieniny', 'Rezerwat Biała Woda', 'Promenada nad Grajcarkiem', 'Schronisko pod Bereśnikiem', 'Trzy Korony'],
+  Zadar: ['Morskie Organy', 'Instalacja Pozdrowienie Słońca', 'Rzymskie Forum i Kościół św. Donata', 'Katedra św. Anastazji', 'Brama Lądowa', 'Plac Pięciu Studni', 'Park Królowej Jeleny', 'Plaża Kolovare'],
+  Bolonia: ['Piazza Maggiore i Bazylika św. Petroniusza', 'Dwie Krzywe Wieże (Due Torri)', 'Słynne bolońskie arkady (portyki)', 'Dzielnica uniwersytecka i Archiginnasio', 'Fontanna Neptuna', 'Sanktuarium Madonna di San Luca', 'Targ Quadrilatero', 'Bazylika Santo Stefano'],
+  Zakopane: ['Dolina Kościeliska i Jaskinia Mroźna', 'Morskie Oko i Czarny Staw', 'Wjazd kolejką na Kasprowy Wierch', 'Krupówki i Muzeum Tatrzańskie', 'Gubałówka', 'Wielka Krokiew', 'Hala Gąsienicowa', 'Dolina Chochołowska'],
+  Toruń: ['Ratusz Staromiejski i Rynek', 'Żywe Muzeum Piernika', 'Dom Mikołaja Kopernika', 'Krzywa Wieża w Toruniu', 'Katedra św. Janów', 'Ruiny Zamku Krzyżackiego', 'Bulwar Filadelfijski', 'Planetarium w Toruniu'],
+  Poznań: ['Stary Rynek i poznańskie koziołki', 'Ostrów Tumski i Brama Poznania', 'Park Cytadela', 'Jezioro Maltańskie', 'Katedra Poznańska', 'Palmiarnia Poznańska', 'Fara Poznańska', 'Stary Browar'],
+  Salzburg: ['Twierdza Hohensalzburg', 'Ogrody Pałacu Mirabell', 'Ulica Getreidegasse (Dom Mozarta)', 'Katedra w Salzburgu', 'Pałac Hellbrunn z fontannami', 'Wzgórze Kapuzinerberg', 'Muzeum DomQuartier', 'Kolejka Festungsbahn'],
+  Palermo: ['Katedra w Palermo', 'Pałac Normanów i Cappella Palatina', 'Targ Ballarò', 'Teatro Massimo', 'Quattro Canti', 'Fontanna Pretoria', 'Katakumby Kapucynów', 'Plaża Mondello'],
+  Sewilla: ['Plaza de España i Park Marii Luizy', 'Katedra w Sewilli i wieża Giralda', 'Pałac Królewski Real Alcázar', 'Dzielnica Santa Cruz', 'Metropol Parasol (Las Setas)', 'Złota Wieża (Torre del Oro)', 'Dzielnica Triana', 'Pałac Casa de Pilatos'],
+  'Kazimierz Dolny': ['Rynek i renesansowe kamienice Przybyłów', 'Wąwóz Korzeniowy Dół', 'Góra Trzech Krzyży', 'Ruiny Zamku Kazimierzowskiego i Baszta', 'Bulwar Nadwiślański'],
+  'Żelazowa Wola': ['Dworek Chopina i park krajobrazowy', 'Kampinoski Park Narodowy - Szlak Puszczański', 'Ośrodek Edukacyjny w Granicy', 'Zabytkowy kościół obronny w Brochowie'],
+  'Płock': ['Wzgórze Tumskie i panorama Wisły', 'Molo w Płocku', 'Bazylika Katedralna Wniebowzięcia NMP', 'Stary Rynek i Ratusz', 'Zabytkowa Rogatka Warszawska'],
+  'Ojcowski Park Narodowy': ['Zamek Pieskowa Skała i Maczuga Herkulesa', 'Dolina Prądnika i Brama Krakowska', 'Grota Łokietka', 'Ruiny Zamku w Ojcowie', 'Jaskinia Ciemna'],
+  'Zamek w Malborku': ['Zamek Średni i Pałac Wielkich Mistrzów', 'Zamek Wysoki i Kościół NMP', 'Taras widokowy nad Nogatem i Wały Plauena', 'Zamek Niski i Przedzamcze'],
+  'Zamek Ogrodzieniec': ['Ruiny Zamku Ogrodzieniec', 'Gród na Górze Birów', 'Skalne ostańce Jury Krakowsko-Częstochowskiej', 'Park Doświadczeń Fizycznych'],
+  'Łódź': ['Ulica Piotrkowska i Pasaż Róży', 'Centrum Manufaktura i Muzeum Fabryki', 'Zabytkowe osiedle fabryczne Księży Młyn', 'Kompleks EC1 Łódź - Miasto Kultury', 'Biała Fabryka'],
+};
+
 // ETAP 1: Polskie lotniska wylotowe
 export interface AirportInfo {
   code: string;
@@ -494,54 +560,34 @@ async function fetchWithTimeout(url: string, ms = 3500): Promise<Response> {
   }
 }
 
-// Funkcja pobierająca zdjęcie danej lokalizacji z Google Places
-export async function fetchCityGooglePhoto(city: string, lat: number, lon: number): Promise<string | null> {
+// Funkcja pobierająca oficjalne zdjęcie danej lokalizacji z Google Places
+export async function fetchCityGooglePhoto(
+  city: string,
+  lat?: number,
+  lon?: number,
+  country?: string
+): Promise<string | null> {
   const cityKey = city.toLowerCase().trim();
-  if (CITY_PHOTO_CACHE.has(cityKey)) {
+  if (process.env.NODE_ENV !== 'test' && CITY_PHOTO_CACHE.has(cityKey)) {
     return CITY_PHOTO_CACHE.get(cityKey)!;
   }
 
-  const curatedFallback = CURATED_CITY_PHOTOS[cityKey];
+  try {
+    const photo = await fetchGoogleCityPhoto(city, country || '');
+    if (photo) {
+      CITY_PHOTO_CACHE.set(cityKey, photo);
+      return photo;
+    }
+  } catch (e) {
+    console.warn(`[Google Places City Photo] Błąd dla ${city}:`, e);
+  }
 
-  if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('TYMCZASOWY')) {
+  if (hasCuratedCityFallback(city)) {
+    const curatedFallback = getCuratedCityFallback(city);
     if (curatedFallback) {
       CITY_PHOTO_CACHE.set(cityKey, curatedFallback);
       return curatedFallback;
     }
-    return null;
-  }
-
-  try {
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lon}&radius=20000&type=tourist_attraction&key=${GOOGLE_API_KEY}`;
-    const res = await fetchWithTimeout(url, 3500);
-    const data = await res.json();
-    if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-      const excludedKeywords = ['zoo', 'safari', 'aquarium', 'oceanarium', 'papugarnia', 'fokarium', 'zwierząt', 'animal'];
-      const excludedTypes = new Set(['zoo', 'aquarium', 'amusement_park', 'bowling_alley', 'campground', 'casino', 'pet_store', 'rv_park']);
-
-      const cleanResults = data.results.filter((p: any) => {
-        const nameLower = (p.name || '').toLowerCase();
-        const hasBadKeyword = excludedKeywords.some(kw => nameLower.includes(kw));
-        const hasBadType = Array.isArray(p.types) && p.types.some((t: string) => excludedTypes.has(t));
-        return !hasBadKeyword && !hasBadType;
-      });
-
-      const poolToUse = cleanResults.length > 0 ? cleanResults : data.results;
-      const sorted = poolToUse.sort((a: any, b: any) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0));
-      const withPhoto = sorted.find((p: any) => Array.isArray(p.photos) && p.photos.length > 0);
-      if (withPhoto && withPhoto.photos[0]?.photo_reference) {
-        const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${withPhoto.photos[0].photo_reference}&key=${GOOGLE_API_KEY}`;
-        CITY_PHOTO_CACHE.set(cityKey, photoUrl);
-        return photoUrl;
-      }
-    }
-  } catch (e) {
-    console.warn(`[Google Places Photo] Błąd dla ${city}:`, e);
-  }
-
-  if (curatedFallback) {
-    CITY_PHOTO_CACHE.set(cityKey, curatedFallback);
-    return curatedFallback;
   }
 
   return null;
@@ -634,11 +680,25 @@ export function buildOptimizedExploreItinerary(
 
   for (let d = 0; d < daysCount; d++) {
     const startIdx = Math.floor((d * totalAttractions) / daysCount);
-    const endIdx = Math.floor(((d + 1) * totalAttractions) / daysCount);
+    let endIdx = Math.floor(((d + 1) * totalAttractions) / daysCount);
+
+    // Gwarancja co najmniej 2–4 atrakcji na każdy dzień wycieczki
+    if (endIdx - startIdx < 2 && totalAttractions >= daysCount * 2) {
+      endIdx = Math.min(totalAttractions, startIdx + 2);
+    }
+
     let dailySlice = orderedPoints.slice(startIdx, endIdx);
 
-    // Jeśli punktów było mało i wycinek wyszedł pusty, bierzemy punkt z indeksu dnia
-    if (dailySlice.length === 0 && orderedPoints[d % totalAttractions]) {
+    // Jeśli punktów było mało i wycinek ma mniej niż 2 punkty, dopełniamy kolejnymi atrakcjami z puli
+    if (dailySlice.length < 2 && totalAttractions >= 2) {
+      const needed = 2 - dailySlice.length;
+      for (let k = 0; k < needed; k++) {
+        const nextPick = orderedPoints[(endIdx + k) % totalAttractions];
+        if (nextPick && !dailySlice.some((p) => p.title.toLowerCase() === nextPick.title.toLowerCase())) {
+          dailySlice.push(nextPick);
+        }
+      }
+    } else if (dailySlice.length === 0 && orderedPoints[d % totalAttractions]) {
       dailySlice = [orderedPoints[d % totalAttractions]];
     }
 
@@ -870,7 +930,11 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
         estimatedTemp: c.temp,
         condition: c.condition,
         crowdLevel: isDay ? 'Idealne warunki na jednodniowy wypad' : 'Umiarkowany ruch turystyczny',
-        itinerary: buildOptimizedExploreItinerary(c.attractions, durationDays, c.city),
+        itinerary: buildOptimizedExploreItinerary(
+          DEFAULT_ATTRACTIONS_BY_CITY[c.city] || c.attractions,
+          durationDays,
+          c.city
+        ),
       },
     };
   });
@@ -1046,73 +1110,9 @@ export async function fetchCityWeather(
     // ETAP 3: Weryfikacja bazy predefiniowanych szablonów wycieczek
     const hasPredefinedPlan = CITIES_WITH_PREDEFINED_PLANS.has(dest.city);
 
-    const defaultAttractionsByCity: Record<string, string[]> = {
-      Rzym: ['Koloseum i Forum Romanum', 'Watykan i Bazylika św. Piotra', 'Fontanna di Trevi i Panteon', 'Zatybrze'],
-      Barcelona: ['Sagrada Família', 'Park Güell', 'Dzielnica Gotycka (Barri Gòtic)', 'Plaża Barceloneta'],
-      Paryż: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame', 'Montmartre'],
-      Londyn: ['Big Ben i Parlament', 'British Museum', 'Tower Bridge', 'Hyde Park'],
-      Ateny: ['Akropol i Partenon', 'Muzeum Akropolu', 'Plaka', 'Świątynia Zeusa'],
-      Kraków: ['Rynek Główny i Sukiennice', 'Zamek Królewski na Wawelu', 'Kazimierz', 'Kopiec Kościuszki'],
-      Praga: ['Most Karola', 'Zamek na Hradczanach', 'Rynek Staromiejski', 'Złota Uliczka'],
-      Wiedeń: ['Pałac Schönbrunn', 'Katedra św. Szczepana', 'Pałac Hofburg', 'Belweder'],
-      Budapeszt: ['Parlament w Budapeszcie', 'Baszta Rybacka', 'Termy Széchenyi', 'Zamek w Budzie'],
-      Berlin: ['Brama Brandenburska', 'Wyspa Muzeów', 'Reichstag', 'East Side Gallery'],
-      Gdańsk: ['Długi Targ i Fontanna Neptuna', 'Żuraw nad Motławą', 'Bazylika Mariacka', 'Europejskie Centrum Solidarności'],
-      Wrocław: ['Rynek i Ratusz', 'Ostrów Tumski', 'Panorama Racławicka', 'Szlak Krasnali'],
-      Lizbona: ['Klasztor Hieronimitów', 'Wieża Belém', 'Dzielnica Alfama', 'Punkt widokowy Miradouro da Senhora do Monte'],
-      Madryt: ['Muzeum Prado', 'Pałac Królewski', 'Park Retiro', 'Plaza Mayor'],
-      Amsterdam: ['Rijksmuseum', 'Muzeum Van Gogha', 'Kanały Prinsengracht', 'Dzielnica Jordaan'],
-      Kopenhaga: ['Port Nyhavn', 'Ogrody Tivoli', 'Pałac Amalienborg', 'Syrenka Kopenhaska'],
-      Mediolan: ['Katedra Duomo', 'Galeria Vittorio Emanuele II', 'Zamek Sforzów', 'Dzielnica Navigli'],
-      Wenecja: ['Plac i Bazylika św. Marka', 'Most Rialto', 'Pałac Dożów', 'Wyspa Burano'],
-      Dubrownik: ['Średniowieczne mury obronne', 'Ulica Stradun', 'Fort Lovrijenac', 'Wzgórze Srđ'],
-      Zurych: ['Jezioro Zuryskie', 'Stare Miasto Altstadt', 'Kościół Grossmünster', 'Ulica Bahnhofstrasse'],
-      Edynburg: ['Zamek w Edynburgu', 'Ulica Royal Mile', 'Wzgórze Calton Hill', 'Wygasły wulkan Arthur\'s Seat'],
-      Dublin: ['Kolegium Trójcy Świętej (Book of Kells)', 'Dzielnica Temple Bar', 'Katedra św. Patryka', 'Browar Guinness Storehouse'],
-      Walencja: ['Miasto Sztuki i Nauki', 'Plaża Malvarrosa', 'Katedra w Walencji', 'Targ Mercado Central'],
-      Neapol: ['Spaccanapoli', 'Zamek Castel dell\'Ovo', 'Podziemny Neapol (Napoli Sotterranea)', 'Wypad pod Wezuwiusz'],
-      Porto: ['Dzielnica Ribeira', 'Most Dom Luís I', 'Księgarnia Livraria Lello', 'Dolina rzeki Douro'],
-      Stambuł: ['Hagia Sophia', 'Błękitny Meczet', 'Pałac Topkapi', 'Wielki Bazar (Grand Bazaar)'],
-      Nicea: ['Promenada Anglików', 'Wzgórze Zamkowe (Colline du Château)', 'Stare Miasto Vieux Nice', 'Targ Cours Saleya'],
-      Monachium: ['Plac Marienplatz', 'Ogród Angielski (Englischer Garten)', 'Pałac Nymphenburg', 'Kościół Frauenkirche'],
-      Valletta: ['Konkatedra św. Jana', 'Górne Ogrody Barrakka', 'Fort św. Elma', 'Pałac Wielkich Mistrzów'],
-      Reykjavik: ['Kościół Hallgrímskirkja', 'Błękitna Laguna (Blue Lagoon)', 'Koncertowa Harpa', 'Trasa Złotego Kręgu (Gullfoss i Geysir)'],
-      Alghero: ['Stare Miasto z katalońskimi murami', 'Klify Capo Caccia', 'Grota Neptuna', 'Plaża Spiaggia delle Bombarde'],
-      Kotor: ['Starówka w Kotorze i Katedra św. Tryfona', 'Mury twierdzy San Giovanni', 'Wyspa Matki Boskiej na Skale', 'Zatoka Boka Kotorska'],
-      Lublana: ['Zamek w Lublanie (Ljubljanski grad)', 'Potrójny Most i Smoczy Most', 'Park Tivoli', 'Wypad nad Jezioro Bled'],
-      Bergen: ['Zabytkowa dzielnica Bryggen (UNESCO)', 'Wjazd kolejką linową na górę Fløyen', 'Targ Rybny Fisketorget', 'Fiord Hardangerfjord'],
-      Colmar: ['Dzielnica Mała Wenecja (La Petite Venise)', 'Zabytkowy dom Maison des Têtes', 'Muzeum Unterlinden', 'Winiarski Szlak Alzacji'],
-      Sintra: ['Baśniowy Pałac Pena', 'Posiadłość Quinta da Regaleira', 'Zamek Maurów', 'Przylądek Cabo da Roca'],
-      'San Sebastián': ['Plaża La Concha', 'Stare Miasto Parte Vieja (bary pintxos)', 'Wzgórze Monte Urgull', 'Pałac Miramar'],
-      Tallinn: ['Średniowieczny Rynek Raekoja plats', 'Wzgórze Toompea i Zamek', 'Baszta Gruba Małgorzata', 'Kreatywna dzielnica Telliskivi'],
-      Matera: ['Dzielnice skalne Sassi di Matera', 'Katedra w Materze', 'Kościoły rupestralne w skałach', 'Park Murgia Materana'],
-      Tromsø: ['Katedra Arktyczna', 'Kolejka Fjellheisen z panoramą fiordu', 'Muzeum Polarne', 'Wyprawa na zorzę polarną'],
-      Ochryda: ['Cerkiew św. Jana w Kaneo nad jeziorem', 'Twierdza Samuela', 'Starożytny teatr w Ochrydzie', 'Klasztor św. Nauma'],
-      Girona: ['Katedra w Gironie i monumentalne schody', 'Kolorowe domy nad rzeką Onyar', 'Dzielnica żydowska El Call', 'Średniowieczne mury miejskie'],
-      Hallstatt: ['Punkt widokowy nad jeziorem Hallstatt', 'Kopalnia soli Salzwelten', 'Kostnica Beinhaus', 'Platforma widokowa Skywalk'],
-      Brno: ['Modernistyczna Willa Tugendhat (UNESCO)', 'Zamek Špilberk', 'Katedra św. Piotra i Pawła', 'Labirynt podziemny pod Targiem Warzywnym'],
-      Sandomierz: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi', 'Brama Opatowska'],
-      Szczawnica: ['Spływ Przełomem Dunajca', 'Wjazd kolejką na Palenicę', 'Pijalnia wód mineralnych', 'Wąwóz Homole i Pieniny'],
-      Zadar: ['Morskie Organy', 'Instalacja Pozdrowienie Słońca', 'Rzymskie Forum i Kościół św. Donata', 'Katedra św. Anastazji'],
-      Bolonia: ['Piazza Maggiore i Bazylika św. Petroniusza', 'Dwie Krzywe Wieże (Due Torri)', 'Słynne bolońskie arkady (portyki)', 'Dzielnica uniwersytecka'],
-      Zakopane: ['Dolina Kościeliska i Morskie Oko', 'Wjazd kolejką na Kasprowy Wierch', 'Krupówki i Muzeum Tatrzańskie', 'Gubałówka'],
-      Toruń: ['Ratusz Staromiejski i Rynek', 'Żywe Muzeum Piernika', 'Dom Mikołaja Kopernika', 'Krzywa Wieża w Toruniu'],
-      Poznań: ['Stary Rynek i poznańskie koziołki', 'Ostrów Tumski i Brama Poznania', 'Park Cytadela', 'Jezioro Maltańskie'],
-      Salzburg: ['Twierdza Hohensalzburg', 'Ogrody Pałacu Mirabell', 'Ulica Getreidegasse (Dom Mozarta)', 'Katedra w Salzburgu'],
-      Palermo: ['Katedra w Palermo', 'Pałac Normanów i Cappella Palatina', 'Targ Ballarò', 'Teatro Massimo'],
-      Sewilla: ['Plaza de España i Park Marii Luizy', 'Katedra w Sewilli i wieża Giralda', 'Pałac Królewski Real Alcázar', 'Dzielnica Santa Cruz'],
-      'Kazimierz Dolny': ['Rynek i renesansowe kamienice Przybyłów', 'Wąwóz Korzeniowy Dół', 'Góra Trzech Krzyży', 'Ruiny Zamku Kazimierzowskiego i Baszta'],
-      'Żelazowa Wola': ['Dworek Chopina i park krajobrazowy', 'Kampinoski Park Narodowy - Szlak Puszczański', 'Ośrodek Edukacyjny w Granicy'],
-      'Płock': ['Wzgórze Tumskie i panorama Wisły', 'Molo w Płocku', 'Bazylika Katedralna Wniebowzięcia NMP', 'Stary Rynek i Ratusz'],
-      'Ojcowski Park Narodowy': ['Zamek Pieskowa Skała i Maczuga Herkulesa', 'Dolina Prądnika i Brama Krakowska', 'Grota Łokietka', 'Ruiny Zamku w Ojcowie'],
-      'Zamek w Malborku': ['Zamek Średni i Pałac Wielkich Mistrzów', 'Zamek Wysoki i Kościół NMP', 'Taras widokowy nad Nogatem i Wały Plauena'],
-      'Zamek Ogrodzieniec': ['Ruiny Zamku Ogrodzieniec', 'Gród na Górze Birów', 'Skalne ostańce Jury i Park Doświadczeń Fizycznych'],
-      'Łódź': ['Ulica Piotrkowska i Pasaż Róży', 'Centrum Manufaktura i Muzeum Fabryki', 'Zabytkowe osiedle fabryczne Księży Młyn', 'Kompleks EC1 Łódź - Miasto Kultury'],
-    };
-
     let itinerary: TripDay[] = [];
     if (hasPredefinedPlan) {
-      const pool = defaultAttractionsByCity[dest.city] || [
+      const pool = DEFAULT_ATTRACTIONS_BY_CITY[dest.city] || [
         'Stare Miasto i Rynek',
         'Zabytkowy pałac lub zamek',
         'Lokalne muzeum sztuki',
@@ -1312,7 +1312,7 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
     topCities.map(async (dest) => {
       // 1. Pobieramy prawdziwe zdjęcie lokalizacji z Google Places lub z curated list
       try {
-        const googlePhoto = await fetchCityGooglePhoto(dest.city, dest.lat, dest.lon);
+        const googlePhoto = await fetchCityGooglePhoto(dest.city, dest.lat, dest.lon, dest.country);
         if (googlePhoto) {
           dest.coverImage = googlePhoto;
         }
@@ -1361,6 +1361,20 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
               lat: p.geometry?.location?.lat,
               lon: p.geometry?.location?.lng,
             }));
+
+            // Uzupełniamy pulę z DEFAULT_ATTRACTIONS_BY_CITY, aby zagwarantować 2-4 atrakcje na każdy dzień
+            const cityDefaults = DEFAULT_ATTRACTIONS_BY_CITY[dest.city] || [];
+            for (const defAttr of cityDefaults) {
+              if (
+                !placesWithCoords.some(
+                  (p: any) =>
+                    p.name.toLowerCase().includes(defAttr.toLowerCase()) ||
+                    defAttr.toLowerCase().includes(p.name.toLowerCase())
+                )
+              ) {
+                placesWithCoords.push({ name: defAttr });
+              }
+            }
 
             const itinerary = buildOptimizedExploreItinerary(placesWithCoords, tripDays, dest.city);
 

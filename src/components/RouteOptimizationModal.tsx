@@ -22,8 +22,11 @@ import {
   fetchRealRouteInfo,
   buildGoogleMapsDirectionsUrl,
   buildGoogleMapsFullRouteUrl,
+  buildGoogleMapsNavigationToDestinationUrl,
   fetchGooglePlaceLocation,
   fetchRealStreetDistanceKm,
+  optimizeMultiDayTimeline,
+  parseTimelineDate,
   type GeoPoint,
   type OptimizationResult,
   type StreetRouteInfo,
@@ -52,6 +55,9 @@ interface RouteOptimizationModalProps {
   poolAttractions?: Array<{ name?: string; lat?: number; lon?: number }>;
   destinationCity?: string;
   lodgingCoords?: { lat: number; lon: number } | null;
+  targetDay?: string;
+  tripStartDate?: string;
+  tripEndDate?: string;
 }
 
 export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
@@ -62,13 +68,38 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   poolAttractions = [],
   destinationCity = 'Rome',
   lodgingCoords = null,
+  targetDay = 'ALL',
+  tripStartDate,
+  tripEndDate,
 }) => {
   const { language } = useAuthStore();
   const t = translations[language].timeline;
   const commonT = translations[language].common;
 
-  // Wybrany przez użytkownika środek transportu dla każdego etapu (indeks odcinka trasy)
-  const [selectedModes, setSelectedModes] = useState<Record<number, 'walking' | 'transit' | 'driving'>>({});
+  // Aktywny zakres: 'ALL' (cały wyjazd) lub konkretna data (np. '10-09-2026')
+  const [activeDayScope, setActiveDayScope] = useState<string>(targetDay || 'ALL');
+
+  useEffect(() => {
+    if (visible) {
+      setActiveDayScope(targetDay || 'ALL');
+    }
+  }, [visible, targetDay]);
+
+  // Posortowane chronologicznie unikalne dni
+  const uniqueDays = useMemo(() => {
+    return Array.from(
+      new Set(
+        events
+          .map((e) => e.dateStr)
+          .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+      )
+    ).sort((a, b) => {
+      const tA = parseTimelineDate(a, '00:00').getTime();
+      const tB = parseTimelineDate(b, '00:00').getTime();
+      return tA - tB;
+    });
+  }, [events]);
+
   // Rzeczywisty dystans siatki ulic z OSRM dla poszczególnych odcinków
   const [streetDistances, setStreetDistances] = useState<Record<string, number>>({});
   // Rzeczywiste pełne czasy przejść/przejazdów z serwera OSRM / Google Maps Live
@@ -78,10 +109,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   // Stan pobierania danych na żywo z Google Maps / sieci ulicznej
   const [isLiveLoading, setIsLiveLoading] = useState<boolean>(false);
 
-  // Filtrujemy punkty do optymalizacji (atrakcje zwiedzania)
+  // Filtrujemy punkty do optymalizacji (w zależności od wybranego zakresu)
   const candidateEvents = useMemo(() => {
+    if (activeDayScope && activeDayScope !== 'ALL') {
+      return events.filter((e) => e.type === 'ATTRACTION' && e.dateStr === activeDayScope);
+    }
     return events.filter((e) => e.type === 'ATTRACTION');
-  }, [events]);
+  }, [events, activeDayScope]);
 
   // Przypisujemy współrzędne GPS punktów (uwzględnia dociągnięte koordynaty live)
   const geoPoints: GeoPoint[] = useMemo(() => {
@@ -112,7 +146,69 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     return optimizeSightseeingRoute(geoPoints, false);
   }, [geoPoints]);
 
-  // Asynchroniczne dociąganie precyzyjnych danych z Google Places i siatki ulic OSRM (tylko w trybie online)
+  // Mapowanie przypisania punktów do poszczególnych dni w podglądzie całego wyjazdu
+  const dayAssignmentMap = useMemo(() => {
+    if (!optimizationResult || uniqueDays.length <= 1 || activeDayScope !== 'ALL') {
+      return null;
+    }
+    const N = uniqueDays.length;
+    const M = optimizationResult.orderedPoints.length;
+
+    const existingCounts = uniqueDays.map(
+      (d) => events.filter((e) => e.type === 'ATTRACTION' && e.dateStr === d).length
+    );
+    const isBalanced =
+      existingCounts.every((c) => c <= 4) &&
+      existingCounts.reduce((a, b) => a + b, 0) === M &&
+      (N <= 2 || existingCounts.slice(1, N - 1).every((c) => c >= 1));
+
+    let quotas: number[] = new Array(N).fill(0);
+    if (isBalanced) {
+      quotas = [...existingCounts];
+    } else {
+      if (N === 2) {
+        const d1 = M >= 3 ? Math.min(2, Math.floor(M / 2)) : Math.min(1, M);
+        quotas[0] = d1;
+        quotas[1] = M - d1;
+      } else {
+        const d1 = M >= 5 ? 1 : (M >= 8 ? 2 : 0);
+        quotas[0] = d1;
+        const lastQ = (M - d1 >= 4) ? 1 : 0;
+        quotas[N - 1] = lastQ;
+        let remaining = M - d1 - lastQ;
+        for (let d = 1; d < N - 1; d++) {
+          const daysLeft = N - 1 - d;
+          const take = Math.ceil(remaining / daysLeft);
+          quotas[d] = Math.min(take, remaining);
+          remaining -= quotas[d];
+        }
+        if (remaining > 0) {
+          for (let d = 1; d < N && remaining > 0; d++) {
+            quotas[d]++;
+            remaining--;
+          }
+        }
+      }
+    }
+
+    const map: Record<string, { dayIndex: number; dayDate: string; isFirstInDay: boolean }> = {};
+    let cursor = 0;
+    for (let d = 0; d < N; d++) {
+      const q = quotas[d] || 0;
+      for (let s = 0; s < q && cursor < M; s++) {
+        const pt = optimizationResult.orderedPoints[cursor];
+        map[pt.id] = {
+          dayIndex: d + 1,
+          dayDate: uniqueDays[d],
+          isFirstInDay: s === 0,
+        };
+        cursor++;
+      }
+    }
+    return map;
+  }, [optimizationResult, uniqueDays, activeDayScope, events]);
+
+  // Asynchroniczne dociąganie precyzyjnych danych z Google Places i siatki ulic OSRM
   useEffect(() => {
     if (!visible || candidateEvents.length < 2) return;
     if (process.env.NODE_ENV === 'test') return;
@@ -122,7 +218,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
 
     const loadLiveGoogleData = async () => {
       try {
-        // 1. Dociągamy prawdziwe koordynaty z Google Places dla wszystkich punktów bez precyzyjnych danych
         const fetchedCoords: Record<string, { lat: number; lon: number }> = {};
         for (const evt of candidateEvents) {
           if (!evt.lat || !evt.lon) {
@@ -136,7 +231,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
           setLiveCoordsMap((prev) => ({ ...prev, ...fetchedCoords }));
         }
 
-        // 2. Pobieramy rzeczywiste dystanse i czasy uliczne między kolejnymi punktami
         if (optimizationResult && optimizationResult.orderedPoints.length >= 2) {
           const newDistances: Record<string, number> = {};
           const newInfos: Record<string, StreetRouteInfo> = {};
@@ -169,7 +263,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     };
   }, [visible, candidateEvents, destinationCity, optimizationResult]);
 
-  // Łączny czas przemieszczania się w ciągu dnia (uwzględnia wybory użytkownika)
+  // Łączny czas przemieszczania się w ciągu dnia
   const totalTransitMinutes = useMemo(() => {
     if (!optimizationResult || optimizationResult.orderedPoints.length < 2) return 0;
     let total = 0;
@@ -180,77 +274,32 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       const legDist = streetDistances[legKey];
       const routeInfo = liveRouteInfos[legKey];
       const est = routeInfo || calculateTransitEstimates(p1, p2, legDist);
-      const mode = selectedModes[i] || est.recommendedMode;
+      const mode = est.recommendedMode;
       if (mode === 'walking') {
         total += est.walkMinutes;
-      } else if (mode === 'driving') {
-        total += est.driveMinutes;
       } else {
         total += est.transitMinutes;
       }
     }
     return total;
-  }, [optimizationResult, selectedModes, streetDistances, liveRouteInfos]);
-
-  // Obsługa kliknięcia wybranego trybu transportu
-  const handleSelectMode = (
-    legIndex: number,
-    mode: 'walking' | 'transit' | 'driving',
-    pt: GeoPoint,
-    nextPt: GeoPoint
-  ) => {
-    setSelectedModes((prev) => ({ ...prev, [legIndex]: mode }));
-    const url = buildGoogleMapsDirectionsUrl(pt, nextPt, mode, destinationCity);
-    Linking.openURL(url).catch((err) => console.warn('Nie można otworzyć Google Maps:', err));
-  };
+  }, [optimizationResult, streetDistances, liveRouteInfos]);
 
   const handleConfirmApply = () => {
-    if (!optimizationResult) {
+    if (!optimizationResult && candidateEvents.length < 2) {
       onClose();
       return;
     }
 
-    // Mapujemy uszeregowane punkty z powrotem na obiekty TimelineEvent wraz ze zaktualizowanymi koordynatami
-    const reorderedCandidates: TimelineEventLike[] = optimizationResult.orderedPoints.map((gp) => {
-      const original = candidateEvents.find((e) => e.id === gp.id);
-      return {
-        ...(original || {}),
-        id: gp.id,
-        type: 'ATTRACTION',
-        title: gp.title,
-        subtitle: gp.subtitle,
-        dateStr: original?.dateStr || candidateEvents[0]?.dateStr || '10-10-2026',
-        parsedDate: original?.parsedDate || candidateEvents[0]?.parsedDate || new Date(),
-        lat: gp.lat,
-        lon: gp.lon,
-      };
-    });
-
-    // Czasy przejazdów dla każdego odcinka oparte na wyborach użytkownika
-    const legTransitMinutes = optimizationResult.orderedPoints.slice(0, -1).map((pt, idx) => {
-      const nextPt = optimizationResult.orderedPoints[idx + 1];
-      const legKey = `${pt.id}_${nextPt.id}`;
-      const legDist = streetDistances[legKey];
-      const routeInfo = liveRouteInfos[legKey];
-      const est = routeInfo || calculateTransitEstimates(pt, nextPt, legDist);
-      const mode = selectedModes[idx] || est.recommendedMode;
-      if (mode === 'walking') return est.walkMinutes;
-      if (mode === 'driving') return est.driveMinutes;
-      return est.transitMinutes;
-    });
-
-    // Przeliczamy nowe godziny zwiedzania uwzględniając realne czasy transportu
-    const withRecalculatedTimes = recalculateItineraryTimes(reorderedCandidates, 10, 0, legTransitMinutes);
-
-    // Łączymy z punktami logistycznymi (DEPARTURE, LODGING, RETURN)
-    let candidateIndex = 0;
-    const finalTimeline = events.map((event) => {
-      if (event.type === 'ATTRACTION') {
-        const replacement = withRecalculatedTimes[candidateIndex];
-        candidateIndex++;
-        return replacement || event;
-      }
-      return event;
+    const finalTimeline = optimizeMultiDayTimeline({
+      events,
+      targetDay: activeDayScope,
+      poolAttractions,
+      destinationCity,
+      lodgingCoords,
+      streetDistances,
+      liveRouteInfos,
+      tripStartDate,
+      tripEndDate,
     });
 
     onApply(finalTimeline);
@@ -284,6 +333,55 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </TouchableOpacity>
           </View>
 
+          {/* PRZEŁĄCZNIK ZAKRESU (CAŁY WYJAZD / POSZCZEGÓLNE DNI) */}
+          {uniqueDays.length > 1 && (
+            <View style={styles.scopeSelectorContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scopeTabsScroll}>
+                <TouchableOpacity
+                  style={[styles.scopeTabBtn, activeDayScope === 'ALL' && styles.scopeTabBtnActive]}
+                  onPress={() => setActiveDayScope('ALL')}
+                  activeOpacity={0.7}
+                  testID="scope-tab-all"
+                >
+                  <Ionicons
+                    name="layers-outline"
+                    size={13}
+                    color={activeDayScope === 'ALL' ? '#0F172A' : '#94A3B8'}
+                    style={{ marginRight: 5 }}
+                  />
+                  <Text style={[styles.scopeTabText, activeDayScope === 'ALL' && styles.scopeTabTextActive]}>
+                    {language === 'en' ? 'Entire trip' : 'Cały wyjazd'}
+                  </Text>
+                </TouchableOpacity>
+
+                {uniqueDays.map((dStr, idx) => {
+                  const isSelected = activeDayScope === dStr;
+                  const countOnDay = events.filter((e) => e.type === 'ATTRACTION' && e.dateStr === dStr).length;
+                  const shortDate = dStr.slice(0, 5);
+                  return (
+                    <TouchableOpacity
+                      key={dStr}
+                      style={[styles.scopeTabBtn, isSelected && styles.scopeTabBtnActive]}
+                      onPress={() => setActiveDayScope(dStr)}
+                      activeOpacity={0.7}
+                      testID={`scope-tab-day-${idx}`}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={13}
+                        color={isSelected ? '#0F172A' : '#94A3B8'}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.scopeTabText, isSelected && styles.scopeTabTextActive]}>
+                        {`${language === 'en' ? 'Day' : 'Dzień'} ${idx + 1} • ${shortDate} (${countOnDay})`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {/* BANER WCZYTYWANIA DANYCH GOOGLE MAPS NA ŻYWO */}
           {isLiveLoading && (
             <View style={styles.liveLoadingBanner}>
@@ -296,6 +394,17 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             <View style={styles.notEnoughBox}>
               <Ionicons name="information-circle-outline" size={32} color="#F59E0B" style={{ marginBottom: 12 }} />
               <Text style={styles.notEnoughText}>{t.notEnoughAttractions}</Text>
+              {activeDayScope !== 'ALL' && uniqueDays.length > 1 && (
+                <TouchableOpacity
+                  style={[styles.cancelBtnOnly, { marginBottom: 12, backgroundColor: '#F59E0B' }]}
+                  onPress={() => setActiveDayScope('ALL')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.cancelBtnText, { color: '#0F172A', fontWeight: '800' }]}>
+                    {language === 'en' ? 'Switch to entire trip' : 'Przełącz na cały wyjazd'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.cancelBtnOnly} onPress={onClose} activeOpacity={0.8}>
                 <Text style={styles.cancelBtnText}>{commonT.button_close}</Text>
               </TouchableOpacity>
@@ -341,10 +450,19 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     const customStreetDist = legKey ? streetDistances[legKey] : undefined;
                     const routeInfo = legKey ? liveRouteInfos[legKey] : undefined;
                     const transit = nextPt ? (routeInfo || calculateTransitEstimates(pt, nextPt, customStreetDist)) : null;
-                    const activeMode = transit ? (selectedModes[idx] || transit.recommendedMode) : 'transit';
+                    const dayInfo = dayAssignmentMap ? dayAssignmentMap[pt.id] : null;
 
                     return (
-                      <View key={pt.id} style={styles.previewStepRow}>
+                      <React.Fragment key={pt.id}>
+                        {dayInfo && dayInfo.isFirstInDay && (
+                          <View style={styles.daySectionHeader}>
+                            <Ionicons name="calendar-outline" size={13} color="#F59E0B" style={{ marginRight: 6 }} />
+                            <Text style={styles.daySectionHeaderText}>
+                              {`${language === 'en' ? 'Day' : 'Dzień'} ${dayInfo.dayIndex} • ${dayInfo.dayDate}`}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.previewStepRow}>
                         <View style={styles.previewStepLeft}>
                           <View style={styles.previewStepNumberBadge}>
                             <Text style={styles.previewStepNumberText}>{idx + 1}</Text>
@@ -353,12 +471,26 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                         </View>
                         <View style={styles.previewStepRight}>
                           <View style={styles.previewPointCard}>
-                            <Text style={styles.previewPointTitle}>{pt.title}</Text>
-                            {pt.subtitle ? (
-                              <Text style={styles.previewPointSubtitle} numberOfLines={1}>
-                                {pt.subtitle}
-                              </Text>
-                            ) : null}
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={styles.previewPointTitle}>{pt.title}</Text>
+                              {pt.subtitle ? (
+                                <Text style={styles.previewPointSubtitle} numberOfLines={1}>
+                                  {pt.subtitle}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <TouchableOpacity
+                              style={styles.pointNavigateBtn}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                const url = buildGoogleMapsNavigationToDestinationUrl(pt, destinationCity);
+                                Linking.openURL(url).catch((err) => console.warn('Cannot open Google Maps:', err));
+                              }}
+                              testID={`preview-point-maps-btn-${idx}`}
+                            >
+                              <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
+                              <Text style={styles.pointNavigateBtnText}>Nawiguj</Text>
+                            </TouchableOpacity>
                           </View>
 
                           {nextPt && transit && (
@@ -371,116 +503,23 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                               {/* REKOMENDACJA ORIENTACYJNA: PIESZO CZY KOMUNIKACJA */}
                               <View style={styles.legRecommendationBanner}>
                                 <Ionicons
-                                  name={transit.recommendedMode === 'walking' ? 'walk' : 'bus'}
+                                  name={transit.recommendedMode === 'walking' ? 'walk-outline' : 'bus-outline'}
                                   size={14}
                                   color={transit.recommendedMode === 'walking' ? '#F59E0B' : '#38BDF8'}
                                   style={{ marginRight: 6 }}
                                 />
                                 <Text style={styles.legRecommendationText}>
-                                  {transit.recommendedMode === 'walking'
-                                    ? t.recommendedWalkNotice
-                                    : t.recommendedTransitNotice}
+                                  {`Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
                                 </Text>
                               </View>
 
-                              {/* 3 INTERAKTYWNE TRYBY TRANSPORTU */}
-                              <View style={styles.transitModesRow}>
-                                {/* PIESZO (Walking) */}
-                                <TouchableOpacity
-                                  style={[
-                                    styles.transitModeItem,
-                                    activeMode === 'walking' && styles.transitModeItemActiveWalk,
-                                  ]}
-                                  activeOpacity={0.7}
-                                  onPress={() => handleSelectMode(idx, 'walking', pt, nextPt)}
-                                  testID={`mode-walk-item-${idx}`}
-                                >
-                                  <View style={styles.transitModeIconBoxWalk}>
-                                    <Ionicons name="walk-outline" size={15} color="#F59E0B" />
-                                  </View>
-                                  <View style={{ flex: 1 }}>
-                                    <View style={styles.modeTitleRow}>
-                                      <Text style={styles.transitModeTitle}>{t.modeWalk}</Text>
-                                      {transit.recommendedMode === 'walking' && (
-                                        <View style={styles.touristBadge}>
-                                          <Text style={styles.touristBadgeText}>{t.modeWalkBadge}</Text>
-                                        </View>
-                                      )}
-                                    </View>
-                                    <Text style={styles.transitModeText}>{t.modeWalkDesc}</Text>
-                                  </View>
-                                  {activeMode === 'walking' ? (
-                                    <Ionicons name="checkmark-circle" size={18} color="#F59E0B" />
-                                  ) : (
-                                    <Ionicons name="open-outline" size={14} color="#64748B" />
-                                  )}
-                                </TouchableOpacity>
-
-                                {/* KOMUNIKACJA MIEJSKA (Public Transit) */}
-                                <TouchableOpacity
-                                  style={[
-                                    styles.transitModeItem,
-                                    activeMode === 'transit' && styles.transitModeItemActiveTransit,
-                                  ]}
-                                  activeOpacity={0.7}
-                                  onPress={() => handleSelectMode(idx, 'transit', pt, nextPt)}
-                                  testID={`mode-transit-item-${idx}`}
-                                >
-                                  <View style={styles.transitModeIconBoxTransit}>
-                                    <Ionicons name="bus-outline" size={15} color="#38BDF8" />
-                                  </View>
-                                  <View style={{ flex: 1 }}>
-                                    <View style={styles.modeTitleRow}>
-                                      <Text style={styles.transitModeTitle}>{t.modeTransit}</Text>
-                                      {transit.recommendedMode === 'transit' && (
-                                        <View style={styles.touristBadge}>
-                                          <Text style={styles.touristBadgeText}>{t.modeTransitBadge}</Text>
-                                        </View>
-                                      )}
-                                    </View>
-                                    <Text style={styles.transitModeText}>{t.modeTransitDesc}</Text>
-                                  </View>
-                                  {activeMode === 'transit' ? (
-                                    <Ionicons name="checkmark-circle" size={18} color="#38BDF8" />
-                                  ) : (
-                                    <Ionicons name="open-outline" size={14} color="#64748B" />
-                                  )}
-                                </TouchableOpacity>
-
-                                {/* AUTO (Driving) */}
-                                <TouchableOpacity
-                                  style={[
-                                    styles.transitModeItem,
-                                    activeMode === 'driving' && styles.transitModeItemActiveDrive,
-                                  ]}
-                                  activeOpacity={0.7}
-                                  onPress={() => handleSelectMode(idx, 'driving', pt, nextPt)}
-                                  testID={`mode-drive-item-${idx}`}
-                                >
-                                  <View style={styles.transitModeIconBoxDrive}>
-                                    <Ionicons name="car-outline" size={15} color="#10B981" />
-                                  </View>
-                                  <View style={{ flex: 1 }}>
-                                    <View style={styles.modeTitleRow}>
-                                      <Text style={styles.transitModeTitle}>{t.modeDrive}</Text>
-                                    </View>
-                                    <Text style={styles.transitModeText}>{t.modeDriveDesc}</Text>
-                                  </View>
-                                  {activeMode === 'driving' ? (
-                                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                                  ) : (
-                                    <Ionicons name="open-outline" size={14} color="#64748B" />
-                                  )}
-                                </TouchableOpacity>
-                              </View>
-
-                              {/* PRZYCISK GŁÓWNY GOOGLE MAPS DLA WYBRANEGO TRYBU */}
+                              {/* PRZYCISK GŁÓWNY GOOGLE MAPS Z AKTUALNEJ POZYCJI DO NASTĘPNEGO PUNKTU */}
                               <TouchableOpacity
                                 style={styles.googleMapsBtn}
                                 activeOpacity={0.8}
                                 onPress={() => {
-                                  const targetMode = activeMode || transit.recommendedMode;
-                                  const url = buildGoogleMapsDirectionsUrl(pt, nextPt, targetMode, destinationCity);
+                                  const targetMode = transit.recommendedMode === 'walking' ? 'walking' : 'transit';
+                                  const url = buildGoogleMapsNavigationToDestinationUrl(nextPt, destinationCity, targetMode);
                                   Linking.openURL(url).catch((err) => {
                                     console.warn('Cannot open Google Maps:', err);
                                   });
@@ -489,14 +528,16 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                               >
                                 <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 6 }} />
                                 <Text style={styles.googleMapsBtnText}>{t.checkInGoogleMaps}</Text>
+                                <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 4 }} />
                               </TouchableOpacity>
                             </View>
                           )}
                         </View>
                       </View>
-                    );
-                  })}
-                </View>
+                    </React.Fragment>
+                  );
+                })}
+              </View>
               )}
 
               {/* PRZYCISKI AKCJI */}
@@ -752,6 +793,9 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   previewPointCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#111827',
     padding: 10,
     borderRadius: 10,
@@ -767,6 +811,21 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 11,
     marginTop: 2,
+  },
+  pointNavigateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  pointNavigateBtnText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '600',
   },
   transitLegCard: {
     marginTop: 8,
@@ -788,106 +847,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-  },
-  transitModesRow: {
-    flexDirection: 'column',
-    gap: 6,
-    marginBottom: 10,
-  },
-  transitModeItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#111827',
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  transitModeItemActiveWalk: {
-    borderColor: '#F59E0B',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-  },
-  transitModeItemActiveTransit: {
-    borderColor: '#38BDF8',
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-  },
-  transitModeItemActiveDrive: {
-    borderColor: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-  },
-  modeTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  touristBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  touristBadgeText: {
-    color: '#10B981',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  previewBadge: {
-    backgroundColor: 'rgba(148, 163, 184, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.3)',
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  previewBadgeText: {
-    color: '#94A3B8',
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  transitModeIconBoxWalk: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  transitModeIconBoxTransit: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  transitModeIconBoxDrive: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  transitModeTitle: {
-    color: '#94A3B8',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  transitModeText: {
-    color: '#F8FAFC',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 1,
   },
   googleMapsBtn: {
     flexDirection: 'row',
@@ -939,5 +898,54 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 13,
     fontWeight: '700',
+  },
+  scopeSelectorContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  scopeTabsScroll: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scopeTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  scopeTabBtnActive: {
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
+  },
+  scopeTabText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  scopeTabTextActive: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  daySectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+    marginTop: 6,
+  },
+  daySectionHeaderText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

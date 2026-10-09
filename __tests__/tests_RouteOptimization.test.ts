@@ -12,6 +12,9 @@ import {
   calculateTransitEstimates,
   buildGoogleMapsDirectionsUrl,
   resolvePointCoordinates,
+  findIntelligentInsertionSlot,
+  insertTimelineEventIntelligently,
+  optimizeMultiDayTimeline,
   type GeoPoint,
 } from '../src/lib/routeOptimization';
 
@@ -223,6 +226,466 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(mapUrl).toContain('origin=Sagrada%20Fam%C3%ADlia%2C%20Barcelona');
       expect(mapUrl).toContain('destination=La%20Pedrera%20-%20Casa%20Mil%C3%A0%2C%20Barcelona');
       expect(mapUrl).toContain('travelmode=walking');
+    });
+  });
+
+  describe('5. Inteligentne wstawianie punktu do osi czasu', () => {
+    test('Nigdy nie powinien dodawać punktu do dnia z przeszłości, gdy dostępne są dni przyszłe/obecne', () => {
+      const pastDate = '01-01-2020';
+      const futureDate1 = '10-10-2029';
+      const futureDate2 = '11-10-2029';
+
+      const mockEvents = [
+        {
+          id: 'evt_1',
+          type: 'ATTRACTION',
+          title: 'Koloseum',
+          dateStr: pastDate,
+          timeStr: '10:00',
+          lat: 41.8902,
+          lon: 12.4922,
+        },
+        {
+          id: 'evt_2',
+          type: 'ATTRACTION',
+          title: 'Panteon',
+          dateStr: futureDate1,
+          timeStr: '10:00',
+          lat: 41.8986,
+          lon: 12.4769,
+        },
+        {
+          id: 'evt_3',
+          type: 'ATTRACTION',
+          title: 'Schody Hiszpańskie',
+          dateStr: futureDate2,
+          timeStr: '10:00',
+          lat: 41.9060,
+          lon: 12.4828,
+        },
+      ];
+
+      // Nowy punkt geograficznie leży tuż obok Koloseum (które było w przeszłości)
+      const newPointNearColosseum = {
+        id: 'new_attr',
+        title: 'Forum Romanum',
+        lat: 41.8925,
+        lon: 12.4853,
+      };
+
+      // Wywołujemy z defaultDateStr wskazującym na przeszły dzień (np. start_date wyjazdu)
+      const result = findIntelligentInsertionSlot(
+        mockEvents,
+        newPointNearColosseum,
+        [],
+        'Rzym',
+        undefined,
+        undefined,
+        pastDate
+      );
+
+      // Punkt NIE MOŻE zostać dodany do dnia z przeszłości!
+      expect(result.dateStr).not.toBe(pastDate);
+      expect(result.dateStr).toBe(futureDate1);
+    });
+
+    test('Powinien wstawić punkt w miejsce minimalizujące objazd (po drodze między punktami)', () => {
+      const testDate = '15-05-2029';
+      // Trasa w linii prostej na osi: Punkt A (0,0), Punkt C (0, 0.04)
+      // Dodawany punkt B jest dokładnie w połowie (0, 0.02)
+      const eventsOnDay = [
+        {
+          id: 'evt_A',
+          type: 'ATTRACTION',
+          title: 'Punkt A',
+          dateStr: testDate,
+          timeStr: '10:00',
+          lat: 41.8900,
+          lon: 12.4800,
+        },
+        {
+          id: 'evt_C',
+          type: 'ATTRACTION',
+          title: 'Punkt C',
+          dateStr: testDate,
+          timeStr: '14:00',
+          lat: 41.9100,
+          lon: 12.4800,
+        },
+      ];
+
+      const intermediatePoint = {
+        id: 'evt_B',
+        title: 'Punkt B (po drodze)',
+        lat: 41.9000,
+        lon: 12.4800,
+      };
+
+      const result = findIntelligentInsertionSlot(
+        eventsOnDay,
+        intermediatePoint,
+        [],
+        'Rzym',
+        undefined,
+        undefined,
+        testDate
+      );
+
+      // Powinien wstawić między A i C (indeks 1)
+      expect(result.insertIndex).toBe(1);
+      expect(result.dateStr).toBe(testDate);
+      expect(result.timeStr).toBe('12:00'); // Połowa między 10:00 a 14:00
+    });
+
+    test('Gdy na danym dniu został już tylko nocleg lub zwiedzanie się zakończyło, powinien dodać atrakcję na kolejny dzień', () => {
+      const now = new Date();
+      const todayStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`;
+      const nextDay = new Date(now.getTime() + 86400000);
+      const tomorrowStr = `${String(nextDay.getDate()).padStart(2, '0')}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${nextDay.getFullYear()}`;
+
+      const eventsWithOnlyLodgingLeft = [
+        {
+          id: 'evt_past_1',
+          type: 'ATTRACTION',
+          title: 'Muzeum',
+          dateStr: todayStr,
+          timeStr: '09:00',
+          isPast: true,
+          lat: 41.8900,
+          lon: 12.4800,
+        },
+        {
+          id: 'evt_lodging',
+          type: 'LODGING',
+          title: 'Hotel Roma - Nocleg',
+          dateStr: todayStr,
+          timeStr: '20:00',
+          lat: 41.8920,
+          lon: 12.4820,
+        },
+        {
+          id: 'evt_tomorrow_1',
+          type: 'ATTRACTION',
+          title: 'Watykan',
+          dateStr: tomorrowStr,
+          timeStr: '10:00',
+          lat: 41.9029,
+          lon: 12.4534,
+        },
+      ];
+
+      const newAttraction = {
+        id: 'new_attr',
+        title: 'Koloseum',
+        lat: 41.8902,
+        lon: 12.4922,
+      };
+
+      const result = findIntelligentInsertionSlot(
+        eventsWithOnlyLodgingLeft,
+        newAttraction,
+        [],
+        'Rzym',
+        undefined,
+        undefined,
+        todayStr
+      );
+
+      // Zamiast wstawiać po nocy na siłę po noclegu na dzisiaj, powinno przenieść na jutro!
+      expect(result.dateStr).toBe(tomorrowStr);
+    });
+
+    test('Nigdy nie powinien wstawiać atrakcji po noclegu na tym samym dniu', () => {
+      const futureDate = '20-11-2029';
+      const eventsWithLodging = [
+        {
+          id: 'evt_sightseeing_1',
+          type: 'ATTRACTION',
+          title: 'Zwiedzanie Rynku',
+          dateStr: futureDate,
+          timeStr: '10:00',
+          lat: 41.8900,
+          lon: 12.4800,
+        },
+        {
+          id: 'evt_hotel',
+          type: 'LODGING',
+          title: 'Zameldowanie w hotelu',
+          dateStr: futureDate,
+          timeStr: '20:00',
+          lat: 41.8920,
+          lon: 12.4820,
+        },
+      ];
+
+      const newSpot = {
+        id: 'new_spot',
+        title: 'Restauracja i kolacja',
+        lat: 41.8910,
+        lon: 12.4810,
+      };
+
+      const result = findIntelligentInsertionSlot(
+        eventsWithLodging,
+        newSpot,
+        [],
+        'Rzym',
+        undefined,
+        undefined,
+        futureDate
+      );
+
+      // Slot MUSI być przed noclegiem (indeks <= 1), a godzina przed noclegiem (przed 20:00)
+      expect(result.insertIndex).toBeLessThanOrEqual(1);
+      const hours = parseInt(result.timeStr.split(':')[0], 10);
+      expect(hours).toBeLessThan(20);
+    });
+
+    test('insertTimelineEventIntelligently nigdy nie umieszcza atrakcji po noclegu, nawet gdy modal miał ustawioną późną godzinę (np. 22:00)', () => {
+      const today = new Date();
+      const day1Str = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${today.getFullYear()}`;
+      const day2Date = new Date(today.getTime() + 86400000);
+      const day2Str = `${String(day2Date.getDate()).padStart(2, '0')}-${String(day2Date.getMonth() + 1).padStart(2, '0')}-${day2Date.getFullYear()}`;
+
+      const events = [
+        {
+          id: 'evt_dep',
+          type: 'DEPARTURE',
+          title: 'Wylot do Rzymu',
+          dateStr: day1Str,
+          timeStr: '08:00',
+          parsedDate: new Date(`${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}T08:00:00`),
+        },
+        {
+          id: 'evt_hotel_d1',
+          type: 'LODGING',
+          title: 'Hotel Colosseum',
+          dateStr: day1Str,
+          timeStr: '20:00',
+          parsedDate: new Date(`${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}T20:00:00`),
+        },
+        {
+          id: 'evt_ret_d2',
+          type: 'RETURN',
+          title: 'Powrót do Warszawy',
+          dateStr: day2Str,
+          timeStr: '19:00',
+          parsedDate: new Date(`${day2Date.getFullYear()}-${day2Date.getMonth() + 1}-${day2Date.getDate()}T19:00:00`),
+        },
+      ];
+
+      const newPoolCandidate = {
+        id: 'new_attr_pool',
+        title: 'Fontanna di Trevi',
+        dateStr: day1Str,
+        timeStr: '22:00', // Symulujemy formularz, który miał 22:00
+        isFromPool: true,
+      };
+
+      const result = insertTimelineEventIntelligently(
+        events,
+        newPoolCandidate,
+        [],
+        'Rzym',
+        'Hotel Colosseum',
+        'flight',
+        day1Str
+      );
+
+      const added = result.find((e) => e.title === 'Fontanna di Trevi');
+      expect(added).toBeTruthy();
+
+      // Jeśli dodano na dzień 1, MUSI być przed hotelem:
+      const hotelIndex = result.findIndex((e) => e.id === 'evt_hotel_d1');
+      const addedIndex = result.findIndex((e) => e.title === 'Fontanna di Trevi');
+
+      if (added!.dateStr === day1Str) {
+        expect(addedIndex).toBeLessThan(hotelIndex);
+      } else {
+        // Jeśli dzień 1 był wyczerpany, powinno przenieść na dzień 2:
+        expect(added!.dateStr).toBe(day2Str);
+      }
+    });
+
+    test('optimizeMultiDayTimeline nigdy nie miesza dni i przypisuje atrakcjom właściwe daty poszczególnych dni', () => {
+      const day1 = '10-09-2026';
+      const day2 = '11-09-2026';
+      const day3 = '12-09-2026';
+
+      // Symulujemy wyjazd z pomieszanymi atrakcjami
+      const multiDayEvents = [
+        {
+          id: 'evt_dep',
+          type: 'DEPARTURE',
+          title: 'Wylot do Rzymu',
+          dateStr: day1,
+          timeStr: '08:00',
+          parsedDate: new Date('2026-09-10T08:00:00Z'),
+        },
+        {
+          id: 'evt_attr_1',
+          type: 'ATTRACTION',
+          title: 'Koloseum',
+          dateStr: day1,
+          timeStr: '10:00',
+          parsedDate: new Date('2026-09-10T10:00:00Z'),
+          lat: 41.8902,
+          lon: 12.4922,
+        },
+        {
+          id: 'evt_hotel_1',
+          type: 'LODGING',
+          title: 'Hotel Rzym',
+          dateStr: day1,
+          timeStr: '20:00',
+          parsedDate: new Date('2026-09-10T20:00:00Z'),
+        },
+        {
+          id: 'evt_attr_2',
+          type: 'ATTRACTION',
+          title: 'Watykan',
+          dateStr: day2,
+          timeStr: '10:00',
+          parsedDate: new Date('2026-09-11T10:00:00Z'),
+          lat: 41.9022,
+          lon: 12.4539,
+        },
+        {
+          id: 'evt_attr_3',
+          type: 'ATTRACTION',
+          title: 'Bazylika św. Piotra',
+          dateStr: day2,
+          timeStr: '12:00',
+          parsedDate: new Date('2026-09-11T12:00:00Z'),
+          lat: 41.9022,
+          lon: 12.4539,
+        },
+        {
+          id: 'evt_attr_4',
+          type: 'ATTRACTION',
+          title: 'Panteon',
+          dateStr: day3,
+          timeStr: '10:00',
+          parsedDate: new Date('2026-09-12T10:00:00Z'),
+          lat: 41.8986,
+          lon: 12.4769,
+        },
+        {
+          id: 'evt_attr_5',
+          type: 'ATTRACTION',
+          title: 'Fontanna di Trevi',
+          dateStr: day3,
+          timeStr: '12:00',
+          parsedDate: new Date('2026-09-12T12:00:00Z'),
+          lat: 41.9009,
+          lon: 12.4833,
+        },
+        {
+          id: 'evt_ret',
+          type: 'RETURN',
+          title: 'Powrót do Warszawy',
+          dateStr: day3,
+          timeStr: '18:00',
+          parsedDate: new Date('2026-09-12T18:00:00Z'),
+        },
+      ];
+
+      const result = optimizeMultiDayTimeline({
+        events: multiDayEvents,
+        targetDay: 'ALL',
+        destinationCity: 'Rome',
+      });
+
+      // 1. Sprawdzamy czy żaden punkt nie zniknął
+      expect(result.length).toBe(multiDayEvents.length);
+
+      // 2. Sprawdzamy czy punkty są ściśle uporządkowane chronologicznie
+      for (let i = 0; i < result.length - 1; i++) {
+        expect(result[i].parsedDate.getTime()).toBeLessThanOrEqual(result[i + 1].parsedDate.getTime());
+      }
+
+      // 3. Sprawdzamy czy atrakcje na Dzień 1 mają dateStr Dnia 1, na Dzień 2 Dnia 2, itd.
+      const day1Attractions = result.filter((e) => e.type === 'ATTRACTION' && e.dateStr === day1);
+      const day2Attractions = result.filter((e) => e.type === 'ATTRACTION' && e.dateStr === day2);
+      const day3Attractions = result.filter((e) => e.type === 'ATTRACTION' && e.dateStr === day3);
+
+      expect(day1Attractions.length).toBeGreaterThan(0);
+      expect(day2Attractions.length).toBeGreaterThan(0);
+      expect(day3Attractions.length).toBeGreaterThan(0);
+
+      // Żadna atrakcja z Dnia 2 nie może mieć dateStr Dnia 1 ani pojawić się przed Dniem 1:
+      const day1Indices = result.map((e, idx) => (e.dateStr === day1 ? idx : -1)).filter((idx) => idx !== -1);
+      const day2Indices = result.map((e, idx) => (e.dateStr === day2 ? idx : -1)).filter((idx) => idx !== -1);
+      const day3Indices = result.map((e, idx) => (e.dateStr === day3 ? idx : -1)).filter((idx) => idx !== -1);
+
+      expect(Math.max(...day1Indices)).toBeLessThan(Math.min(...day2Indices));
+      expect(Math.max(...day2Indices)).toBeLessThan(Math.min(...day3Indices));
+
+      // 4. Lodging na Dniu 1 musi być po atrakcjach z Dnia 1
+      const hotelIndex = result.findIndex((e) => e.id === 'evt_hotel_1');
+      for (const d1Attr of day1Attractions) {
+        const d1Idx = result.findIndex((e) => e.id === d1Attr.id);
+        expect(d1Idx).toBeLessThan(hotelIndex);
+      }
+
+      // 5. Return na Dniu 3 musi być na końcu
+      const returnIndex = result.findIndex((e) => e.id === 'evt_ret');
+      expect(returnIndex).toBe(result.length - 1);
+    });
+
+    test('optimizeMultiDayTimeline w trybie pojedynczego dnia modyfikuje wyłącznie wybrany dzień', () => {
+      const day1 = '10-09-2026';
+      const day2 = '11-09-2026';
+
+      const events = [
+        {
+          id: 'evt_d1',
+          type: 'ATTRACTION',
+          title: 'Koloseum',
+          dateStr: day1,
+          timeStr: '10:00',
+          parsedDate: new Date('2026-09-10T10:00:00Z'),
+          lat: 41.8902,
+          lon: 12.4922,
+        },
+        {
+          id: 'evt_d2_1',
+          type: 'ATTRACTION',
+          title: 'Watykan',
+          dateStr: day2,
+          timeStr: '10:00',
+          parsedDate: new Date('2026-09-11T10:00:00Z'),
+          lat: 41.9022,
+          lon: 12.4539,
+        },
+        {
+          id: 'evt_d2_2',
+          type: 'ATTRACTION',
+          title: 'Panteon',
+          dateStr: day2,
+          timeStr: '14:00',
+          parsedDate: new Date('2026-09-11T14:00:00Z'),
+          lat: 41.8986,
+          lon: 12.4769,
+        },
+      ];
+
+      const result = optimizeMultiDayTimeline({
+        events,
+        targetDay: day2,
+        destinationCity: 'Rome',
+      });
+
+      // Dzień 1 nienaruszony
+      const d1Item = result.find((e) => e.id === 'evt_d1');
+      expect(d1Item?.dateStr).toBe(day1);
+      expect(d1Item?.timeStr).toBe('10:00');
+
+      // Dzień 2 zoptymalizowany
+      const d2Items = result.filter((e) => e.dateStr === day2);
+      expect(d2Items.length).toBe(2);
+      expect(d2Items[0].dateStr).toBe(day2);
+      expect(d2Items[1].dateStr).toBe(day2);
     });
   });
 });

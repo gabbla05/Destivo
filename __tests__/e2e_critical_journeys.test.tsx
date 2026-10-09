@@ -167,6 +167,32 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => `mock-e2e-uuid-${Math.random().toString(36).substring(2, 9)}`,
 }));
 
+const mockE2eFetch = jest.fn().mockImplementation((url: string) => {
+  if (typeof url === 'string' && url.includes('nominatim.openstreetmap.org')) {
+    return Promise.resolve({
+      ok: true,
+      json: async () => [{ place_id: 1, display_name: 'Test City', lat: '41.9', lon: '12.5' }],
+    });
+  }
+  if (typeof url === 'string' && url.includes('api.open-meteo.com')) {
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({
+        daily: {
+          temperature_2m_max: [24],
+          precipitation_probability_max: [10],
+          weathercode: [0],
+        },
+      }),
+    });
+  }
+  return Promise.resolve({
+    ok: true,
+    json: async () => ([]),
+  });
+});
+globalThis.fetch = mockE2eFetch as any;
+
 describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)', () => {
   const mockNavigation = {
     navigate: jest.fn(),
@@ -347,7 +373,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
       expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByText(/1 dzień \(autem\)/i));
+    fireEvent.press(screen.getByText('1 dzień'));
     expect(screen.getByText('Kazimierz Dolny')).toBeTruthy();
     expect(screen.queryByText('Rzym')).toBeNull();
 

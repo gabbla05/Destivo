@@ -167,14 +167,26 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>{t.proposedTripTitle}</Text>
           {destData.isDayTrip ? (
-            <Text style={styles.highlightText}>
-              🗓️ {trip?.startDate || ''} • {language === 'pl' ? 'Wyjazd rano, powrót wieczorem (bez noclegu)' : 'Same-day return (no overnight stay)'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
+              <Ionicons name="calendar-outline" size={14} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.highlightText}>
+                {trip?.startDate || ''} • {language === 'pl' ? 'Wyjazd rano, powrót wieczorem (bez noclegu)' : 'Same-day return (no overnight stay)'}
+              </Text>
+            </View>
           ) : (
-            <Text style={styles.highlightText}>{t.dateRange.replace('🗓️ ', '').replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
+              <Ionicons name="calendar-outline" size={14} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.highlightText}>{t.dateRange.replace('🗓️ ', '').replace('{{start}}', trip?.startDate || '').replace('{{end}}', trip?.endDate || '')}</Text>
+            </View>
           )}
-          <Text style={styles.highlightText}>{t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
-          <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
+            <Ionicons name="partly-sunny-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+            <Text style={styles.highlightText}>{t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
+            <Ionicons name="people-outline" size={14} color="#A7F3D0" style={{ marginRight: 6 }} />
+            <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
+          </View>
         </View>
 
         <Text style={styles.description}>{description}</Text>
@@ -204,7 +216,7 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
                       activeOpacity={0.7}
                       onPress={() => {
                         const query = encodeURIComponent(`${attr}, ${destData.city}`);
-                        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+                        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${query}`;
                         Linking.openURL(mapsUrl).catch((err) => console.warn('Cannot open maps:', err));
                       }}
                       testID={`explore-attraction-tag-${dayPlan.day}-${idx}`}

@@ -28,6 +28,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
+import { generateSmartMultiDayTimeline } from '../../lib/routeOptimization';
 
 import * as Crypto from 'expo-crypto';
 
@@ -361,17 +362,37 @@ export const Step4AttractionsScreen = () => {
 
       const tripId = Crypto.randomUUID();
       
+      const poolResults = results.map((r) => ({
+        id: r.id,
+        name: r.name,
+        imageUrl: r.imageUrl,
+        address: r.address,
+        rating: r.rating,
+        lat: r.lat,
+        lon: r.lon,
+      }));
+
+      const initialTimeline = generateSmartMultiDayTimeline({
+        origin,
+        destination,
+        startDate,
+        endDate,
+        transportType: transport?.selectedOption?.type,
+        outboundDepartureTime: transportDetails?.outboundDepartureTime,
+        outboundDepartureLocation: transportDetails?.outboundDepartureLocation,
+        outboundArrivalTime: transportDetails?.outboundArrivalTime,
+        returnDepartureTime: transportDetails?.returnDepartureTime,
+        returnDepartureLocation: transportDetails?.returnDepartureLocation,
+        lodgingAddress: lodgingAddress || '',
+        selectedAttractions: storeAttractions.selected,
+        poolAttractions: poolResults,
+        isDayTrip: startDate === endDate,
+      });
+
       const extendedAttractions = {
         selected: storeAttractions.selected,
-        pool: results.map((r) => ({
-          id: r.id,
-          name: r.name,
-          imageUrl: r.imageUrl,
-          address: r.address,
-          rating: r.rating,
-          lat: r.lat,
-          lon: r.lon,
-        })),
+        pool: poolResults,
+        customTimeline: initialTimeline,
       };
 
       const attractionsJson = JSON.stringify(extendedAttractions);

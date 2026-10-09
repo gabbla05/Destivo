@@ -11,6 +11,7 @@ import { BottomTabNavigator } from './src/navigation/BottomTabNavigator';
 import { TripCreatorNavigator } from './src/navigation/TripCreatorNavigator';
 import { ExploreDetailsScreen } from './src/screens/ExploreDetailsScreen';
 import { QuickSetupScreen } from './src/screens/QuickSetupScreen';
+import { TimelineScreen } from './src/screens/TimelineScreen';
 import { PowerSyncContext } from '@powersync/react-native';
 import { powerSync } from './src/lib/powersync';
 
@@ -47,6 +48,7 @@ export default function App() {
               <RootStack.Screen name="TripCreator" component={TripCreatorNavigator} />
               <RootStack.Screen name="ExploreDetails" component={ExploreDetailsScreen} />
               <RootStack.Screen name="QuickSetup" component={QuickSetupScreen} />
+              <RootStack.Screen name="Timeline" component={TimelineScreen} />
             </RootStack.Navigator>
           </NavigationContainer>
         </PowerSyncContext.Provider>

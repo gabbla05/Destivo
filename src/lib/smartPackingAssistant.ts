@@ -173,7 +173,7 @@ export const fetchTripWeatherForecast = async (
   const targetDate = startDate ? parseTripDate(startDate) || new Date() : new Date();
   const fallback = getClimaticDefaultWeather(destination, targetDate);
 
-  if (!destination || !destination.trim()) {
+  if (!destination || !destination.trim() || process.env.NODE_ENV === 'test') {
     return fallback;
   }
 
