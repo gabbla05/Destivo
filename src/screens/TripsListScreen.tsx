@@ -24,7 +24,7 @@ import { supabase } from '../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations } from '../i18n/translations';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
+import { getGoogleApiKey } from '../lib/config';
 import { capitalizeCity } from './TripCreator/Step1DestinationScreen';
 import { SmartPackingModal } from '../components/SmartPackingModal';
 
@@ -38,9 +38,7 @@ interface TripRecord {
   transport_type?: string;
 }
 
-import { CURATED_CITY_PHOTOS, getCuratedCityFallback } from '../lib/placesPhotoService';
-
-const DEFAULT_TRIP_PHOTO = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=800';
+import { CURATED_CITY_PHOTOS, getCuratedCityFallback, hasCuratedCityFallback } from '../lib/placesPhotoService';
 
 export { parseTripDate } from '../lib/tripCollision';
 import { parseTripDate } from '../lib/tripCollision';
@@ -95,11 +93,7 @@ export const TripsListScreen = ({ navigation }: any) => {
 
   const cityPhotoCache = useRef<Map<string, string>>(new Map());
 
-  const googleConfigKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
-  const googleApiKey =
-    googleConfigKey !== undefined
-      ? googleConfigKey
-      : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
+  const googleApiKey = getGoogleApiKey();
 
   const fetchTrips = async () => {
     try {
@@ -345,11 +339,13 @@ export const TripsListScreen = ({ navigation }: any) => {
           continue;
         }
 
-        const fallback = getCuratedCityFallback(dest);
-        if (fallback && fallback !== DEFAULT_TRIP_PHOTO) {
-          cityPhotoCache.current.set(key, fallback);
-          newPhotos[key] = fallback;
-          continue;
+        if (hasCuratedCityFallback(dest)) {
+          const fallback = getCuratedCityFallback(dest);
+          if (fallback) {
+            cityPhotoCache.current.set(key, fallback);
+            newPhotos[key] = fallback;
+            continue;
+          }
         }
 
         pendingFetch.push(dest);
@@ -363,12 +359,11 @@ export const TripsListScreen = ({ navigation }: any) => {
         await Promise.all(
           pendingFetch.map(async (dest) => {
             const key = dest.toLowerCase();
+            const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark architecture')}&key=${googleApiKey}`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 3500);
             try {
-              const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark architecture')}&key=${googleApiKey}`;
-              const controller = new AbortController();
-              const timer = setTimeout(() => controller.abort(), 3500);
               const res = await fetch(url, { signal: controller.signal });
-              clearTimeout(timer);
               const data = await res.json();
               if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
                 const filtered = data.results.filter((p: any) => {
@@ -383,8 +378,10 @@ export const TripsListScreen = ({ navigation }: any) => {
                   return;
                 }
               }
-            } catch {}
-            const fallback = getCuratedCityFallback(dest);
+            } catch {} finally {
+              clearTimeout(timer);
+            }
+            const fallback = hasCuratedCityFallback(dest) ? getCuratedCityFallback(dest) : '';
             cityPhotoCache.current.set(key, fallback);
             newPhotos[key] = fallback;
           })
@@ -402,7 +399,7 @@ export const TripsListScreen = ({ navigation }: any) => {
     const key = destination?.trim().toLowerCase() || '';
     if (cityPhotos[key]) return cityPhotos[key];
     if (cityPhotoCache.current.has(key)) return cityPhotoCache.current.get(key)!;
-    return getCuratedCityFallback(destination);
+    return hasCuratedCityFallback(destination) ? getCuratedCityFallback(destination) : '';
   };
 
   const handleTripPress = (tripId: string) => {
@@ -411,12 +408,12 @@ export const TripsListScreen = ({ navigation }: any) => {
 
   const handleDeleteTrip = (tripId: string) => {
     Alert.alert(
-      t.deleteTripTitle || 'Usuwanie podróży',
-      t.deleteTripMessage || 'Czy na pewno chcesz bezpowrotnie usunąć tę podróż i wszystkie jej dane?',
+      t.deleteTripTitle || (language === 'en' ? 'Delete trip' : 'Usuwanie podróży'),
+      t.deleteTripMessage || (language === 'en' ? 'Are you sure you want to permanently delete this trip and all its data?' : 'Czy na pewno chcesz bezpowrotnie usunąć tę podróż i wszystkie jej dane?'),
       [
-        { text: commonT.button_cancel || 'Anuluj', style: 'cancel' },
+        { text: commonT.button_cancel || (language === 'en' ? 'Cancel' : 'Anuluj'), style: 'cancel' },
         {
-          text: t.deleteTrip || 'Usuń podróż',
+          text: t.deleteTrip || (language === 'en' ? 'Delete trip' : 'Usuń podróż'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -433,7 +430,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                 return updated;
               });
             } catch (err) {
-              Alert.alert(commonT.label_error || 'Błąd', t.deleteTripError || 'Nie udało się usunąć podróży.');
+              Alert.alert(commonT.label_error || (language === 'en' ? 'Error' : 'Błąd'), t.deleteTripError || (language === 'en' ? 'Could not delete the trip.' : 'Nie udało się usunąć podróży.'));
             }
           },
         },
@@ -539,7 +536,7 @@ export const TripsListScreen = ({ navigation }: any) => {
         <Ionicons name="search-outline" size={18} color="#94A3B8" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder={t.searchPlaceholder || "Szukaj podróży po nazwie..."}
+          placeholder={t.searchPlaceholder || (language === 'en' ? "Search trips by name..." : "Szukaj podróży po nazwie...")}
           placeholderTextColor="#94A3B8"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -622,7 +619,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                 <View style={styles.noResultsBox}>
                   <Ionicons name="search-outline" size={36} color="#64748B" style={{ marginBottom: 8 }} />
                   <Text style={styles.noResultsText}>
-                    {t.noSearchResults || 'Brak podróży pasujących do wyszukiwania.'}
+                    {t.noSearchResults || (language === 'en' ? 'No trips matching your search.' : 'Brak podróży pasujących do wyszukiwania.')}
                   </Text>
                 </View>
               ) : (
@@ -635,11 +632,17 @@ export const TripsListScreen = ({ navigation }: any) => {
                       activeOpacity={0.88}
                       onPress={() => handleTripPress(trip.id)}
                     >
-                      <Image 
-                        source={{ uri: photoUri }}
-                        style={styles.cardImage}
-                        resizeMode="cover"
-                      />
+                      {photoUri ? (
+                        <Image 
+                          source={{ uri: photoUri }}
+                          style={styles.cardImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+                          <Ionicons name="map-outline" size={36} color="#64748B" />
+                        </View>
+                      )}
                       <View style={styles.cardScrim} />
 
                       <View style={styles.cardContent}>
@@ -740,7 +743,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                 <View style={styles.noResultsBox}>
                   <Ionicons name="search-outline" size={36} color="#64748B" style={{ marginBottom: 8 }} />
                   <Text style={styles.noResultsText}>
-                    {t.noSearchResults || 'Brak podróży pasujących do wyszukiwania.'}
+                    {t.noSearchResults || (language === 'en' ? 'No trips matching your search.' : 'Brak podróży pasujących do wyszukiwania.')}
                   </Text>
                 </View>
               ) : (
@@ -753,11 +756,17 @@ export const TripsListScreen = ({ navigation }: any) => {
                       activeOpacity={0.88}
                       onPress={() => handleTripPress(trip.id)}
                     >
-                      <Image 
-                        source={{ uri: photoUri }}
-                        style={styles.cardImage}
-                        resizeMode="cover"
-                      />
+                      {photoUri ? (
+                        <Image 
+                          source={{ uri: photoUri }}
+                          style={styles.cardImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+                          <Ionicons name="map-outline" size={36} color="#64748B" />
+                        </View>
+                      )}
                       <View style={styles.cardScrim} />
 
                       <View style={styles.cardContent}>
@@ -938,6 +947,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  cardImagePlaceholder: {
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardScrim: { 
     ...StyleSheet.absoluteFillObject, 

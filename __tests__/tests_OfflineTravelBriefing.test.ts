@@ -136,8 +136,27 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       expect(getCurrencyInfo('Praga').code).toBe('CZK');
       expect(getCurrencyInfo('Tokio').code).toBe('JPY');
       expect(getCurrencyInfo('Kraków').code).toBe('PLN');
+      expect(getCurrencyInfo('Oslo').code).toBe('NOK');
+      expect(getCurrencyInfo('Sztokholm').code).toBe('SEK');
+      expect(getCurrencyInfo('Kopenhaga').code).toBe('DKK');
+      expect(getCurrencyInfo('Reykjavik').code).toBe('ISK');
+      expect(getCurrencyInfo('Stambuł').code).toBe('TRY');
+      expect(getCurrencyInfo('Budapeszt').code).toBe('HUF');
+      expect(getCurrencyInfo('Zurych').code).toBe('CHF');
+    });
+
+    test('getCurrencyInfo korzysta z dynamicznych kursów walut przekazanych w parametrze', () => {
+      const customRates = { GBP: 5.34, EUR: 4.28, USD: 3.95 };
+      const gbpInfo = getCurrencyInfo('Londyn', customRates);
+      expect(gbpInfo.code).toBe('GBP');
+      expect(gbpInfo.ratePln).toBe(5.34);
+
+      const eurInfo = getCurrencyInfo('Rzym', customRates);
+      expect(eurInfo.code).toBe('EUR');
+      expect(eurInfo.ratePln).toBe(4.28);
     });
   });
+
 
   describe('2. Przetwarzanie biletów z Sejfu i generowanie kodów QR offline', () => {
     test('prepareVaultTickets wyciąga pliki z Sejfu i generuje dla nich kody QR (base64 data URL)', async () => {
@@ -324,7 +343,18 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       expect(html).toContain('Generated:');
     });
 
+    test('generateBriefingHtml uwzględnia przekazane dynamiczne kursy walut w generowanym dokumencie', async () => {
+      const html = await generateBriefingHtml(sampleTrip, {
+        language: 'pl',
+        exchangeRates: { EUR: 4.45 },
+      });
+
+      expect(html).toContain('EUR');
+      expect(html).toContain('1 EUR ≈ 4.45 PLN');
+    });
+
     test('generateOfflineTravelBriefingPdf wywołuje Print.printToFileAsync i zwraca uri', async () => {
+
       const result = await generateOfflineTravelBriefingPdf(sampleTrip, { language: 'pl' });
 
       expect(Print.printToFileAsync).toHaveBeenCalledWith(

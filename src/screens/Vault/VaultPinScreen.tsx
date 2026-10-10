@@ -134,12 +134,18 @@ export const VaultPinScreen = () => {
       setInput('');
       setFirstPin('');
       setSetupStep('ENTER');
-      Alert.alert(commonT.success, t.pinResetSuccess || 'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.');
+      Alert.alert(
+        commonT.success || (language === 'en' ? 'Success' : 'Sukces'),
+        t.pinResetSuccess || (language === 'en' ? 'Vault PIN has been reset. You can now set a new PIN.' : 'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.')
+      );
       return;
     }
 
     if (!resetPassword.trim()) {
-      Alert.alert('DESTIVO', t.passwordPlaceholder || 'Wpisz hasło do konta');
+      Alert.alert(
+        'DESTIVO',
+        t.passwordPlaceholder || (language === 'en' ? 'Enter account password' : 'Wpisz hasło do konta')
+      );
       return;
     }
 
@@ -151,7 +157,10 @@ export const VaultPinScreen = () => {
       });
 
       if (error) {
-        Alert.alert('DESTIVO', t.wrongPassword || 'Nieprawidłowe hasło do konta. Spróbuj ponownie.');
+        Alert.alert(
+          'DESTIVO',
+          t.wrongPassword || (language === 'en' ? 'Incorrect account password. Try again.' : 'Nieprawidłowe hasło do konta. Spróbuj ponownie.')
+        );
         return;
       }
 
@@ -162,9 +171,15 @@ export const VaultPinScreen = () => {
       setInput('');
       setFirstPin('');
       setSetupStep('ENTER');
-      Alert.alert(commonT.success, t.pinResetSuccess || 'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.');
+      Alert.alert(
+        commonT.success || (language === 'en' ? 'Success' : 'Sukces'),
+        t.pinResetSuccess || (language === 'en' ? 'Vault PIN has been reset. You can now set a new PIN.' : 'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.')
+      );
     } catch (err: any) {
-      Alert.alert('DESTIVO', err?.message || t.wrongPassword || 'Błąd weryfikacji hasła.');
+      Alert.alert(
+        'DESTIVO',
+        err?.message || t.wrongPassword || (language === 'en' ? 'Password verification error.' : 'Błąd weryfikacji hasła.')
+      );
     } finally {
       setResetLoading(false);
     }

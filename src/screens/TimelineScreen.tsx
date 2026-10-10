@@ -28,8 +28,8 @@ import { useAuthStore } from '../store/authStore';
 import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import Constants from 'expo-constants';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
+import { getGoogleApiKey } from '../lib/config';
 import { SmartPackingModal } from '../components/SmartPackingModal';
 import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
@@ -288,13 +288,6 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   }, [selectedDay, uniqueDays, events, language]);
 
   const displayedEvents = useMemo(() => {
-    // W testach jednostkowych dla legacy mocka trip-upcoming (ze statyczną datą z przeszłości)
-    // zachowujemy pełną listę, aby testy CRUD (usuwanie, przestawianie Panteonu) miały dostęp do elementów
-    if (process.env.NODE_ENV === 'test' && tripData?.id === 'trip-upcoming' && !showPastEvents) {
-      if (selectedDay === 'ALL') return events;
-      return events.filter(e => e.dateStr === selectedDay);
-    }
-
     if (selectedDay === 'ALL') {
       const hasUpcomingOrCurrent = events.some(e => !e.isPast || e.isCurrent);
       if (!hasUpcomingOrCurrent || showPastEvents) {
@@ -325,9 +318,6 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   }, [events, selectedDay, showPastEvents]);
 
   const hiddenPastEventsCount = useMemo(() => {
-    if (process.env.NODE_ENV === 'test' && tripData?.id === 'trip-upcoming' && !showPastEvents) {
-      return 0;
-    }
     if (selectedDay === 'ALL') {
       const hasUpcomingOrCurrent = events.some(e => !e.isPast || e.isCurrent);
       if (!hasUpcomingOrCurrent) return 0;
@@ -398,19 +388,13 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
       }
     }
     if (!initialPhoto) {
-      initialPhoto = 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=1200';
+      initialPhoto = '';
     }
     setCityPhotoUrl(initialPhoto);
 
-    // W środowisku testowym unikamy dodatkowych zapytań fetch, by nie naruszać mocków
-    if (process.env.NODE_ENV === 'test') return;
-
     const fetchGoogleCityPhoto = async () => {
       try {
-        const googleApiKey =
-          (Constants.expoConfig?.android?.config?.googleMaps?.apiKey && Constants.expoConfig.android.config.googleMaps.apiKey.length > 5)
-            ? Constants.expoConfig.android.config.googleMaps.apiKey
-            : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
+        const googleApiKey = getGoogleApiKey();
         if (!googleApiKey || googleApiKey.includes('TYMCZASOWY')) return;
 
         const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark')}&key=${googleApiKey}`;
@@ -471,10 +455,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
   const fetchRealAttractionsFromGoogle = async (locationQuery: string, usedTitles: string[]) => {
     try {
-      const googleApiKey =
-        (Constants.expoConfig?.android?.config?.googleMaps?.apiKey && Constants.expoConfig.android.config.googleMaps.apiKey.length > 5)
-          ? Constants.expoConfig.android.config.googleMaps.apiKey
-          : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
+      const googleApiKey = getGoogleApiKey();
       if (!googleApiKey || googleApiKey.includes('TYMCZASOWY')) return;
 
       // 1. Znalezienie współrzędnych miasta/noclegu
@@ -490,17 +471,8 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
       const placesData = await placesRes.json();
       
       if (placesData.status === 'OK' && placesData.results) {
-        const destKey = tripData?.destination?.toLowerCase().trim() || '';
-        let fallbackPhoto = 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800';
-        for (const [k, url] of Object.entries(CURATED_CITY_PHOTOS)) {
-          if (destKey.includes(k)) {
-            fallbackPhoto = url;
-            break;
-          }
-        }
-
         const fetchedPool: PoolAttraction[] = placesData.results.map((r: any) => {
-          let photoUrl = fallbackPhoto;
+          let photoUrl = '';
           if (r.photos && r.photos.length > 0 && r.photos[0].photo_reference) {
             photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${r.photos[0].photo_reference}&key=${googleApiKey}`;
           }
@@ -884,9 +856,13 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   };
 
   useEffect(() => {
+    let tId: any;
     if (!loading && events.length > 0 && !hasUnsavedChanges) {
-      setTimeout(scrollToCurrent, 300);
+      tId = setTimeout(scrollToCurrent, 300);
     }
+    return () => {
+      if (tId) clearTimeout(tId);
+    };
   }, [loading, events, hasUnsavedChanges]);
 
   // Asynchroniczne dociąganie precyzyjnych tras z siatki ulic OSRM / Google dla osi czasu
@@ -1637,7 +1613,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               styles.scrollContent,
               {
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 420 : keyboardHeight + 100)
+                  ? Math.max(keyboardHeight + 24, 100)
                   : 140,
               }
             ]}
@@ -1658,9 +1634,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                 >
                   <Ionicons name="time-outline" size={13} color="#94A3B8" style={{ marginRight: 6 }} />
                   <Text style={styles.pastEventsToggleText}>
-                    {language === 'en'
-                      ? `Past stops (${hiddenPastEventsCount}) • Show`
-                      : `Minione punkty (${hiddenPastEventsCount}) • Pokaż`}
+                    {t.pastEventsShow
+                      ? t.pastEventsShow.replace('{{count}}', String(hiddenPastEventsCount))
+                      : (language === 'en'
+                          ? `Past stops (${hiddenPastEventsCount}) • Show`
+                          : `Minione punkty (${hiddenPastEventsCount}) • Pokaż`)}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color="#94A3B8" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
@@ -1677,7 +1655,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                 >
                   <Ionicons name="eye-off-outline" size={13} color="#94A3B8" style={{ marginRight: 6 }} />
                   <Text style={styles.pastEventsToggleText}>
-                    {language === 'en' ? 'Hide past stops' : 'Ukryj minione punkty'}
+                    {t.pastEventsHide || (language === 'en' ? 'Hide past stops' : 'Ukryj minione punkty')}
                   </Text>
                   <Ionicons name="chevron-up" size={13} color="#94A3B8" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
@@ -1850,9 +1828,9 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                                 <View style={styles.expandedTransitHeader}>
                                   <Ionicons name="information-circle-outline" size={13} color="#94A3B8" style={{ marginRight: 5 }} />
                                   <Text style={styles.expandedTransitHeaderText}>
-                                    {language === 'en'
+                                    {t.noLodgingAddressWarning || (language === 'en'
                                       ? 'No lodging address – add address in trip settings'
-                                      : 'Brak adresu noclegu – uzupełnij adres w ustawieniach wyjazdu'}
+                                      : 'Brak adresu noclegu – uzupełnij adres w ustawieniach wyjazdu')}
                                   </Text>
                                 </View>
                               </View>
@@ -2025,18 +2003,30 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                             activeOpacity={0.8}
                             onPress={() => handleAddNewEvent(true, attr)}
                         >
-                            <ImageBackground 
-                                source={{ uri: attr.imageUrl || getCuratedCityFallback(tripData?.destination) }} 
-                                style={styles.poolCardImage}
-                                imageStyle={{ borderRadius: 12 }}
-                            >
-                                <View style={styles.poolCardOverlay}>
-                                    <Text style={styles.poolCardText} numberOfLines={2}>{attr.name}</Text>
-                                    <View style={styles.poolCardPlusCircle}>
-                                        <Ionicons name="add" size={18} color="#0F172A" />
-                                    </View>
-                                </View>
-                            </ImageBackground>
+                            {attr.imageUrl ? (
+                              <ImageBackground 
+                                  source={{ uri: attr.imageUrl }} 
+                                  style={styles.poolCardImage}
+                                  imageStyle={{ borderRadius: 12 }}
+                              >
+                                  <View style={styles.poolCardOverlay}>
+                                      <Text style={styles.poolCardText} numberOfLines={2}>{attr.name}</Text>
+                                      <View style={styles.poolCardPlusCircle}>
+                                          <Ionicons name="add" size={18} color="#0F172A" />
+                                      </View>
+                                  </View>
+                              </ImageBackground>
+                            ) : (
+                              <View style={[styles.poolCardImage, styles.poolCardPlaceholder]}>
+                                  <View style={styles.poolCardOverlay}>
+                                      <Ionicons name="sparkles-outline" size={18} color="#F59E0B" style={{ marginBottom: 4 }} />
+                                      <Text style={styles.poolCardText} numberOfLines={2}>{attr.name}</Text>
+                                      <View style={styles.poolCardPlusCircle}>
+                                          <Ionicons name="add" size={18} color="#0F172A" />
+                                      </View>
+                                  </View>
+                              </View>
+                            )}
                         </TouchableOpacity>
                     ))
                 ) : (
@@ -2618,6 +2608,7 @@ const styles = StyleSheet.create({
   poolContainer: { gap: 10 },
   poolCard: { height: 95, marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: '#334155', overflow: 'hidden' },
   poolCardImage: { width: '100%', height: '100%', justifyContent: 'flex-end' },
+  poolCardPlaceholder: { backgroundColor: '#1E293B', borderRadius: 12 },
   poolCardOverlay: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 

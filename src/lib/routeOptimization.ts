@@ -1,4 +1,6 @@
 // src/lib/routeOptimization.ts
+import { getGoogleApiKey } from './config';
+
 /**
  * Moduł Inteligentnej Optymalizacji Trasy Zwiedzania (Problem Komiwojażera / TSP)
  * Implementacja algorytmów optymalizacji kombinatorycznej dla pracy inżynierskiej:
@@ -39,7 +41,9 @@ export interface OptimizationResult {
   timeSavedMinutes: number;
   bestAlgorithm: AlgorithmBenchmark;
   benchmarks: AlgorithmBenchmark[];
+  hasCollapsedCoordinates?: boolean;
 }
+
 
 /**
  * Oblicza odległość ortodromiczną (w linii prostej po sferze ziemskiej)
@@ -368,14 +372,28 @@ export const optimizeSightseeingRoute = (
         routeIndices: points.map((_, i) => i),
       },
       benchmarks: [],
+      hasCollapsedCoordinates: false,
     };
   }
+
 
   const matrix = buildDistanceMatrix(points);
   const initialRoute = points.map((_, idx) => idx);
   const originalDistance = calculatePathDistance(initialRoute, matrix);
 
+  // Weryfikacja czy w punktach występuje kolaps współrzędnych (identyczne punkty lub odległość < 5 metrów)
+  let identicalCount = 0;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      if (matrix[i][j] < 0.005) {
+        identicalCount++;
+      }
+    }
+  }
+  const hasCollapsedCoordinates = originalDistance < 0.01 || identicalCount > 0;
+
   const benchmarks: AlgorithmBenchmark[] = [];
+
 
   // 1. Algorytm Zachłanny (Nearest Neighbor)
   let greedyRes = solveGreedyTSP(matrix, 0);
@@ -464,8 +482,10 @@ export const optimizeSightseeingRoute = (
     timeSavedMinutes,
     bestAlgorithm: best,
     benchmarks,
+    hasCollapsedCoordinates,
   };
 };
+
 
 /**
  * Przypisuje optymalne godziny zwiedzania dla uszeregowanych punktów.
@@ -595,6 +615,24 @@ export const CITY_COORDINATES: { [key: string]: { lat: number; lon: number } } =
   szczecin: { lat: 53.4285, lon: 14.5528 },
   gdynia: { lat: 54.5189, lon: 18.5305 },
   sopot: { lat: 54.4418, lon: 18.5601 },
+  'kazimierz dolny': { lat: 51.3235, lon: 21.9547 },
+  'żelazowa wola': { lat: 52.2570, lon: 20.3160 },
+  'zelazowa wola': { lat: 52.2570, lon: 20.3160 },
+  'płock': { lat: 52.5463, lon: 19.7065 },
+  'plock': { lat: 52.5463, lon: 19.7065 },
+  'ojców': { lat: 50.2150, lon: 19.8310 },
+  'ojcow': { lat: 50.2150, lon: 19.8310 },
+  'malbork': { lat: 54.0359, lon: 19.0266 },
+  'podzamcze': { lat: 50.4530, lon: 19.5530 },
+  'alghero': { lat: 40.5579, lon: 8.3193 },
+  'colmar': { lat: 48.0794, lon: 7.3585 },
+  'san sebastián': { lat: 43.3183, lon: -1.9812 },
+  'san sebastian': { lat: 43.3183, lon: -1.9812 },
+  'matera': { lat: 40.6664, lon: 16.6043 },
+  'bari': { lat: 41.1171, lon: 16.8719 },
+  'bolonia': { lat: 44.4949, lon: 11.3426 },
+  'bologna': { lat: 44.4949, lon: 11.3426 },
+
   // Europa Środkowa i Północna
   praga: { lat: 50.0755, lon: 14.4378 },
   prague: { lat: 50.0755, lon: 14.4378 },
@@ -990,6 +1028,26 @@ export const normalizeAttractionTitle = (title: string): string => {
 export const GEOCODE_CACHE = new Map<string, { lat: number; lon: number }>();
 
 /**
+ * Wyznacza deterministyczny, niewielki offset współrzędnych (rozproszenie)
+ * dla punktów bez precyzyjnych koordynatów GPS wokół centrum miasta / noclegu.
+ * Zapobiega nakładaniu się punktów w odległości 0m i kolapsowi algorytmu TSP 2-Opt.
+ */
+export const getDeterministicCoordinateOffset = (title: string): { latOffset: number; lonOffset: number } => {
+  let hash = 0;
+  const str = (title || '').trim().toLowerCase();
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
+  // Promień rozproszenia: 350m - 1200m wokół centrum miasta
+  const radiusKm = 0.35 + (Math.abs(hash >> 3) % 850) / 1000;
+  const latOffset = (radiusKm / 111.0) * Math.sin(angle);
+  const lonOffset = (radiusKm / (111.0 * 0.7)) * Math.cos(angle);
+  return { latOffset, lonOffset };
+};
+
+/**
  * Rozpoznaje i wyznacza współrzędne GPS dla dowolnego punktu trasy.
  * Działa w 100% offline bazując kolejno na przekazanych koordynatach,
  * danych z Google Places pool, słowniku znanych zabytków lub deterministycznym hashowaniu wokół centrum miasta.
@@ -1097,10 +1155,17 @@ export const resolvePointCoordinates = (
     baseCoords = { lat: 41.9028, lon: 12.4964 }; // Domyślnie Rzym
   }
 
-  // UWAGA: Nigdy nie zapisujemy baseCoords do GEOCODE_CACHE, aby nie zatruwać
-  // pamięci podręcznej i umożliwić asynchroniczne pobranie prawdziwych koordynatów z Google Places!
-  return baseCoords;
+  // Obliczamy deterministyczny offset (dyspersję) wokół centrum miasta / noclegu,
+  // aby zapobiec nakładaniu się punktów w odległości 0 metrów i kolapsowi macierzy TSP.
+  // UWAGA: Nigdy nie zapisujemy tych szacunkowych koordynatów do GEOCODE_CACHE, aby umożliwić
+  // asynchroniczne pobranie prawdziwych współrzędnych z Google Places!
+  const offset = getDeterministicCoordinateOffset(cleanTitle);
+  return {
+    lat: Number((baseCoords.lat + offset.latOffset).toFixed(6)),
+    lon: Number((baseCoords.lon + offset.lonOffset).toFixed(6)),
+  };
 };
+
 
 /**
  * Asynchronicznie dociąga dokładne współrzędne GPS punktu trasy z Google Places API na żywo.
@@ -1242,8 +1307,7 @@ export const fetchGooglePlaceLocation = async (
     }
   }
 
-  const apiKey =
-    process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ';
+  const apiKey = getGoogleApiKey();
   if (!apiKey || apiKey.includes('TYMCZASOWY')) return null;
 
   try {

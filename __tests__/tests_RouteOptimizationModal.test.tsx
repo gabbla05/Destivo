@@ -278,4 +278,41 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(d1AttrIdx).toBeLessThan(d1HotelIdx);
     expect(d1HotelIdx).toBeLessThan(d2AttrIdx);
   });
+
+  test('wyświetla ostrzeżenie o przybliżonych/zbitych współrzędnych, gdy punkty mają identyczne koordynaty (hasCollapsedCoordinates)', () => {
+    const collapsedEvents = [
+      {
+        id: 'evt_c1',
+        type: 'ATTRACTION',
+        title: 'Nieznana kapliczka',
+        dateStr: '10-10-2026',
+        timeStr: '10:00',
+        lat: 50.0647,
+        lon: 19.9450,
+      },
+      {
+        id: 'evt_c2',
+        type: 'ATTRACTION',
+        title: 'Lokalne źródełko',
+        dateStr: '10-10-2026',
+        timeStr: '11:00',
+        lat: 50.0647,
+        lon: 19.9450,
+      },
+    ];
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={collapsedEvents}
+        destinationCity="Mała Wieś"
+      />
+    );
+
+    // Banner ostrzegawczy z testID="collapsed-coordinates-warning" powinien być widoczny
+    expect(screen.getByTestId('collapsed-coordinates-warning')).toBeTruthy();
+  });
 });
+

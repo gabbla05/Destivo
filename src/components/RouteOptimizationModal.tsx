@@ -411,9 +411,27 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+              {/* OSTRZEŻENIE O BRAKU WSPÓŁRZĘDNYCH / KOLAPSIE PUNKTÓW */}
+              {optimizationResult?.hasCollapsedCoordinates && (
+                <View style={styles.collapsedWarningBanner} testID="collapsed-coordinates-warning">
+                  <Ionicons name="warning-outline" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.collapsedWarningTitle}>
+                      {t.approximateCoordsWarningTitle || (language === 'en' ? 'Approximate coordinates' : 'Przybliżone współrzędne')}
+                    </Text>
+                    <Text style={styles.collapsedWarningDesc}>
+                      {t.approximateCoordsWarningDesc || (language === 'en'
+                        ? 'Some points do not have exact GPS coordinates. Route sequence and distances are estimated.'
+                        : 'Część punktów nie posiada dokładnych współrzędnych GPS. Kolejność i odległości na trasie mają charakter szacunkowy.')}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               {/* PRZYCISK ZOBACZ CAŁĄ TRASĘ W GOOGLE MAPS */}
               {optimizationResult && (
                 <View style={styles.fullRouteContainer}>
+
                   <TouchableOpacity
                     style={styles.fullRouteBtn}
                     activeOpacity={0.8}
@@ -489,7 +507,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                               testID={`preview-point-maps-btn-${idx}`}
                             >
                               <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
-                              <Text style={styles.pointNavigateBtnText}>Nawiguj</Text>
+                              <Text style={styles.pointNavigateBtnText}>{t.navigateBtn || (language === 'en' ? 'Navigate' : 'Nawiguj')}</Text>
                             </TouchableOpacity>
                           </View>
 
@@ -509,7 +527,9 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                                   style={{ marginRight: 6 }}
                                 />
                                 <Text style={styles.legRecommendationText}>
-                                  {`Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
+                                  {language === 'en'
+                                    ? `Recommended transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`
+                                    : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
                                 </Text>
                               </View>
 
@@ -948,4 +968,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  collapsedWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  collapsedWarningTitle: {
+    color: '#F59E0B',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  collapsedWarningDesc: {
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 16,
+  },
 });
+

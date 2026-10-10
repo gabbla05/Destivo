@@ -199,12 +199,12 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   // Usunięcie pliku z Sejfu
   const handleDeleteFile = (fileId: string, fileName: string) => {
     Alert.alert(
-      t.deleteFileTitle || 'Usuń plik z Sejfu',
-      (t.deleteFileConfirm || 'Czy na pewno chcesz usunąć plik "{{name}}"?').replace('{{name}}', fileName),
+      t.deleteFileTitle || (language === 'en' ? 'Delete file from Vault' : 'Usuń plik z Sejfu'),
+      (t.deleteFileConfirm || (language === 'en' ? 'Are you sure you want to delete file "{{name}}"?' : 'Czy na pewno chcesz usunąć plik "{{name}}"?')).replace('{{name}}', fileName),
       [
-        { text: commonT.cancel, style: 'cancel' },
+        { text: commonT.cancel || (language === 'en' ? 'Cancel' : 'Anuluj'), style: 'cancel' },
         {
-          text: commonT.button_delete || 'Usuń',
+          text: commonT.button_delete || (language === 'en' ? 'Delete' : 'Usuń'),
           style: 'destructive',
           onPress: async () => {
             const currentFiles = getFilesForSelectedTrip();
@@ -251,7 +251,10 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       await printVaultFile(file);
     } catch (e) {
       console.error('Błąd drukowania pliku:', e);
-      Alert.alert(t.error || 'Błąd', t.printFileError || 'Nie udało się uruchomić drukowania pliku.');
+      Alert.alert(
+        t.error || (language === 'en' ? 'Error' : 'Błąd'),
+        t.printFileError || (language === 'en' ? 'Failed to launch printing for this file.' : 'Nie udało się uruchomić drukowania pliku.')
+      );
     }
   };
 
@@ -278,7 +281,10 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       setBriefingModalVisible(true);
     } catch (error) {
       console.error('Error generating briefing PDF:', error);
-      Alert.alert(t.error || 'Błąd', t.briefingGenerateError || 'Nie udało się wygenerować dokumentu PDF.');
+      Alert.alert(
+        t.error || (language === 'en' ? 'Error' : 'Błąd'),
+        t.briefingGenerateError || (language === 'en' ? 'Could not generate PDF document.' : 'Nie udało się wygenerować dokumentu PDF.')
+      );
     } finally {
       setGeneratingBriefing(false);
     }
@@ -306,12 +312,18 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         const currentFiles = getFilesForSelectedTrip();
         const updated = [savedFile, ...currentFiles];
         await updateTripFiles(updated);
-        Alert.alert('DESTIVO', t.briefingSavedSuccess || 'Travel Briefing został zapisany w Sejfie tej podróży!');
+        Alert.alert(
+          'DESTIVO',
+          t.briefingSavedSuccess || (language === 'en' ? 'Travel Briefing has been saved in this trip Vault!' : 'Travel Briefing został zapisany w Sejfie tej podróży!')
+        );
         setBriefingModalVisible(false);
       }
     } catch (e) {
       console.error(e);
-      Alert.alert(t.error || 'Błąd', t.saveError || 'Nie udało się zapisać pliku w sejfie.');
+      Alert.alert(
+        t.error || (language === 'en' ? 'Error' : 'Błąd'),
+        t.saveError || (language === 'en' ? 'Could not save the file in the vault.' : 'Nie udało się zapisać pliku w sejfie.')
+      );
     }
   };
 

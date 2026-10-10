@@ -9,6 +9,7 @@ import {
   scheduleLocalDepartureNotification,
   cancelScheduledDepartureNotification,
   setupGeofencingForTrip,
+  ensureNotificationPermissions,
 } from '../src/lib/proximityAlertService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -366,6 +367,49 @@ describe('ProximityAlertService - Energooszczędne zarządzanie geolokalizacją 
       const result = await setupGeofencingForTrip(trip);
       expect(result).toBe(true);
       expect(Location.startGeofencingAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('8. Obsługa uprawnień powiadomień Android 13+ (POST_NOTIFICATIONS)', () => {
+    test('ensureNotificationPermissions zwraca true gdy uprawnienia są już przyznane', async () => {
+      (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'granted' });
+      const result = await ensureNotificationPermissions();
+      expect(result).toBe(true);
+      expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    });
+
+    test('ensureNotificationPermissions prosi o uprawnienia i zwraca true gdy użytkownik zaakceptuje', async () => {
+      (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'undetermined' });
+      (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'granted' });
+      const result = await ensureNotificationPermissions();
+      expect(result).toBe(true);
+      expect(Notifications.requestPermissionsAsync).toHaveBeenCalled();
+    });
+
+    test('ensureNotificationPermissions zwraca false gdy użytkownik odmówi uprawnień', async () => {
+      (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'denied' });
+      (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'denied' });
+      const result = await ensureNotificationPermissions();
+      expect(result).toBe(false);
+    });
+
+    test('scheduleLocalDepartureNotification zwraca null gdy brak uprawnień POST_NOTIFICATIONS', async () => {
+      (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'denied' });
+      (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValueOnce({ status: 'denied' });
+
+      const futureDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const trip = {
+        id: 'trip-denied',
+        destination: 'Paryż',
+        start_date: `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}-${String(futureDate.getDate()).padStart(2, '0')}`,
+        transport_data: JSON.stringify({
+          details: { outboundDepartureTime: '18:00' },
+        }),
+      };
+
+      const notifId = await scheduleLocalDepartureNotification(trip);
+      expect(notifId).toBeNull();
+      expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
     });
   });
 });

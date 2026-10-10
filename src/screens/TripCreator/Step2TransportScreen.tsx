@@ -289,8 +289,13 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
   const handleOpenBooking = async (url?: string) => {
     if (!url) return;
     try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) await Linking.openURL(url);
+      let finalUrl = url;
+      if (language === 'en') {
+        finalUrl = finalUrl.replace('skyscanner.pl', 'skyscanner.net');
+        if (finalUrl === 'https://koleo.pl') finalUrl = 'https://koleo.pl/en/';
+      }
+      const supported = await Linking.canOpenURL(finalUrl);
+      if (supported) await Linking.openURL(finalUrl);
       else Alert.alert('DESTIVO', t.openLinkError);
     } catch (error: unknown) {
       console.error('Błąd otwierania linku:', error);
@@ -451,7 +456,7 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
               {
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 420 : keyboardHeight + 80)
+                  ? Math.max(keyboardHeight + 24, 100)
                   : 120,
               },
             ]}
@@ -460,6 +465,20 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
             keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
+            {/* GÓRNY PRZYCISK POWROTU */}
+            <View style={styles.topNavRow}>
+              <TouchableOpacity
+                style={styles.topBackBtn}
+                onPress={() => navigation?.goBack()}
+                activeOpacity={0.7}
+                testID="step2-top-back-btn"
+                accessibilityLabel={commonT.button_goBack || 'Wróć'}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
             {/* PASEK POSTĘPU KREATORA */}
             <View style={styles.progressHeader}>
               <Text style={styles.progressText}>{step2T.step_indicator}</Text>
@@ -982,6 +1001,8 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0B1120' },
   container: { flex: 1, backgroundColor: '#0B1120' },
+  topNavRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  topBackBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' },
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
   progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
   progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },

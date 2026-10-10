@@ -1,5 +1,4 @@
 import * as Location from 'expo-location';
-import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   CURATED_CITY_PHOTOS,
@@ -8,7 +7,6 @@ import {
   GOOGLE_PLACES_CITY_PHOTO_REFS,
   fetchGoogleCityPhoto,
   hasCuratedCityFallback,
-  getGoogleApiKey,
 } from './placesPhotoService';
 import {
   resolvePointCoordinates,
@@ -16,12 +14,10 @@ import {
   solveTwoOptTSP,
   GeoPoint,
 } from './routeOptimization';
+import { getGoogleApiKey, getWeatherApiKey } from './config';
 
-const WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY || '68a647f3b99a084c4a1c3809b971b034';
-const GOOGLE_API_KEY =
-  Constants.expoConfig?.android?.config?.googleMaps?.apiKey ||
-  process.env.EXPO_PUBLIC_GOOGLE_API_KEY ||
-  'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ';
+const WEATHER_API_KEY = getWeatherApiKey();
+const GOOGLE_API_KEY = getGoogleApiKey();
 
 export interface TripDay {
   day: number;
@@ -48,6 +44,7 @@ export interface LiveDestination {
   lon: number;
   coverImage: string;
   shortDescription: string;
+  shortDescriptionEn?: string;
   transportCode: string;
   distanceKm?: number;
   recommendedTransport?: 'flight' | 'train' | 'car';
@@ -65,147 +62,180 @@ export interface LiveDestination {
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
 export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'flightPricePln' | 'nearestAirport' | 'flightDate'>[] = [
   // --- ORYGINALNE 7 MIAST ---
-  { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: getCuratedCityFallback('Rzym'), shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.', transportCode: 'ROM' },
-  { id: 'bcn_01', city: 'Barcelona', country: 'Hiszpania', lat: 41.3851, lon: 2.1734, coverImage: getCuratedCityFallback('Barcelona'), shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.', transportCode: 'BCN' },
-  { id: 'par_01', city: 'Paryż', country: 'Francja', lat: 48.8566, lon: 2.3522, coverImage: getCuratedCityFallback('Paryż'), shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.', transportCode: 'PAR' },
-  { id: 'lon_01', city: 'Londyn', country: 'Wielka Brytania', lat: 51.5074, lon: -0.1278, coverImage: getCuratedCityFallback('Londyn'), shortDescription: 'Wielokulturowa metropolia, w której historia spotyka się z nowoczesnością na każdym kroku.', transportCode: 'LON' },
-  { id: 'ath_01', city: 'Ateny', country: 'Grecja', lat: 37.9838, lon: 23.7275, coverImage: getCuratedCityFallback('Ateny'), shortDescription: 'Kolebka zachodniej cywilizacji. Poczuj starożytny klimat przechadzając się u stóp Akropolu.', transportCode: 'ATH' },
-  { id: 'krk_01', city: 'Kraków', country: 'Polska', lat: 50.0614, lon: 19.9366, coverImage: getCuratedCityFallback('Kraków'), shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.', transportCode: 'Kraków Główny' },
-  { id: 'prag_01', city: 'Praga', country: 'Czechy', lat: 50.0755, lon: 14.4378, coverImage: getCuratedCityFallback('Praga'), shortDescription: 'Magiczna stolica pełna gotyckich wież, urokliwych uliczek i najlepszego na świecie piwa.', transportCode: 'PRG' },
+  { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: getCuratedCityFallback('Rzym'), shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
+    shortDescriptionEn: 'The Eternal City, where ancient history meets some of the world\'s best cuisine.', transportCode: 'ROM' },
+  { id: 'bcn_01', city: 'Barcelona', country: 'Hiszpania', lat: 41.3851, lon: 2.1734, coverImage: getCuratedCityFallback('Barcelona'), shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.',
+    shortDescriptionEn: 'Gaudi architecture, relaxing beaches and lively streets in the heart of Catalonia.', transportCode: 'BCN' },
+  { id: 'par_01', city: 'Paryż', country: 'Francja', lat: 48.8566, lon: 2.3522, coverImage: getCuratedCityFallback('Paryż'), shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.',
+    shortDescriptionEn: 'The city of lights and art, perfect for walks along the Seine and fresh croissants.', transportCode: 'PAR' },
+  { id: 'lon_01', city: 'Londyn', country: 'Wielka Brytania', lat: 51.5074, lon: -0.1278, coverImage: getCuratedCityFallback('Londyn'), shortDescription: 'Wielokulturowa metropolia, w której historia spotyka się z nowoczesnością na każdym kroku.',
+    shortDescriptionEn: 'A multicultural metropolis where history meets modern life at every turn.', transportCode: 'LON' },
+  { id: 'ath_01', city: 'Ateny', country: 'Grecja', lat: 37.9838, lon: 23.7275, coverImage: getCuratedCityFallback('Ateny'), shortDescription: 'Kolebka zachodniej cywilizacji. Poczuj starożytny klimat przechadzając się u stóp Akropolu.',
+    shortDescriptionEn: 'The cradle of Western civilization, with the ancient atmosphere of the Acropolis.', transportCode: 'ATH' },
+  { id: 'krk_01', city: 'Kraków', country: 'Polska', lat: 50.0614, lon: 19.9366, coverImage: getCuratedCityFallback('Kraków'), shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.',
+    shortDescriptionEn: 'Poland\'s historic capital, full of royal history and the unique atmosphere of Kazimierz.', transportCode: 'KRK' },
+  { id: 'prag_01', city: 'Praga', country: 'Czechy', lat: 50.0755, lon: 14.4378, coverImage: getCuratedCityFallback('Praga'), shortDescription: 'Magiczna stolica pełna gotyckich wież, urokliwych uliczek i najlepszego na świecie piwa.',
+    shortDescriptionEn: 'A magical capital filled with Gothic towers, charming streets and excellent beer.', transportCode: 'PRG' },
 
   // --- NOWE 23 MIASTA (ŁĄCZNIE 30) ---
   {
     id: 'vie_01', city: 'Wiedeń', country: 'Austria', lat: 48.2082, lon: 16.3738, 
     coverImage: getCuratedCityFallback('Wiedeń'), 
-    shortDescription: 'Zanurz się w klasycznej muzyce, wypij wiedeńską kawę i podziwiaj majestatyczne pałace Habsburgów.', transportCode: 'VIE'
+    shortDescription: 'Zanurz się w klasycznej muzyce, wypij wiedeńską kawę i podziwiaj majestatyczne pałace Habsburgów.',
+    shortDescriptionEn: 'Classical music, Viennese coffee and majestic Habsburg palaces.', transportCode: 'VIE'
   },
   {
     id: 'bud_01', city: 'Budapeszt', country: 'Węgry', lat: 47.4979, lon: 19.0402, 
     coverImage: getCuratedCityFallback('Budapeszt'), 
-    shortDescription: 'Perła Dunaju. Zrelaksuj się w słynnych termach i daj się porwać nocnemu życiu w ruin barach.', transportCode: 'BUD'
+    shortDescription: 'Perła Dunaju. Zrelaksuj się w słynnych termach i daj się porwać nocnemu życiu w ruin barach.',
+    shortDescriptionEn: 'The Pearl of the Danube, famous for thermal baths and ruin bars.', transportCode: 'BUD'
   },
   {
     id: 'ber_01', city: 'Berlin', country: 'Niemcy', lat: 52.5200, lon: 13.4050, 
     coverImage: getCuratedCityFallback('Berlin'), 
-    shortDescription: 'Miasto, które nigdy nie śpi. Alternatywna sztuka, bogata historia i najlepsza scena techno w Europie.', transportCode: 'BER'
+    shortDescription: 'Miasto, które nigdy nie śpi. Alternatywna sztuka, bogata historia i najlepsza scena techno w Europie.',
+    shortDescriptionEn: 'A city that never sleeps, with alternative art, history and a legendary techno scene.', transportCode: 'BER'
   },
   {
     id: 'lis_01', city: 'Lizbona', country: 'Portugalia', lat: 38.7223, lon: -9.1393, 
     coverImage: getCuratedCityFallback('Lizbona'), 
-    shortDescription: 'Słoneczna stolica na siedmiu wzgórzach. Przejedź się żółtym tramwajem i skosztuj słodkich pasteis de nata.', transportCode: 'LIS'
+    shortDescription: 'Słoneczna stolica na siedmiu wzgórzach. Przejedź się żółtym tramwajem i skosztuj słodkich pasteis de nata.',
+    shortDescriptionEn: 'A sunny capital of seven hills, yellow trams and delicious pasteis de nata.', transportCode: 'LIS'
   },
   {
     id: 'mad_01', city: 'Madryt', country: 'Hiszpania', lat: 40.4168, lon: -3.7038, 
     coverImage: getCuratedCityFallback('Madryt'), 
-    shortDescription: 'Tętniące życiem serce Hiszpanii, pełne sztuki (muzeum Prado), tapas i królewskiego rozmachu.', transportCode: 'MAD'
+    shortDescription: 'Tętniące życiem serce Hiszpanii, pełne sztuki (muzeum Prado), tapas i królewskiego rozmachu.',
+    shortDescriptionEn: 'Spain\'s lively heart, filled with art, tapas and royal grandeur.', transportCode: 'MAD'
   },
   {
     id: 'ams_01', city: 'Amsterdam', country: 'Holandia', lat: 52.3676, lon: 4.9041, 
     coverImage: getCuratedCityFallback('Amsterdam'), 
-    shortDescription: 'Malownicze kanały, setki rowerów i dzieła Van Gogha. Miasto wolności i pięknej architektury.', transportCode: 'AMS'
+    shortDescription: 'Malownicze kanały, setki rowerów i dzieła Van Gogha. Miasto wolności i pięknej architektury.',
+    shortDescriptionEn: 'Picturesque canals, hundreds of bicycles and masterpieces by Van Gogh.', transportCode: 'AMS'
   },
   {
     id: 'cph_01', city: 'Kopenhaga', country: 'Dania', lat: 55.6761, lon: 12.5683, 
     coverImage: getCuratedCityFallback('Kopenhaga'), 
-    shortDescription: 'Skandynawski design, urokliwy port Nyhavn i królewskie pałace. Poznaj prawdziwe duńskie hygge.', transportCode: 'CPH'
+    shortDescription: 'Skandynawski design, urokliwy port Nyhavn i królewskie pałace. Poznaj prawdziwe duńskie hygge.',
+    shortDescriptionEn: 'Scandinavian design, the charming Nyhavn harbour and Danish hygge.', transportCode: 'CPH'
   },
   {
     id: 'mxp_01', city: 'Mediolan', country: 'Włochy', lat: 45.4642, lon: 9.1900, 
     coverImage: getCuratedCityFallback('Mediolan'), 
-    shortDescription: 'Światowa stolica mody i designu. Monumentalna katedra Duomo robi niesamowite wrażenie.', transportCode: 'MXP'
+    shortDescription: 'Światowa stolica mody i designu. Monumentalna katedra Duomo robi niesamowite wrażenie.',
+    shortDescriptionEn: 'The global capital of fashion and design, dominated by the monumental Duomo.', transportCode: 'MXP'
   },
   {
     id: 'vce_01', city: 'Wenecja', country: 'Włochy', lat: 45.4408, lon: 12.3155, 
     coverImage: getCuratedCityFallback('Wenecja'), 
-    shortDescription: 'Romantyczne kanały, gondole i zachwycające pałace odbijające się w wodzie. Jedyne takie miejsce na Ziemi.', transportCode: 'VCE'
+    shortDescription: 'Romantyczne kanały, gondole i zachwycające pałace odbijające się w wodzie. Jedyne takie miejsce na Ziemi.',
+    shortDescriptionEn: 'Romantic canals, gondolas and magnificent palaces reflected in the water.', transportCode: 'VCE'
   },
   {
     id: 'dbv_01', city: 'Dubrownik', country: 'Chorwacja', lat: 42.6507, lon: 18.0944, 
     coverImage: getCuratedCityFallback('Dubrownik'), 
-    shortDescription: 'Perła Adriatyku. Spaceruj po potężnych murach miejskich, znanych na całym świecie dzięki Grze o Tron.', transportCode: 'DBV'
+    shortDescription: 'Perła Adriatyku. Spaceruj po potężnych murach miejskich, znanych na całym świecie dzięki Grze o Tron.',
+    shortDescriptionEn: 'The Pearl of the Adriatic, with powerful city walls and a famous Game of Thrones setting.', transportCode: 'DBV'
   },
   {
     id: 'zrh_01', city: 'Zurych', country: 'Szwajcaria', lat: 47.3769, lon: 8.5417, 
     coverImage: getCuratedCityFallback('Zurych'), 
-    shortDescription: 'Eleganckie miasto z widokiem na Alpy. Odkryj jezioro Zuryskie, luksusowe butiki i pyszną czekoladę.', transportCode: 'ZRH'
+    shortDescription: 'Eleganckie miasto z widokiem na Alpy. Odkryj jezioro Zuryskie, luksusowe butiki i pyszną czekoladę.',
+    shortDescriptionEn: 'An elegant city overlooking the Alps, Lake Zurich and excellent Swiss chocolate.', transportCode: 'ZRH'
   },
   {
     id: 'edi_01', city: 'Edynburg', country: 'Szkocja', lat: 55.9533, lon: -3.1883, 
     coverImage: getCuratedCityFallback('Edynburg'), 
-    shortDescription: 'Tajemnicze, gotyckie miasto leżące na wygasłych wulkanach. Odkryj potężny zamek i szkocką whisky.', transportCode: 'EDI'
+    shortDescription: 'Tajemnicze, gotyckie miasto leżące na wygasłych wulkanach. Odkryj potężny zamek i szkocką whisky.',
+    shortDescriptionEn: 'A mysterious Gothic city on extinct volcanoes, with a powerful castle and Scottish whisky.', transportCode: 'EDI'
   },
   {
     id: 'dub_01', city: 'Dublin', country: 'Irlandia', lat: 53.3498, lon: -6.2603, 
     coverImage: getCuratedCityFallback('Dublin'), 
-    shortDescription: 'Zielona stolica pełna celtyckiej historii i tętniących życiem pubów Temple Bar. Skosztuj idealnego Guinnessa.', transportCode: 'DUB'
+    shortDescription: 'Zielona stolica pełna celtyckiej historii i tętniących życiem pubów Temple Bar. Skosztuj idealnego Guinnessa.',
+    shortDescriptionEn: 'A green capital full of Celtic history, lively pubs and the perfect Guinness.', transportCode: 'DUB'
   },
   {
     id: 'vlc_01', city: 'Walencja', country: 'Hiszpania', lat: 39.4699, lon: -0.3763, 
     coverImage: getCuratedCityFallback('Walencja'), 
-    shortDescription: 'Ojczyzna paelli. Zobacz futurystyczne Miasto Sztuki i Nauki i spędź popołudnie na piaszczystej plaży.', transportCode: 'VLC'
+    shortDescription: 'Ojczyzna paelli. Zobacz futurystyczne Miasto Sztuki i Nauki i spędź popołudnie na piaszczystej plaży.',
+    shortDescriptionEn: 'The home of paella, futuristic architecture and sandy Mediterranean beaches.', transportCode: 'VLC'
   },
   {
     id: 'nap_01', city: 'Neapol', country: 'Włochy', lat: 40.8518, lon: 14.2681, 
     coverImage: getCuratedCityFallback('Neapol'), 
-    shortDescription: 'Krzykliwy, autentyczny i pełen życia. Zjedz najlepszą pizzę na świecie w cieniu potężnego Wezuwiusza.', transportCode: 'NAP'
+    shortDescription: 'Krzykliwy, autentyczny i pełen życia. Zjedz najlepszą pizzę na świecie w cieniu potężnego Wezuwiusza.',
+    shortDescriptionEn: 'A lively and authentic city, home to world-famous pizza beneath Mount Vesuvius.', transportCode: 'NAP'
   },
   {
     id: 'opo_01', city: 'Porto', country: 'Portugalia', lat: 41.1579, lon: -8.6291, 
     coverImage: getCuratedCityFallback('Porto'), 
-    shortDescription: 'Urokliwe miasto mostów i wina Porto. Zgub się w wąskich, kolorowych uliczkach dzielnicy Ribeira.', transportCode: 'OPO'
+    shortDescription: 'Urokliwe miasto mostów i wina Porto. Zgub się w wąskich, kolorowych uliczkach dzielnicy Ribeira.',
+    shortDescriptionEn: 'A charming city of bridges and port wine, with colourful Ribeira streets.', transportCode: 'OPO'
   },
   {
     id: 'ist_01', city: 'Stambuł', country: 'Turcja', lat: 41.0082, lon: 28.9784, 
     coverImage: getCuratedCityFallback('Stambuł'), 
-    shortDescription: 'Gdzie Europa spotyka Azję. Zobacz majestatyczną Hagię Sofię i poczuj zapachy Grand Bazaaru.', transportCode: 'IST'
+    shortDescription: 'Gdzie Europa spotyka Azję. Zobacz majestatyczną Hagię Sofię i poczuj zapachy Grand Bazaaru.',
+    shortDescriptionEn: 'Where Europe meets Asia, with Hagia Sophia and the aromas of the Grand Bazaar.', transportCode: 'IST'
   },
   {
     id: 'nce_01', city: 'Nicea', country: 'Francja', lat: 43.7102, lon: 7.2620, 
     coverImage: getCuratedCityFallback('Nicea'), 
-    shortDescription: 'Klejnot Lazurowego Wybrzeża. Przejdź się słynną Promenadą Anglików w pełnym słońcu Riwiery Francuskiej.', transportCode: 'NCE'
+    shortDescription: 'Klejnot Lazurowego Wybrzeża. Przejdź się słynną Promenadą Anglików w pełnym słońcu Riwiery Francuskiej.',
+    shortDescriptionEn: 'The jewel of the French Riviera, with the famous Promenade des Anglais.', transportCode: 'NCE'
   },
   {
     id: 'muc_01', city: 'Monachium', country: 'Niemcy', lat: 48.1351, lon: 11.5820, 
     coverImage: getCuratedCityFallback('Monachium'), 
-    shortDescription: 'Bawarska kultura, precle, piękne parki miejskie i bliskość alpejskich szczytów.', transportCode: 'MUC'
+    shortDescription: 'Bawarska kultura, precle, piękne parki miejskie i bliskość alpejskich szczytów.',
+    shortDescriptionEn: 'Bavarian culture, pretzels, beautiful parks and nearby Alpine peaks.', transportCode: 'MUC'
   },
   {
     id: 'mla_01', city: 'Valletta', country: 'Malta', lat: 35.8992, lon: 14.5141, 
     coverImage: getCuratedCityFallback('Valletta'), 
-    shortDescription: 'Stolica zakonów rycerskich zbudowana ze złocistego piaskowca. Prawdziwe muzeum pod gołym niebem.', transportCode: 'MLA'
+    shortDescription: 'Stolica zakonów rycerskich zbudowana ze złocistego piaskowca. Prawdziwe muzeum pod gołym niebem.',
+    shortDescriptionEn: 'A golden sandstone capital built by knights and shaped like an open-air museum.', transportCode: 'MLA'
   },
   {
     id: 'kef_01', city: 'Reykjavik', country: 'Islandia', lat: 64.1466, lon: -21.9426, 
     coverImage: getCuratedCityFallback('Reykjavik'), 
-    shortDescription: 'Kraina lodu i ognia. Idealna baza wypadowa do podziwiania zorzy polarnej, gejzerów i wodospadów.', transportCode: 'KEF'
+    shortDescription: 'Kraina lodu i ognia. Idealna baza wypadowa do podziwiania zorzy polarnej, gejzerów i wodospadów.',
+    shortDescriptionEn: 'A gateway to ice, fire, northern lights, geysers and spectacular waterfalls.', transportCode: 'KEF'
   },
   {
     id: 'gdn_01', city: 'Gdańsk', country: 'Polska', lat: 54.3520, lon: 18.6466, 
     coverImage: getCuratedCityFallback('Gdańsk'), 
-    shortDescription: 'Stolica bursztynu. Posmakuj morskiego klimatu spacerując malowniczą ulicą Długą, aż po słynnego Żurawia.', transportCode: 'GDN'
+    shortDescription: 'Stolica bursztynu. Posmakuj morskiego klimatu spacerując malowniczą ulicą Długą, aż po słynnego Żurawia.',
+    shortDescriptionEn: 'A Baltic city of amber, maritime atmosphere and the picturesque Long Street.', transportCode: 'GDN'
   },
   {
     id: 'wro_01', city: 'Wrocław', country: 'Polska', lat: 51.1079, lon: 17.0385, 
     coverImage: getCuratedCityFallback('Wrocław'), 
-    shortDescription: 'Miasto setek mostów i krasnali. Tętniący życiem wrocławski rynek to jedno z najpiękniejszych miejsc w Polsce.', transportCode: 'WRO'
+    shortDescription: 'Miasto setek mostów i krasnali. Tętniący życiem wrocławski rynek to jedno z najpiękniejszych miejsc w Polsce.',
+    shortDescriptionEn: 'A city of hundreds of bridges and dwarfs, centred around a lively historic market square.', transportCode: 'WRO'
   },
   // --- OKAZJE LOTNICZE I POŁUDNIE EUROPY ---
   {
     id: 'bri_01', city: 'Bari', country: 'Włochy', lat: 41.1171, lon: 16.8719, 
     coverImage: getCuratedCityFallback('Bari'), 
-    shortDescription: 'Słoneczna stolica Apulii nad Adriatykiem, słynąca ze średniowiecznego starego miasta Bari Vecchia i świeżych owoców morza.', transportCode: 'BRI',
+    shortDescription: 'Słoneczna stolica Apulii nad Adriatykiem, słynąca ze średniowiecznego starego miasta Bari Vecchia i świeżych owoców morza.',
+    shortDescriptionEn: 'A sun-drenched capital of Apulia with the charming Bari Vecchia old town and fresh seafood.', transportCode: 'BRI',
     isOffTheBeatenPath: true
   },
   {
     id: 'zad_01', city: 'Zadar', country: 'Chorwacja', lat: 44.1194, lon: 15.2314, 
     coverImage: getCuratedCityFallback('Zadar'), 
-    shortDescription: 'Niezwykłe Morskie Organy, rzymskie fora i zachwycające zachody słońca na wybrzeżu Dalmacji.', transportCode: 'ZAD',
+    shortDescription: 'Niezwykłe Morskie Organy, rzymskie fora i zachwycające zachody słońca na wybrzeżu Dalmacji.',
+    shortDescriptionEn: 'The Sea Organ, ancient Roman forum, and breathtaking sunsets on the Dalmatian coast.', transportCode: 'ZAD',
     isOffTheBeatenPath: true
   },
   {
     id: 'blq_01', city: 'Bolonia', country: 'Włochy', lat: 44.4949, lon: 11.3426, 
     coverImage: getCuratedCityFallback('Bolonia'), 
-    shortDescription: 'Kulinarna stolica Włoch, słynąca z kilometrów zabytkowych arkad, uniwersyteckiej tradycji i wież Asinelli.', transportCode: 'BLQ',
+    shortDescription: 'Kulinarna stolica Włoch, słynąca z kilometrów zabytkowych arkad, uniwersyteckiej tradycji i wież Asinelli.',
+    shortDescriptionEn: 'Italy\'s culinary capital, famed for endless porticoes, historic university and Asinelli towers.', transportCode: 'BLQ',
     isOffTheBeatenPath: true
   },
 
@@ -214,132 +244,154 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'aho_01', city: 'Alghero', country: 'Włochy', lat: 40.5579, lon: 8.3193,
     coverImage: getCuratedCityFallback('Alghero'),
     shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
+    shortDescriptionEn: 'Sardinia\'s Catalan gem with ancient sea walls, emerald waters and Capo Caccia cliffs.',
     transportCode: 'AHO', isOffTheBeatenPath: true
   },
   {
     id: 'kotor_01', city: 'Kotor', country: 'Czarnogóra', lat: 42.4247, lon: 18.7712,
     coverImage: getCuratedCityFallback('Kotor'),
     shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
+    shortDescriptionEn: 'Breathtaking southern fjord (Boka Kotorska) with medieval walls scaling dramatic limestone peaks.',
     transportCode: 'TIV', isOffTheBeatenPath: true
   },
   {
     id: 'lju_01', city: 'Lublana', country: 'Słowenia', lat: 46.0569, lon: 14.5058,
     coverImage: getCuratedCityFallback('Lublana'),
     shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
+    shortDescriptionEn: 'One of Europe\'s greenest capitals – castle on a hill, Dragon Bridge and 40 min from Lake Bled.',
     transportCode: 'LJU', isOffTheBeatenPath: true
   },
   {
     id: 'bgo_01', city: 'Bergen', country: 'Norwegia', lat: 60.3913, lon: 5.3221,
     coverImage: getCuratedCityFallback('Bergen'),
     shortDescription: 'Brama do norweskich fiordów. Drewniane domy Bryggen z listy UNESCO i spektakularna kolejka linowa na górę Fløyen.',
+    shortDescriptionEn: 'The gateway to Norway\'s fjords, featuring the UNESCO-listed Bryggen wharf and Mount Fløyen funicular.',
     transportCode: 'BGO', isOffTheBeatenPath: true
   },
   {
     id: 'col_01', city: 'Colmar', country: 'Francja', lat: 48.0794, lon: 7.3585,
     coverImage: getCuratedCityFallback('Colmar'),
     shortDescription: 'Bajkowa stolica alzackich win z kanałami Małej Wenecji i zachwycającymi domami z muru pruskiego.',
+    shortDescriptionEn: 'A fairytale Alsatian wine capital with "Little Venice" canals and timber-framed houses.',
     transportCode: 'SXB', isOffTheBeatenPath: true
   },
   {
     id: 'sin_01', city: 'Sintra', country: 'Portugalia', lat: 38.8029, lon: -9.3817,
     coverImage: getCuratedCityFallback('Sintra'),
     shortDescription: 'Mistyczna rezydencja królów ukryta w zielonych wzgórzach – baśniowy Pałac Pena i tajemnicza Quinta da Regaleira.',
+    shortDescriptionEn: 'A mystical retreat of kings in lush misty hills, featuring fairytale Pena Palace and Quinta da Regaleira.',
     transportCode: 'LIS', isOffTheBeatenPath: true
   },
   {
     id: 'eas_01', city: 'San Sebastián', country: 'Hiszpania', lat: 43.3183, lon: -1.9812,
     coverImage: getCuratedCityFallback('San Sebastián'),
     shortDescription: 'Światowa stolica smaku w Kraju Basków ze zjawiskową plażą La Concha i legendarną kulturą pintxos.',
+    shortDescriptionEn: 'The world\'s gastronomic capital in the Basque Country, with La Concha beach and legendary pintxos.',
     transportCode: 'EAS', isOffTheBeatenPath: true
   },
   {
     id: 'tll_01', city: 'Tallinn', country: 'Estonia', lat: 59.4370, lon: 24.7536,
     coverImage: getCuratedCityFallback('Tallinn'),
     shortDescription: 'Najlepiej zachowane średniowieczne miasto północnej Europy, gdzie gotyckie baszty spotykają się z technologicznym duchem.',
+    shortDescriptionEn: 'Northern Europe\'s best-preserved medieval city with cobblestone alleys and tech-forward energy.',
     transportCode: 'TLL', isOffTheBeatenPath: true
   },
   {
     id: 'mat_01', city: 'Matera', country: 'Włochy', lat: 40.6664, lon: 16.6043,
     coverImage: getCuratedCityFallback('Matera'),
     shortDescription: 'Unikatowe miasto w całości wykute w skałach wapiennych (Sassi) – jedno z najstarszych i najbardziej fascynujących miejsc globu.',
+    shortDescriptionEn: 'A surreal UNESCO city carved entirely into limestone ravines (Sassi) – one of the oldest settlements on Earth.',
     transportCode: 'BRI', isOffTheBeatenPath: true
   },
   {
     id: 'tos_01', city: 'Tromsø', country: 'Norwegia', lat: 69.6492, lon: 18.9553,
     coverImage: getCuratedCityFallback('Tromsø'),
     shortDescription: 'Brama Arktyki za kołem podbiegunowym – zorza polarna, potężne fiordy i spektakularna Katedra Arktyczna.',
+    shortDescriptionEn: 'The Arctic gateway beyond the polar circle – northern lights, dramatic fjords and the Arctic Cathedral.',
     transportCode: 'TOS', isOffTheBeatenPath: true
   },
   {
     id: 'ohd_01', city: 'Ochryda', country: 'Macedonia Północna', lat: 41.1172, lon: 20.8016,
     coverImage: getCuratedCityFallback('Ochryda'),
     shortDescription: 'Starożytne jezioro z krystaliczną wodą i ikoniczną cerkwią św. Jana zawieszoną na urwisku skalnym nad taflą wody.',
+    shortDescriptionEn: 'An ancient crystal-clear lake with iconic cliffside Saint John at Kaneo monastery.',
     transportCode: 'OHD', isOffTheBeatenPath: true
   },
   {
     id: 'gro_01', city: 'Girona', country: 'Hiszpania', lat: 41.9794, lon: 2.8214,
     coverImage: getCuratedCityFallback('Girona'),
     shortDescription: 'Kataloński klejnot z kolorowymi kamienicami nad rzeką Onyar, monumentalną katedrą i zabytkową dzielnicą żydowską.',
+    shortDescriptionEn: 'A Catalan medieval treasure with colourful Onyar river houses and Jewish Quarter labyrinth.',
     transportCode: 'GRO', isOffTheBeatenPath: true
   },
   {
     id: 'hal_01', city: 'Hallstatt', country: 'Austria', lat: 47.5622, lon: 13.6493,
     coverImage: getCuratedCityFallback('Hallstatt'),
     shortDescription: 'Malownicza alpejska wioska przeglądająca się w tafli jeziora, z najstarszą kopalnią soli i drewnianą architekturą.',
+    shortDescriptionEn: 'A postcard-perfect Alpine village mirrored in glassy lake waters, home to the world\'s oldest salt mine.',
     transportCode: 'SZG', isOffTheBeatenPath: true
   },
   {
     id: 'brq_01', city: 'Brno', country: 'Czechy', lat: 49.1951, lon: 16.6068,
     coverImage: getCuratedCityFallback('Brno'),
     shortDescription: 'Klimatyczna stolica Moraw z modernistyczną Willą Tugendhat (UNESCO), podziemnym labiryntem i lokalnymi winiarniami.',
+    shortDescriptionEn: 'Moravia\'s creative capital with UNESCO Villa Tugendhat, underground cellars and local vineyards.',
     transportCode: 'BRQ', isOffTheBeatenPath: true
   },
   {
     id: 'snd_01', city: 'Sandomierz', country: 'Polska', lat: 50.6800, lon: 21.7500,
     coverImage: getCuratedCityFallback('Sandomierz'),
     shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
+    shortDescriptionEn: 'A picturesque historic town perched over the Vistula on seven loess hills with royal heritage.',
     transportCode: 'Sandomierz', isOffTheBeatenPath: true
   },
   {
     id: 'szc_01', city: 'Szczawnica', country: 'Polska', lat: 49.4278, lon: 20.4856,
     coverImage: getCuratedCityFallback('Szczawnica'),
     shortDescription: 'Klimatyczne uzdrowisko w sercu Pienin – spływ Przełomem Dunajca, widok na Trzy Korony i pijalnie wód mineralnych.',
+    shortDescriptionEn: 'A tranquil mountain spa resort nestled in the Pieniny mountains along the Dunajec Gorge.',
     transportCode: 'Szczawnica'
   },
   {
     id: 'zak_01', city: 'Zakopane', country: 'Polska', lat: 49.2992, lon: 19.9496,
     coverImage: getCuratedCityFallback('Zakopane'),
     shortDescription: 'Zimowa i letnia stolica Tatr. Wyrusz na szlaki Morskiego Oka, Kasprowego Wierchu i poczuj góralski klimat Krupówek.',
+    shortDescriptionEn: 'The winter and summer capital of the Polish Tatras with breathtaking mountain trails and highland culture.',
     transportCode: 'Zakopane'
   },
   {
     id: 'tor_01', city: 'Toruń', country: 'Polska', lat: 53.0138, lon: 18.5984,
     coverImage: getCuratedCityFallback('Toruń'),
     shortDescription: 'Gotycka perła UNESCO nad Wisłą. Miasto Mikołaja Kopernika, pachnące tradycyjnymi toruńskimi piernikami.',
+    shortDescriptionEn: 'A UNESCO-listed gothic jewel on the Vistula, birthplace of Copernicus and fragrant traditional gingerbread.',
     transportCode: 'Toruń Główny'
   },
   {
     id: 'poz_01', city: 'Poznań', country: 'Polska', lat: 52.4064, lon: 16.9252,
     coverImage: getCuratedCityFallback('Poznań'),
     shortDescription: 'Kolorowy Stary Rynek ze słynnymi koziołkami, kolebka polskiej państwowości na Ostrowie Tumskim i rogaliki świętomarcińskie.',
+    shortDescriptionEn: 'A vibrant old town square with historic mechanical goats, birthplace of Poland at Ostrów Tumski and St. Martin croissants.',
     transportCode: 'POZ'
   },
   {
     id: 'szg_01', city: 'Salzburg', country: 'Austria', lat: 47.8095, lon: 13.0550,
     coverImage: getCuratedCityFallback('Salzburg'),
     shortDescription: 'Barokowe miasto Mozarta u podnóża Alp, z majestatyczną twierdzą Hohensalzburg i ogrodami pałacu Mirabell.',
+    shortDescriptionEn: 'Mozart\'s baroque hometown framed by the Alps, boasting Hohensalzburg fortress and enchanting Mirabell gardens.',
     transportCode: 'SZG'
   },
   {
     id: 'pmo_01', city: 'Palermo', country: 'Włochy', lat: 38.1157, lon: 13.3615,
     coverImage: getCuratedCityFallback('Palermo'),
     shortDescription: 'Fascynująca stolica Sycylii z bizantyjsko-arabską architekturą, gwarnymi targami i widokiem na Zatokę Palermo.',
+    shortDescriptionEn: 'Sicily\'s captivating capital of Norman-Arab palaces, vibrant bustling markets and world-class street food.',
     transportCode: 'PMO'
   },
   {
     id: 'svq_01', city: 'Sewilla', country: 'Hiszpania', lat: 37.3891, lon: -5.9845,
     coverImage: getCuratedCityFallback('Sewilla'),
     shortDescription: 'Gorąca stolica Andaluzji. Zachwycający plac Plaza de España, pałac Alcázar i ojczyzna pasjonującego flamenco.',
+    shortDescriptionEn: 'The passionate heart of Andalusia, home to fairy-tale Plaza de España, the Alcázar palace and authentic flamenco.',
     transportCode: 'SVQ'
   },
 
@@ -348,6 +400,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'kaz_01', city: 'Kazimierz Dolny', country: 'Polska', lat: 51.3235, lon: 21.9547,
     coverImage: getCuratedCityFallback('Kazimierz Dolny'),
     shortDescription: 'Klimatyczne miasteczko artystów nad Wisłą – słynny rynek, Wąwóz Korzeniowy Dół, Góra Trzech Krzyży i pyszne koguty maślane.',
+    shortDescriptionEn: 'An artistic historic town by the Vistula with a charming renaissance square, Root Loess Gorge and Three Crosses Hill.',
     transportCode: 'Kazimierz Dolny',
     isDayTrip: true
   },
@@ -355,6 +408,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'zel_01', city: 'Żelazowa Wola', country: 'Polska', lat: 52.2570, lon: 20.3160,
     coverImage: getCuratedCityFallback('Żelazowa Wola'),
     shortDescription: 'Zielony wypad pod Warszawę: zabytkowy dworek i park Fryderyka Chopina oraz dziewicze ścieżki Kampinoskiego Parku Narodowego.',
+    shortDescriptionEn: 'A peaceful green getaway near Warsaw: birthplace and manor park of Frédéric Chopin and wilderness trails of Kampinos National Park.',
     transportCode: 'Żelazowa Wola',
     isDayTrip: true
   },
@@ -362,6 +416,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'plo_01', city: 'Płock', country: 'Polska', lat: 52.5463, lon: 19.7065,
     coverImage: getCuratedCityFallback('Płock'),
     shortDescription: 'Historyczna stolica Mazowsza ze spektakularnym Wzgórzem Tumskim nad szeroką Wisłą, nowoczesnym molo i zabytkowym rynkiem.',
+    shortDescriptionEn: 'Historic capital of Mazovia with dramatic views from Tumskie Hill over the Vistula, modern pier and historic market.',
     transportCode: 'Płock',
     isDayTrip: true
   },
@@ -369,6 +424,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'ojc_01', city: 'Ojcowski Park Narodowy', country: 'Polska', lat: 50.2114, lon: 19.8294,
     coverImage: getCuratedCityFallback('Ojcowski Park Narodowy'),
     shortDescription: 'Królewski jednodniowy spacer wśród białych ostańców wapiennych Jury – Zamek Pieskowa Skała, Maczuga Herkulesa i Grota Łokietka.',
+    shortDescriptionEn: 'Spectacular limestone towers, Pieskowa Skała Castle, Hercules’ Club and Łokietek Cave in Poland’s smallest national park.',
     transportCode: 'Ojców',
     isDayTrip: true
   },
@@ -376,6 +432,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'mal_01', city: 'Zamek w Malborku', country: 'Polska', lat: 54.0398, lon: 19.0280,
     coverImage: getCuratedCityFallback('Zamek w Malborku'),
     shortDescription: 'Najpotężniejsza ceglana twierdza rycerska na świecie (UNESCO). Fascynujący jednodniowy wypad na zwiedzanie zamkowych komnat nad Nogatem.',
+    shortDescriptionEn: 'The world’s largest brick gothic fortress (UNESCO). A majestic day trip exploring grand Teutonic halls by the Nogat River.',
     transportCode: 'Malbork',
     isDayTrip: true
   },
@@ -383,6 +440,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'ogr_01', city: 'Zamek Ogrodzieniec', country: 'Polska', lat: 50.4533, lon: 19.5517,
     coverImage: getCuratedCityFallback('Zamek Ogrodzieniec'),
     shortDescription: 'Najbardziej imponujące orle gniazdo Jury Krakowsko-Częstochowskiej. Malownicze ruiny wkomponowane w monumentalne skały Podzamcza.',
+    shortDescriptionEn: 'The most imposing castle ruins on the Eagle Nests Trail, nestled in dramatic Jurassic limestone crags.',
     transportCode: 'Podzamcze',
     isDayTrip: true
   },
@@ -390,6 +448,7 @@ export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' 
     id: 'lod_01', city: 'Łódź', country: 'Polska', lat: 51.7592, lon: 19.4560,
     coverImage: getCuratedCityFallback('Łódź'),
     shortDescription: 'Tętniący życiem dzień w sercu Polski: spacer reprezentacyjną Piotrkowską, zrewitalizowana Manufaktura i magiczny klimat Księżego Młyna.',
+    shortDescriptionEn: 'A vibrant day trip discovering iconic Piotrkowska street, revitalized Manufaktura factory complex and atmospheric Księży Młyn.',
     transportCode: 'Łódź Fabryczna',
     isDayTrip: true
   }
@@ -607,7 +666,126 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+/**
+ * Rozwiązuje prawidłowy 3-literowy kod IATA lotniska docelowego dla zapytań Skyscanner / wyszukiwarek lotów.
+ * Chroni przed generowaniem błędnych URL-i (np. ze spacjami lub nazwami stacji kolejowych jak 'Kraków Główny').
+ */
+export function resolveAirportIataCode(transportCode?: string, city?: string): string {
+  if (transportCode && /^[A-Za-z]{3}$/.test(transportCode.trim())) {
+    return transportCode.trim().toUpperCase();
+  }
+
+  const lookup = `${city || ''} ${transportCode || ''}`.toLowerCase().trim();
+
+  const MAPPING: Record<string, string> = {
+    'kraków': 'KRK',
+    'krakow': 'KRK',
+    'warszawa': 'WAW',
+    'warsaw': 'WAW',
+    'gdańsk': 'GDN',
+    'gdansk': 'GDN',
+    'wrocław': 'WRO',
+    'wroclaw': 'WRO',
+    'poznań': 'POZ',
+    'poznan': 'POZ',
+    'katowice': 'KTW',
+    'łódź': 'LCJ',
+    'lodz': 'LCJ',
+    'zakopane': 'KRK',
+    'toruń': 'BZG',
+    'torun': 'BZG',
+    'bydgoszcz': 'BZG',
+    'rzeszów': 'RZE',
+    'rzeszow': 'RZE',
+    'lublin': 'LUW',
+    'szczecin': 'SZZ',
+    'sandomierz': 'RZE',
+    'szczawnica': 'KRK',
+    'malbork': 'GDN',
+    'ojców': 'KRK',
+    'podzamcze': 'KTW',
+    'płock': 'WMI',
+    'plock': 'WMI',
+    'żelazowa wola': 'WAW',
+    'kazimierz dolny': 'LUW',
+    'rzym': 'ROM',
+    'rome': 'ROM',
+    'paryż': 'PAR',
+    'paris': 'PAR',
+    'londyn': 'LON',
+    'london': 'LON',
+    'barcelona': 'BCN',
+    'ateny': 'ATH',
+    'athens': 'ATH',
+    'praga': 'PRG',
+    'prague': 'PRG',
+    'wiedeń': 'VIE',
+    'vienna': 'VIE',
+    'budapeszt': 'BUD',
+    'budapest': 'BUD',
+    'berlin': 'BER',
+    'lizbona': 'LIS',
+    'lisbon': 'LIS',
+    'madryt': 'MAD',
+    'madrid': 'MAD',
+    'amsterdam': 'AMS',
+    'kopenhaga': 'CPH',
+    'copenhagen': 'CPH',
+    'mediolan': 'MXP',
+    'milan': 'MXP',
+    'wenecja': 'VCE',
+    'venice': 'VCE',
+    'dubrownik': 'DBV',
+    'dubrovnik': 'DBV',
+    'zurych': 'ZRH',
+    'zurich': 'ZRH',
+    'edynburg': 'EDI',
+    'edinburgh': 'EDI',
+    'dublin': 'DUB',
+    'walencja': 'VLC',
+    'valencia': 'VLC',
+    'neapol': 'NAP',
+    'naples': 'NAP',
+    'porto': 'OPO',
+    'stambuł': 'IST',
+    'istanbul': 'IST',
+    'nicea': 'NCE',
+    'nice': 'NCE',
+    'monachium': 'MUC',
+    'munich': 'MUC',
+    'valletta': 'MLA',
+    'malta': 'MLA',
+    'reykjavik': 'KEF',
+    'bari': 'BRI',
+    'zadar': 'ZAD',
+    'bolonia': 'BLQ',
+    'bologna': 'BLQ',
+    'alghero': 'AHO',
+    'kotor': 'TIV',
+    'lublana': 'LJU',
+    'ljubljana': 'LJU',
+    'bergen': 'BGO',
+    'colmar': 'SXB',
+    'sintra': 'LIS',
+    'san sebastián': 'EAS',
+    'san sebastian': 'EAS',
+    'tallinn': 'TLL',
+    'matera': 'BRI',
+    'tromsø': 'TOS',
+    'tromso': 'TOS',
+  };
+
+  for (const [key, code] of Object.entries(MAPPING)) {
+    if (lookup.includes(key)) {
+      return code;
+    }
+  }
+
+  return 'WAW';
+}
+
 function formatDateStr(ymd: string) {
+
   const [y, m, d] = ymd.split('-');
   return `${d}.${m}.${y}`;
 }
@@ -738,6 +916,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 12.4964,
       coverImage: getCuratedCityFallback('Rzym'),
       shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
+      shortDescriptionEn: 'The Eternal City, where ancient history meets some of the world\'s best cuisine.',
       transportCode: 'ROM',
       temp: 22,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -752,6 +931,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 2.1734,
       coverImage: getCuratedCityFallback('Barcelona'),
       shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.',
+      shortDescriptionEn: 'Gaudi architecture, relaxing beaches and lively streets in the heart of Catalonia.',
       transportCode: 'BCN',
       temp: 20,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -766,7 +946,8 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 19.9366,
       coverImage: getCuratedCityFallback('Kraków'),
       shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.',
-      transportCode: 'Kraków Główny',
+      shortDescriptionEn: 'Poland\'s historic capital, full of royal history and the unique atmosphere of Kazimierz.',
+      transportCode: 'KRK',
       temp: 18,
       condition: 'Bez opadów, idealnie na zwiedzanie',
       icon: 'https://openweathermap.org/img/wn/01d@2x.png',
@@ -780,6 +961,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 2.3522,
       coverImage: getCuratedCityFallback('Paryż'),
       shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.',
+      shortDescriptionEn: 'The city of lights and art, perfect for walks along the Seine and fresh croissants.',
       transportCode: 'PAR',
       temp: 19,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -794,6 +976,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 8.3193,
       coverImage: getCuratedCityFallback('Alghero'),
       shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
+      shortDescriptionEn: 'Sardinia\'s Catalan gem with ancient sea walls, emerald waters and Capo Caccia cliffs.',
       transportCode: 'AHO',
       temp: 23,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -809,6 +992,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 18.7712,
       coverImage: getCuratedCityFallback('Kotor'),
       shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
+      shortDescriptionEn: 'Breathtaking southern fjord (Boka Kotorska) with medieval walls scaling dramatic limestone peaks.',
       transportCode: 'TIV',
       temp: 21,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -824,6 +1008,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 14.5058,
       coverImage: getCuratedCityFallback('Lublana'),
       shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
+      shortDescriptionEn: 'One of Europe\'s greenest capitals – castle on a hill, Dragon Bridge and 40 min from Lake Bled.',
       transportCode: 'LJU',
       temp: 20,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -839,6 +1024,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 21.7500,
       coverImage: getCuratedCityFallback('Sandomierz'),
       shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
+      shortDescriptionEn: 'A picturesque historic town perched over the Vistula on seven loess hills with royal heritage.',
       transportCode: 'Sandomierz',
       temp: 19,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -854,6 +1040,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 21.9547,
       coverImage: getCuratedCityFallback('Kazimierz Dolny'),
       shortDescription: 'Klimatyczne miasteczko artystów nad Wisłą – słynny rynek, Wąwóz Korzeniowy Dół, Góra Trzech Krzyży i pyszne koguty maślane.',
+      shortDescriptionEn: 'An artistic historic town by the Vistula with a charming renaissance square, Root Loess Gorge and Three Crosses Hill.',
       transportCode: 'Kazimierz Dolny',
       temp: 20,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -869,6 +1056,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: 20.3160,
       coverImage: getCuratedCityFallback('Żelazowa Wola'),
       shortDescription: 'Zielony wypad pod Warszawę: zabytkowy dworek i park Fryderyka Chopina oraz dziewicze ścieżki Kampinoskiego Parku Narodowego.',
+      shortDescriptionEn: 'A peaceful green getaway near Warsaw: birthplace and manor park of Frédéric Chopin and wilderness trails of Kampinos National Park.',
       transportCode: 'Żelazowa Wola',
       temp: 21,
       condition: 'Bez opadów, idealnie na zwiedzanie',
@@ -909,6 +1097,7 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       lon: c.lon,
       coverImage: c.coverImage,
       shortDescription: c.shortDescription,
+      shortDescriptionEn: (c as any).shortDescriptionEn,
       transportCode: c.transportCode,
       distanceKm: distance,
       recommendedTransport,
@@ -1403,4 +1592,18 @@ export async function generateLiveRecommendations(): Promise<LiveDestination[]> 
   } catch {}
 
   return resultsToReturn;
+}
+
+/**
+ * Zwraca zlokalizowany opis destynacji (polski lub angielski) z uwzględnieniem
+ * pól shortDescriptionEn, słowników i bezpiecznych fallbacków.
+ */
+export function getLocalizedDestinationDescription(
+  dest: { city: string; shortDescription: string; shortDescriptionEn?: string },
+  language: 'pl' | 'en'
+): string {
+  if (language === 'en') {
+    return dest.shortDescriptionEn || dest.shortDescription;
+  }
+  return dest.shortDescription;
 }

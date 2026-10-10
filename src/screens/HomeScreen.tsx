@@ -51,25 +51,18 @@ import {
   DEFAULT_EXCHANGE_RATES,
 } from '../lib/currencyService';
 import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
+import {
+  POPULAR_DESTINATION_ATTRACTIONS,
+  getCuratedSuggestionsForDestination,
+  fetchDynamicGoogleAttractions,
+  type PopularAttractionItem,
+} from '../lib/destinationAttractions';
+
+export { POPULAR_DESTINATION_ATTRACTIONS, type PopularAttractionItem };
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
 
-const EXCHANGE_RATES: Record<string, number> = {
-  PLN: 1.0,
-  EUR: 4.30,
-  USD: 4.00,
-  GBP: 5.10,
-  CHF: 4.50,
-  CZK: 0.17,
-  HUF: 0.011,
-  JPY: 0.026,
-  ISK: 0.029,
-  NOK: 0.37,
-  SEK: 0.38,
-  DKK: 0.58,
-  TRY: 0.12,
-};
 
 const CURRENCY_LIST = [
   { code: 'EUR', label: 'EUR - Euro', labelEn: 'EUR - Euro', symbol: '€' },
@@ -116,89 +109,6 @@ const getCurrencyForDestination = (dest: string): string => {
   if (['stambuł', 'stambul', 'istanbul', 'ankara', 'antalya', 'turcja', 'turkey'].some(c => d.includes(c))) return 'TRY';
   // Domyślnie waluta strefy Euro
   return 'EUR';
-};
-
-interface PopularAttractionItem {
-  name: string;
-  nameEn?: string;
-  subtitle: string;
-  subtitleEn?: string;
-  imageUrl: string;
-}
-
-const POPULAR_DESTINATION_ATTRACTIONS: Record<string, PopularAttractionItem[]> = {
-  rzym: [
-    { name: 'Koloseum', nameEn: 'Colosseum', subtitle: 'Starożytny amfiteatr Flawiuszów', subtitleEn: 'Ancient Flavian amphitheater', imageUrl: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Fontanna di Trevi', nameEn: 'Trevi Fountain', subtitle: 'Słynna barokowa fontanna', subtitleEn: 'Famous baroque fountain', imageUrl: 'https://images.unsplash.com/photo-1525874684015-58379d421a52?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Panteon', nameEn: 'Pantheon', subtitle: 'Starożytna świątynia wszystkich bogów', subtitleEn: 'Ancient temple of all gods', imageUrl: 'https://images.unsplash.com/photo-1542820229-081e0c12af0b?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Forum Romanum', nameEn: 'Roman Forum', subtitle: 'Serce antycznego Rzymu', subtitleEn: 'Heart of ancient Rome', imageUrl: 'https://images.unsplash.com/photo-1515542622106-78bda8ba0e5b?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Bazylika św. Piotra', nameEn: "St. Peter's Basilica", subtitle: 'Serce Watykanu i arcydzieło renesansu', subtitleEn: 'Vatican masterpiece', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Schody Hiszpańskie', nameEn: 'Spanish Steps', subtitle: 'Piazza di Spagna', subtitleEn: 'Piazza di Spagna', imageUrl: 'https://images.unsplash.com/photo-1531572753322-ad063cecc140?auto=format&fit=crop&q=80&w=600' },
-  ],
-  rome: [
-    { name: 'Koloseum', nameEn: 'Colosseum', subtitle: 'Starożytny amfiteatr Flawiuszów', subtitleEn: 'Ancient Flavian amphitheater', imageUrl: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Fontanna di Trevi', nameEn: 'Trevi Fountain', subtitle: 'Słynna barokowa fontanna', subtitleEn: 'Famous baroque fountain', imageUrl: 'https://images.unsplash.com/photo-1525874684015-58379d421a52?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Panteon', nameEn: 'Pantheon', subtitle: 'Starożytna świątynia wszystkich bogów', subtitleEn: 'Ancient temple of all gods', imageUrl: 'https://images.unsplash.com/photo-1542820229-081e0c12af0b?auto=format&fit=crop&q=80&w=600' },
-  ],
-  paryż: [
-    { name: 'Wieża Eiffla', nameEn: 'Eiffel Tower', subtitle: 'Ikona Paryża i widok na panoramę', subtitleEn: 'Iconic panoramic landmark', imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Luwr', nameEn: 'Louvre Museum', subtitle: 'Największe muzeum sztuki na świecie', subtitleEn: "World's largest art museum", imageUrl: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Katedra Notre-Dame', nameEn: 'Notre-Dame Cathedral', subtitle: 'Gotyckie arcydzieło nad Sekwaną', subtitleEn: 'Gothic cathedral by the Seine', imageUrl: 'https://images.unsplash.com/photo-1478359844494-1092259d93e4?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Bazylika Sacré-Cœur', nameEn: 'Sacré-Cœur Basilica', subtitle: 'Wzgórze Montmartre', subtitleEn: 'Montmartre hill', imageUrl: 'https://images.unsplash.com/photo-1520939817895-060bdef4ad1b?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Łuk Triumfalny', nameEn: 'Arc de Triomphe', subtitle: 'Champs-Élysées', subtitleEn: 'Champs-Élysées', imageUrl: 'https://images.unsplash.com/photo-1509299349698-dd22323b5963?auto=format&fit=crop&q=80&w=600' },
-  ],
-  paris: [
-    { name: 'Wieża Eiffla', nameEn: 'Eiffel Tower', subtitle: 'Ikona Paryża i widok na panoramę', subtitleEn: 'Iconic panoramic landmark', imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Luwr', nameEn: 'Louvre Museum', subtitle: 'Największe muzeum sztuki na świecie', subtitleEn: "World's largest art museum", imageUrl: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&q=80&w=600' },
-  ],
-  barcelona: [
-    { name: 'Sagrada Família', nameEn: 'Sagrada Família', subtitle: 'Niedokończone arcydzieło Gaudiego', subtitleEn: "Gaudi's masterpiece", imageUrl: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Park Güell', nameEn: 'Park Güell', subtitle: 'Magiczny park z mozaikami', subtitleEn: 'Colorful mosaic park', imageUrl: 'https://images.unsplash.com/photo-1564221710304-0b37c8b9d729?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Casa Batlló', nameEn: 'Casa Batlló', subtitle: 'Modernistyczna perła architektury', subtitleEn: 'Modernist architectural gem', imageUrl: 'https://images.unsplash.com/photo-1587789202069-f57c846b6535?auto=format&fit=crop&q=80&w=600' },
-    { name: 'La Rambla', nameEn: 'La Rambla', subtitle: 'Tętniący życiem deptak', subtitleEn: 'Vibrant historic boulevard', imageUrl: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=600' },
-  ],
-  londyn: [
-    { name: 'Big Ben & Westminster', nameEn: 'Big Ben & Westminster', subtitle: 'Słynna wieża zegarowa i parlament', subtitleEn: 'Iconic clock tower & parliament', imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600' },
-    { name: 'London Eye', nameEn: 'London Eye', subtitle: 'Koło widokowe nad Tamizą', subtitleEn: 'Observation wheel on the Thames', imageUrl: 'https://images.unsplash.com/photo-1486299267070-83823f5448dd?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Tower Bridge', nameEn: 'Tower Bridge', subtitle: 'Zabytkowy most zwodzony', subtitleEn: 'Historic suspension bridge', imageUrl: 'https://images.unsplash.com/photo-1526129318478-62ed807ebdf9?auto=format&fit=crop&q=80&w=600' },
-    { name: 'British Museum', nameEn: 'British Museum', subtitle: 'Światowej klasy zbiory historyczne', subtitleEn: 'World-class museum of history', imageUrl: 'https://images.unsplash.com/photo-1574610758891-5b809b6e6e2e?auto=format&fit=crop&q=80&w=600' },
-  ],
-  london: [
-    { name: 'Big Ben & Westminster', nameEn: 'Big Ben & Westminster', subtitle: 'Słynna wieża zegarowa i parlament', subtitleEn: 'Iconic clock tower & parliament', imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Tower Bridge', nameEn: 'Tower Bridge', subtitle: 'Zabytkowy most zwodzony', subtitleEn: 'Historic suspension bridge', imageUrl: 'https://images.unsplash.com/photo-1526129318478-62ed807ebdf9?auto=format&fit=crop&q=80&w=600' },
-  ],
-  kraków: [
-    { name: 'Wawel', nameEn: 'Wawel Castle', subtitle: 'Zamek Królewski i Katedra', subtitleEn: 'Royal Castle & Cathedral', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Rynek Główny', nameEn: 'Main Market Square', subtitle: 'Sukiennice i Kościół Mariacki', subtitleEn: "Cloth Hall & St. Mary's Basilica", imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Kazimierz', nameEn: 'Kazimierz District', subtitle: 'Zabytkowa dzielnica żydowska', subtitleEn: 'Historic Jewish quarter', imageUrl: 'https://images.unsplash.com/photo-1596484552834-6a58f850e0a1?auto=format&fit=crop&q=80&w=600' },
-  ],
-  krakow: [
-    { name: 'Wawel', nameEn: 'Wawel Castle', subtitle: 'Zamek Królewski i Katedra', subtitleEn: 'Royal Castle & Cathedral', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Rynek Główny', nameEn: 'Main Market Square', subtitle: 'Sukiennice i Kościół Mariacki', subtitleEn: "Cloth Hall & St. Mary's Basilica", imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
-  ],
-  warszawa: [
-    { name: 'Stare Miasto', nameEn: 'Old Town', subtitle: 'Zamek Królewski i Rynek Starego Miasta', subtitleEn: 'Royal Castle & Old Town Market', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Łazienki Królewskie', nameEn: 'Royal Łazienki', subtitle: 'Pałac na Wyspie i pomnik Chopina', subtitleEn: 'Palace on the Isle & Chopin Monument', imageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Muzeum Powstania Warszawskiego', nameEn: 'Warsaw Uprising Museum', subtitle: 'Interaktywna historia', subtitleEn: 'Interactive modern history', imageUrl: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600' },
-  ],
-  warsaw: [
-    { name: 'Stare Miasto', nameEn: 'Old Town', subtitle: 'Zamek Królewski i Rynek Starego Miasta', subtitleEn: 'Royal Castle & Old Town Market', imageUrl: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=600' },
-  ],
-  praga: [
-    { name: 'Most Karola', nameEn: 'Charles Bridge', subtitle: 'Średniowieczny most kamienny na Wełtawie', subtitleEn: 'Medieval stone bridge over Vltava', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Hradczany', nameEn: 'Prague Castle', subtitle: 'Zamek Praski i Katedra św. Wita', subtitleEn: 'Prague Castle & Cathedral', imageUrl: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Rynek Staromiejski', nameEn: 'Old Town Square', subtitle: 'Zegar astronomiczny Orloj', subtitleEn: 'Orloj Astronomical Clock', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
-  ],
-  prague: [
-    { name: 'Most Karola', nameEn: 'Charles Bridge', subtitle: 'Średniowieczny most kamienny na Wełtawie', subtitleEn: 'Medieval stone bridge over Vltava', imageUrl: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=600' },
-  ],
-  tokio: [
-    { name: 'Świątynia Senso-ji', nameEn: 'Senso-ji Temple', subtitle: 'Najstarsza buddyjska świątynia w Asakusie', subtitleEn: 'Historic Buddhist temple in Asakusa', imageUrl: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=600' },
-    { name: 'Shibuya Crossing', nameEn: 'Shibuya Crossing', subtitle: 'Najsłynniejsze skrzyżowanie świata', subtitleEn: 'Famous pedestrian scramble', imageUrl: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&q=80&w=600' },
-  ],
-  tokyo: [
-    { name: 'Świątynia Senso-ji', nameEn: 'Senso-ji Temple', subtitle: 'Najstarsza buddyjska świątynia w Asakusie', subtitleEn: 'Historic Buddhist temple in Asakusa', imageUrl: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=600' },
-  ],
 };
 
 const parseEventDateTime = (dateStr?: string, timeStr?: string): Date => {
@@ -832,37 +742,51 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       }
     });
 
-    // 2. Dodaj propozycje z bazy popularnych atrakcji jeśli brakuje
-    const destKey = (activeTrip.destination || '').toLowerCase().trim();
-    for (const [key, items] of Object.entries(POPULAR_DESTINATION_ATTRACTIONS)) {
-      if (destKey.includes(key)) {
-        items.forEach((item, idx) => {
-          const localizedName = (language === 'en' && item.nameEn) ? item.nameEn : item.name;
-          const localizedSubtitle = (language === 'en' && item.subtitleEn) ? item.subtitleEn : item.subtitle;
-          if (!usedTitles.includes(localizedName.toLowerCase()) && !usedTitles.includes(item.name.toLowerCase()) && !candidates.some(c => c.name.toLowerCase() === localizedName.toLowerCase())) {
-            candidates.push({
-              id: `curated_${key}_${idx}`,
-              name: localizedName,
-              subtitle: localizedSubtitle,
-              imageUrl: item.imageUrl,
-            });
-          }
+    // 2. Dodaj propozycje z bazy dedykowanych atrakcji dla wybranego miasta
+    const curated = getCuratedSuggestionsForDestination(activeTrip.destination || '', language);
+    curated.forEach((item, idx) => {
+      const nameLower = item.name.toLowerCase();
+      if (
+        !usedTitles.includes(nameLower) &&
+        !candidates.some(c => c.name.toLowerCase() === nameLower)
+      ) {
+        candidates.push({
+          id: item.id || `curated_${idx}`,
+          name: item.name,
+          subtitle: item.subtitle,
+          imageUrl: item.imageUrl,
         });
       }
-    }
+    });
 
     return candidates;
   }, [activeTrip, activeTimeline, language]);
 
-  // Wzbogacanie propozycji z okolicy o prawdziwe zdjęcia z Google Places
+  // Wzbogacanie propozycji z okolicy o prawdziwe zdjęcia z Google Places lub dynamiczne dociąganie
   useEffect(() => {
     let isCancelled = false;
+    const dest = activeTrip?.destination || '';
+
     if (availableSuggestions.length > 0) {
       setEnrichedSuggestions(availableSuggestions);
-      enrichAttractionsWithGooglePhotos(availableSuggestions, activeTrip?.destination || '')
+      enrichAttractionsWithGooglePhotos(availableSuggestions, dest)
         .then((enriched) => {
           if (!isCancelled) {
             setEnrichedSuggestions(enriched);
+          }
+        })
+        .catch(() => {});
+    } else if (dest.trim().length > 0) {
+      // Dynamiczne pobranie atrakcji z Google Places API dla dowolnego miasta na świecie
+      fetchDynamicGoogleAttractions(dest, language)
+        .then((dynamicItems) => {
+          if (!isCancelled && dynamicItems.length > 0) {
+            setEnrichedSuggestions(dynamicItems.map((item, idx) => ({
+              id: item.id || `dynamic_${idx}`,
+              name: item.name,
+              subtitle: item.subtitle,
+              imageUrl: item.imageUrl,
+            })));
           }
         })
         .catch(() => {});
@@ -870,7 +794,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       setEnrichedSuggestions([]);
     }
     return () => { isCancelled = true; };
-  }, [availableSuggestions, activeTrip?.destination]);
+  }, [availableSuggestions, activeTrip?.destination, language]);
 
   const handleOpenAddModal = () => {
     setManualDate(activeDayDateStr || activeTrip?.start_date || '');
@@ -1217,7 +1141,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             bounces={true} 
             contentContainerStyle={{ 
               paddingBottom: isKeyboardVisible 
-                ? (Platform.OS === 'android' ? 420 : keyboardHeight + 100) 
+                ? Math.max(keyboardHeight + 24, 100) 
                 : 110 
             }} 
             showsVerticalScrollIndicator={false}
@@ -1295,7 +1219,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 onPress={handleOpenFullTimeline}
                 testID="home-view-full-timeline-btn"
               >
-                <Text style={styles.fullTimelineHeaderBtnText}>Pełny plan</Text>
+                <Text style={styles.fullTimelineHeaderBtnText}>
+                  {t.fullPlanBtn || (language === 'en' ? 'Full plan' : 'Pełny plan')}
+                </Text>
                 <Ionicons name="chevron-forward" size={13} color="#F59E0B" style={{ marginLeft: 3 }} />
               </TouchableOpacity>
             </View>
@@ -1303,8 +1229,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             {activeAndUpcomingEvents.length === 0 ? (
               <View style={styles.emptyDayBox}>
                 <Ionicons name="checkmark-circle-outline" size={32} color="#10B981" style={{ marginBottom: 6 }} />
-                <Text style={styles.emptyDayTitle}>Wszystkie zaplanowane punkty zostały zrealizowane</Text>
-                <Text style={styles.emptyDaySubtitle}>Ciesz się wolnym czasem lub dodaj nowy punkt do planu</Text>
+                <Text style={styles.emptyDayTitle}>
+                  {t.allPointsCompletedTitle || (language === 'en' ? 'All planned stops completed' : 'Wszystkie zaplanowane punkty zostały zrealizowane')}
+                </Text>
+                <Text style={styles.emptyDaySubtitle}>
+                  {t.allPointsCompletedSubtitle || (language === 'en' ? 'Enjoy your free time or add a new stop to the plan' : 'Ciesz się wolnym czasem lub dodaj nowy punkt do planu')}
+                </Text>
               </View>
             ) : (
               <View style={styles.timelineWrapper}>
@@ -1390,7 +1320,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                                   style={{ marginRight: 4 }}
                                 />
                                 <Text style={styles.homeTransitBadgeText}>
-                                  {isWalk ? `${Math.round(dist * 1000)} m • Pieszo` : `${dist.toFixed(1)} km • Komunikacja`}
+                                  {isWalk
+                                    ? `${Math.round(dist * 1000)} m • ${t.transitWalking || (language === 'en' ? 'Walking' : 'Pieszo')}`
+                                    : `${dist.toFixed(1)} km • ${t.transitTransit || (language === 'en' ? 'Transit' : 'Komunikacja')}`}
                                 </Text>
                               </View>
                             </View>
@@ -1442,7 +1374,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                             <View style={styles.nextUpBadgeRow}>
                               <View style={styles.nextUpBadge}>
                                 <Ionicons name="time-outline" size={10} color="#94A3B8" style={{ marginRight: 4 }} />
-                                <Text style={styles.nextUpBadgeText}>NASTĘPNIE</Text>
+                                <Text style={styles.nextUpBadgeText}>
+                                  {t.nextUpBadge || (language === 'en' ? 'NEXT UP' : 'NASTĘPNIE')}
+                                </Text>
                               </View>
                             </View>
                           )}
@@ -1670,19 +1604,30 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                               <Ionicons name="restaurant-outline" size={16} color="#F59E0B" />
                             </View>
                             <View style={{ flex: 1, marginRight: 8 }}>
-                              <Text style={styles.lunchTitle}>Pora na przerwę lub obiad?</Text>
-                              <Text style={styles.lunchSubtitle}>Polecane lokale gastronomiczne w okolicy</Text>
+                              <Text style={styles.lunchTitle}>
+                                {t.lunchTitle || (language === 'en' ? 'Time for a break or lunch?' : 'Pora na przerwę lub obiad?')}
+                              </Text>
+                              <Text style={styles.lunchSubtitle}>
+                                {t.lunchSubtitle || (language === 'en' ? 'Recommended places to eat nearby' : 'Polecane lokale gastronomiczne w okolicy')}
+                              </Text>
                             </View>
                             <TouchableOpacity
                               style={styles.lunchActionBtn}
                               activeOpacity={0.7}
                               onPress={() => {
-                                const query = encodeURIComponent(`restauracje w pobliżu, ${activeTrip?.destination || ''}`);
+                                const isEn = language === 'en';
+                                const query = encodeURIComponent(
+                                  isEn
+                                    ? `restaurants nearby, ${activeTrip?.destination || ''}`
+                                    : `restauracje w pobliżu, ${activeTrip?.destination || ''}`
+                                );
                                 Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
                               }}
                             >
                               <Ionicons name="compass-outline" size={12} color="#0F172A" style={{ marginRight: 4 }} />
-                              <Text style={styles.lunchActionBtnText}>Miejsca</Text>
+                              <Text style={styles.lunchActionBtnText}>
+                                {t.lunchActionBtn || (language === 'en' ? 'Places' : 'Miejsca')}
+                              </Text>
                             </TouchableOpacity>
                           </View>
                         );
@@ -1700,7 +1645,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   testID="open-full-timeline-bottom-btn"
                 >
                   <Ionicons name="calendar-outline" size={15} color="#F59E0B" style={{ marginRight: 8 }} />
-                  <Text style={styles.openFullTimelineBtnText}>Otwórz pełną oś czasu wyjazdu</Text>
+                  <Text style={styles.openFullTimelineBtnText}>
+                    {t.openFullTimelineBtn || (language === 'en' ? 'Open full trip timeline' : 'Otwórz pełną oś czasu wyjazdu')}
+                  </Text>
                   <Ionicons name="chevron-forward" size={14} color="#F59E0B" style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
               </View>
@@ -2364,10 +2311,15 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                   onPress={() => navigation?.navigate('ExploreDetails', { destData: dest })}
                 >
                   <ImageBackground
-                    source={{ uri: dest.coverImage }}
-                    style={styles.exploreProjectCard}
+                    source={dest.coverImage ? { uri: dest.coverImage } : (undefined as any)}
+                    style={[styles.exploreProjectCard, !dest.coverImage && styles.exploreProjectCardPlaceholder]}
                     imageStyle={styles.exploreProjectCardImage}
                   >
+                    {!dest.coverImage && (
+                      <View style={styles.explorePlaceholderCenter} pointerEvents="none">
+                        <Ionicons name="map-outline" size={44} color="#475569" />
+                      </View>
+                    )}
                     {/* Górny pasek z badge'ami */}
                     <View style={styles.cardTopBadgesRow}>
                       <View style={[
@@ -2562,6 +2514,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     justifyContent: 'space-between',
+  },
+  exploreProjectCardPlaceholder: {
+    backgroundColor: '#1E293B',
+  },
+  explorePlaceholderCenter: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
   exploreProjectCardImage: {
     borderRadius: 19,

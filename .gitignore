@@ -43,3 +43,7 @@ yarn-error.*
 # build artifacts
 *.apk
 *.aab
+
+# test coverage
+coverage/
+

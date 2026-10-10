@@ -22,7 +22,7 @@ import { usePowerSync } from '@powersync/react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
+import { getGoogleApiKey } from '../../lib/config';
 
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
@@ -120,11 +120,7 @@ export const Step4AttractionsScreen = () => {
   // Trwały cache wszystkich znalezionych atrakcji (by nie gubić obiektów przy zmianie promienia)
   const allFetchedAttractionsCache = useRef<Map<string, GooglePlaceAttraction>>(new Map());
 
-  const googleConfigKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
-  const googleApiKey =
-    googleConfigKey !== undefined
-      ? googleConfigKey
-      : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
+  const googleApiKey = getGoogleApiKey();
 
   // Dopasowanie powiększenia mapy do promienia szukania, aby widoczne były wszystkie punkty
   const updateMapRegionForRadius = (centerLat: number, centerLon: number, radiusKm: number) => {
@@ -194,7 +190,7 @@ export const Step4AttractionsScreen = () => {
           const pLon = place.geometry?.location?.lng ?? lodgingCoords.lon;
           const dist = calculateDistanceKm(lodgingCoords.lat, lodgingCoords.lon, pLat, pLon);
 
-          let photoUrl = 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800';
+          let photoUrl = '';
           if (place.photos && place.photos.length > 0) {
             const photoReference = place.photos[0].photo_reference;
             photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${googleApiKey}`;
@@ -371,7 +367,7 @@ export const Step4AttractionsScreen = () => {
           [userId]
         );
         if ((existingTrips?.rows?.length ?? 0) > 0) {
-          Alert.alert('DESTIVO', t.error_guestTripExists || 'Gość może mieć tylko jedną podróż.');
+          Alert.alert('DESTIVO', t.error_guestTripExists || (language === 'en' ? 'A guest can have only one trip.' : 'Gość może mieć tylko jedną podróż.'));
           return;
         }
       }
@@ -574,10 +570,10 @@ export const Step4AttractionsScreen = () => {
             style={styles.backButton}
             activeOpacity={0.7}
             testID="back-button"
-            accessibilityLabel="Wróć"
+            accessibilityLabel={t.backButton || (language === 'en' ? 'Back' : 'Wróć')}
           >
             <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
-            <Text style={styles.srOnly}>Wróć</Text>
+            <Text style={styles.srOnly}>{t.backButton || (language === 'en' ? 'Back' : 'Wróć')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -683,21 +679,21 @@ export const Step4AttractionsScreen = () => {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.switchTabLinkText}>
-                    {(t.seePlanned || 'Zobacz zaplanowane ({{count}})').replace('{{count}}', String(plannedResults.length))}
+                    {(t.seePlanned || (language === 'en' ? 'View planned ({{count}})' : 'Zobacz zaplanowane ({{count}})')).replace('{{count}}', String(plannedResults.length))}
                   </Text>
                 </TouchableOpacity>
               </View>
             ) : displayList.length === 0 && activeTab === 'planned' ? (
               <View style={styles.allAddedBox}>
                 <Ionicons name="calendar-outline" size={40} color="#64748B" style={{ marginBottom: 8 }} />
-                <Text style={styles.allAddedTitle}>{t.noPlannedTitle || 'Brak jeszcze atrakcji w planie'}</Text>
-                <Text style={styles.allAddedSubtitle}>{t.noPlannedDesc || 'Wybierz ciekawe miejsca z zakładki "Do wyboru" i dodaj je do podróży.'}</Text>
+                <Text style={styles.allAddedTitle}>{t.noPlannedTitle || (language === 'en' ? 'No attractions in plan yet' : 'Brak jeszcze atrakcji w planie')}</Text>
+                <Text style={styles.allAddedSubtitle}>{t.noPlannedDesc || (language === 'en' ? 'Select places from the "Discover" tab to add them to your trip.' : 'Wybierz ciekawe miejsca z zakładki "Do wyboru" i dodaj je do podróży.')}</Text>
                 <TouchableOpacity
                   onPress={() => handleTabChange('discover')}
                   style={styles.switchTabLinkBtn}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.switchTabLinkText}>{t.goToDiscover || 'Przejdź do wyboru atrakcji'}</Text>
+                  <Text style={styles.switchTabLinkText}>{t.goToDiscover || (language === 'en' ? 'Go to attractions selection' : 'Przejdź do wyboru atrakcji')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -713,19 +709,25 @@ export const Step4AttractionsScreen = () => {
               >
                 {displayList.map((item) => {
                   const isSelected = storeAttractions.selected.includes(item.name);
-                  const fallbackImage = 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800';
+                  const hasValidImage = Boolean(item.imageUrl) && !imageErrors[item.id];
 
                   return (
                     <View key={item.id} style={styles.cardWrapper}>
                       <View style={styles.card}>
-                        {/* ZDJĘCIE DOPASOWANE W 100% DO SZEROKOŚCI KAFELKA */}
+                        {/* ZDJĘCIE DOPASOWANE W 100% DO SZEROKOŚCI KAFELKA LUB PLACEHOLDER Z IKONĄ */}
                         <View style={styles.cardImageContainer}>
-                          <Image
-                            source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
-                            style={styles.cardImage}
-                            resizeMode="cover"
-                            onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
-                          />
+                          {hasValidImage ? (
+                            <Image
+                              source={{ uri: item.imageUrl }}
+                              style={styles.cardImage}
+                              resizeMode="cover"
+                              onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
+                            />
+                          ) : (
+                            <View style={styles.cardPlaceholder}>
+                              <Ionicons name="sparkles-outline" size={36} color="#F59E0B" />
+                            </View>
+                          )}
                           <View style={styles.imageOverlayTop}>
                             <View style={styles.ratingBadge}>
                               <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -902,6 +904,21 @@ const styles = StyleSheet.create({
   cardImage: { 
     width: '100%', 
     height: '100%',
+  },
+  cardPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  cardPlaceholderText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
   },
   imageOverlayTop: { 
     position: 'absolute', 

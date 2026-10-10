@@ -1,21 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
+import { getGoogleApiKey, hasValidGoogleApiKey } from './config';
+
+export { getGoogleApiKey, hasValidGoogleApiKey };
 
 const CACHE_STORAGE_KEY = '@destivo_places_photos_v2';
 const MEMORY_CACHE = new Map<string, string>();
 let cacheHydrated = false;
-
-export function getGoogleApiKey(): string {
-  const configKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
-  if (configKey && configKey.length > 5 && !configKey.includes('TYMCZASOWY')) {
-    return configKey;
-  }
-  const envKey = process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
-  if (envKey && envKey.length > 5 && !envKey.includes('TYMCZASOWY')) {
-    return envKey;
-  }
-  return 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ';
-}
 
 export function buildGooglePlacesPhotoUrl(photoRef: string, apiKey: string = getGoogleApiKey()): string {
   return 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=1000&photo_reference=' + photoRef + '&key=' + apiKey;
@@ -97,22 +87,22 @@ for (const [city, url] of Object.entries(CURATED_FALLBACK_URLS)) {
   CURATED_CITY_PHOTOS[city] = url;
 }
 
-const DEFAULT_GLOBAL_PHOTO = buildGooglePlacesPhotoUrl(GOOGLE_PLACES_CITY_PHOTO_REFS['rzym'] || '');
+const DEFAULT_GLOBAL_PHOTO = '';
 
 export function getCuratedCityFallback(destination?: string): string {
-  if (!destination) return DEFAULT_GLOBAL_PHOTO;
+  if (!destination) return '';
   const d = destination.toLowerCase().trim();
   for (const [key, url] of Object.entries(CURATED_FALLBACK_URLS)) {
-    if (d.includes(key) || key.includes(d)) {
+    if (d === key || d.includes(key) || key.includes(d)) {
       return url;
     }
   }
   for (const [key, ref] of Object.entries(GOOGLE_PLACES_CITY_PHOTO_REFS)) {
-    if (d.includes(key) || key.includes(d)) {
+    if (d === key || d.includes(key) || key.includes(d)) {
       return buildGooglePlacesPhotoUrl(ref);
     }
   }
-  return DEFAULT_GLOBAL_PHOTO;
+  return '';
 }
 
 async function hydrateCacheIfNeeded() {
@@ -188,29 +178,31 @@ export async function fetchGoogleCityPhoto(
   try {
     const input = countryName ? (cityName.trim() + ' ' + countryName.trim()) : cityName.trim();
     const url = 'https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=' + encodeURIComponent(input) + '&inputtype=textquery&fields=photos,name,place_id,types&key=' + apiKey;
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    const data = await res.json();
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      const data = await res.json();
 
-    if (data.status === 'ZERO_RESULTS') {
-      return null;
-    }
-
-    const candidates = Array.isArray(data.candidates) && data.candidates.length > 0
-      ? data.candidates
-      : (Array.isArray(data.results) ? data.results : []);
-
-    if (data.status === 'OK' && candidates.length > 0) {
-      const candidate = candidates[0];
-      if (Array.isArray(candidate.photos) && candidate.photos.length > 0 && candidate.photos[0].photo_reference) {
-        const photoUrl = buildGooglePlacesPhotoUrl(candidate.photos[0].photo_reference, apiKey);
-        MEMORY_CACHE.set(cityKey, photoUrl);
-        persistCache().catch(() => {});
-        return photoUrl;
+      if (data.status === 'ZERO_RESULTS') {
+        return null;
       }
+
+      const candidates = Array.isArray(data.candidates) && data.candidates.length > 0
+        ? data.candidates
+        : (Array.isArray(data.results) ? data.results : []);
+
+      if (data.status === 'OK' && candidates.length > 0) {
+        const candidate = candidates[0];
+        if (Array.isArray(candidate.photos) && candidate.photos.length > 0 && candidate.photos[0].photo_reference) {
+          const photoUrl = buildGooglePlacesPhotoUrl(candidate.photos[0].photo_reference, apiKey);
+          MEMORY_CACHE.set(cityKey, photoUrl);
+          persistCache().catch(() => {});
+          return photoUrl;
+        }
+      }
+    } finally {
+      clearTimeout(timer);
     }
   } catch (e) {
     console.warn('[Places City Photo] Błąd dla ' + cityName + ':', e);
@@ -257,19 +249,22 @@ export async function fetchGooglePlacePhoto(
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    const data = await res.json();
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      const data = await res.json();
 
-    if (data.status === 'OK' && Array.isArray(data.candidates) && data.candidates.length > 0) {
-      const candidate = data.candidates[0];
-      if (candidate.photos && candidate.photos.length > 0 && candidate.photos[0].photo_reference) {
-        const photoRef = candidate.photos[0].photo_reference;
-        const photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=' + photoRef + '&key=' + apiKey;
-        MEMORY_CACHE.set(cacheKey, photoUrl);
-        persistCache().catch(() => {});
-        return photoUrl;
+      if (data.status === 'OK' && Array.isArray(data.candidates) && data.candidates.length > 0) {
+        const candidate = data.candidates[0];
+        if (candidate.photos && candidate.photos.length > 0 && candidate.photos[0].photo_reference) {
+          const photoRef = candidate.photos[0].photo_reference;
+          const photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=' + photoRef + '&key=' + apiKey;
+          MEMORY_CACHE.set(cacheKey, photoUrl);
+          persistCache().catch(() => {});
+          return photoUrl;
+        }
       }
+    } finally {
+      clearTimeout(timer);
     }
 
     // 2. Jeśli findplacefromtext nic nie zwrócił, próba textsearch

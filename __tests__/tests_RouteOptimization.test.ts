@@ -12,6 +12,7 @@ import {
   calculateTransitEstimates,
   buildGoogleMapsDirectionsUrl,
   resolvePointCoordinates,
+  getDeterministicCoordinateOffset,
   findIntelligentInsertionSlot,
   insertTimelineEventIntelligently,
   optimizeMultiDayTimeline,
@@ -686,6 +687,65 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(d2Items.length).toBe(2);
       expect(d2Items[0].dateStr).toBe(day2);
       expect(d2Items[1].dateStr).toBe(day2);
+    });
+  });
+
+  describe('8. Eliminacja kolapsu współrzędnych i deterministyczna dyspersja (Fix 2.4)', () => {
+    test('getDeterministicCoordinateOffset zwraca stabilne, niezerowe przesunięcia różne dla różnych tytułów', () => {
+      const offset1 = getDeterministicCoordinateOffset('Lokalna Piekarnia');
+      const offset2 = getDeterministicCoordinateOffset('Stary Młyn Wodny');
+      const offset3 = getDeterministicCoordinateOffset('Lokalna Piekarnia'); // identyczny tytuł
+
+      // Identyczny tytuł daje dokładnie identyczne przesunięcie (determinizm)
+      expect(offset1.latOffset).toBe(offset3.latOffset);
+      expect(offset1.lonOffset).toBe(offset3.lonOffset);
+
+      // Różne tytuły dają różne przesunięcia
+      expect(offset1.latOffset !== offset2.latOffset || offset1.lonOffset !== offset2.lonOffset).toBe(true);
+
+      // Przesunięcie nie może wynosić 0 (promień 350m - 1200m)
+      expect(Math.abs(offset1.latOffset)).toBeGreaterThan(0.001);
+      expect(Math.abs(offset1.lonOffset)).toBeGreaterThan(0.001);
+      expect(Math.abs(offset2.latOffset)).toBeGreaterThan(0.001);
+      expect(Math.abs(offset2.lonOffset)).toBeGreaterThan(0.001);
+    });
+
+    test('resolvePointCoordinates dla nieznanych punktów offline w małej miejscowości przypisuje rozproszone punkty (dystans > 100m)', () => {
+      const coords1 = resolvePointCoordinates('Nieznana Galeria Sztuki', [], 'Kazimierz Dolny');
+      const coords2 = resolvePointCoordinates('Ukryta Kawiarnia w Ogrodzie', [], 'Kazimierz Dolny');
+
+      expect(coords1).not.toBeNull();
+      expect(coords2).not.toBeNull();
+
+      // Odległość między dwoma nieznanymi punktami w Kazimierzu Dolnym NIE może być zerowa (kolaps zlikwidowany)
+      const dist = haversineDistance(coords1.lat, coords1.lon, coords2.lat, coords2.lon);
+      expect(dist).toBeGreaterThan(0.1); // Co najmniej 100 metrów
+      expect(dist).toBeLessThan(5.0); // W rozsądnym zasięgu miejscowości
+    });
+
+    test('optimizeSightseeingRoute wykrywa zbieżne/zbite współrzędne i ustawia hasCollapsedCoordinates: true', () => {
+      // 3 punkty o dokładnie tych samych współrzędnych
+      const identicalPoints = [
+        { id: 'p1', title: 'Punkt 1', lat: 50.0647, lon: 19.9450 },
+        { id: 'p2', title: 'Punkt 2', lat: 50.0647, lon: 19.9450 },
+        { id: 'p3', title: 'Punkt 3', lat: 50.0647, lon: 19.9450 },
+      ];
+
+      const result = optimizeSightseeingRoute(identicalPoints);
+      expect(result.hasCollapsedCoordinates).toBe(true);
+      expect(result.orderedPoints.length).toBe(3);
+    });
+
+    test('optimizeSightseeingRoute ustawia hasCollapsedCoordinates: false dla zróżnicowanych punktów', () => {
+      const distinctPoints = [
+        colosseum,
+        pantheon,
+        trevi,
+      ];
+
+      const result = optimizeSightseeingRoute(distinctPoints);
+      expect(result.hasCollapsedCoordinates).toBe(false);
+      expect(result.orderedPoints.length).toBe(3);
     });
   });
 });

@@ -48,6 +48,21 @@ jest.mock('../src/lib/transportCalculator', () => ({
   getTransportRouteMetadata: jest.fn(() => ({ notes: [], actionLinks: [] })),
 }));
 
+// MOCKOWANIE VAULT MANAGER
+jest.mock('../src/lib/vaultManager', () => ({
+  VaultManager: {
+    pickFile: jest.fn().mockResolvedValue({ id: 'file-pdf-1', name: 'ticket.pdf', uri: 'file:///t.pdf', type: 'PDF' }),
+    pickImage: jest.fn().mockResolvedValue({ id: 'file-img-1', name: 'ticket.jpg', uri: 'file:///t.jpg', type: 'IMAGE' }),
+  },
+}));
+
+// MOCKOWANIE DATETIMEPICKER
+jest.mock('@react-native-community/datetimepicker', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return (props: any) => React.createElement(View, { testID: 'mock-datetimepicker', onChange: props.onChange });
+});
+
 // 4. MOCKOWANIE ALERTA ORAZ LINKING API
 jest.spyOn(Alert, 'alert').mockImplementation(() => null);
 jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
@@ -346,5 +361,119 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
       expect.any(String),
       expect.any(Array)
     );
+  });
+
+  test('16. powinien obsłużyć wybór pliku PDF oraz zdjęcia dla wyjazdu (TAM) i powrotu (POWRÓT)', async () => {
+    const { VaultManager } = require('../src/lib/vaultManager');
+    mockTransport.selectedOption = { id: 'train-1', type: 'train', provider: 'PKP' } as any;
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([mockTransport.selectedOption]);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+    await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
+
+    // Wywołanie wgrania biletu TAM - opcja PDF
+    fireEvent.press(screen.getByTestId('upload-outbound-ticket-btn'));
+    const alertCalls = (Alert.alert as jest.Mock).mock.calls;
+    const outboundButtons = alertCalls[alertCalls.length - 1][2];
+
+    // Kliknięcie pierwszej opcji (Plik PDF)
+    await outboundButtons[0].onPress();
+    expect(VaultManager.pickFile).toHaveBeenCalled();
+    expect(mockSetTransportDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ ticketFile: expect.any(Object) })
+    );
+
+    // Kliknięcie drugiej opcji (Zdjęcie / Skan)
+    await outboundButtons[1].onPress();
+    expect(VaultManager.pickImage).toHaveBeenCalled();
+
+    // Wywołanie wgrania biletu POWRÓT
+    fireEvent.press(screen.getByTestId('upload-return-ticket-btn'));
+    const returnAlertCalls = (Alert.alert as jest.Mock).mock.calls;
+    const returnButtons = returnAlertCalls[returnAlertCalls.length - 1][2];
+
+    await returnButtons[0].onPress();
+    expect(mockSetTransportDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ returnTicketFile: expect.any(Object) })
+    );
+  });
+
+  test('17. powinien usunąć bilet wyjazdu i powrotu przyciskami usuwania', async () => {
+    mockTransport.selectedOption = { id: 'train-1', type: 'train' } as any;
+    (mockTransportDetails as any).ticketFile = { name: 'bilet_tam.pdf' };
+    (mockTransportDetails as any).returnTicketFile = { name: 'bilet_powrot.pdf' };
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([mockTransport.selectedOption]);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+    await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('remove-ticket-btn'));
+    expect(mockSetTransportDetails).toHaveBeenCalledWith({ ticketFile: null, outboundTicketFile: null });
+
+    fireEvent.press(screen.getByTestId('remove-return-ticket-btn'));
+    expect(mockSetTransportDetails).toHaveBeenCalledWith({ returnTicketFile: null });
+
+    (mockTransportDetails as any).ticketFile = null;
+    (mockTransportDetails as any).returnTicketFile = null;
+  });
+
+  test('18. powinien otworzyć zegar (native TimePicker) po kliknięciu ikon zegarka', async () => {
+    mockTransport.selectedOption = { id: 'flight-1', type: 'flight' } as any;
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([mockTransport.selectedOption]);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+    await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
+
+    // Kliknięcie zegara odjazdu wyjazdu
+    fireEvent.press(screen.getByTestId('clock-outboundDeparture'));
+    expect(screen.getByTestId('mock-datetimepicker')).toBeTruthy();
+
+    // Symulacja zmiany godziny w DateTimePicker
+    const d = new Date();
+    d.setHours(7, 45, 0, 0);
+    fireEvent(screen.getByTestId('mock-datetimepicker'), 'change', { type: 'set' }, d);
+    expect(mockSetTransportDetails).toHaveBeenCalledWith({ outboundDepartureTime: '07:45' });
+
+    // Zegar przyjazdu wyjazdu
+    fireEvent.press(screen.getByTestId('clock-outboundArrival'));
+    d.setHours(11, 15, 0, 0);
+    fireEvent(screen.getByTestId('mock-datetimepicker'), 'change', { type: 'set' }, d);
+    expect(mockSetTransportDetails).toHaveBeenCalledWith({ outboundArrivalTime: '11:15' });
+  });
+
+  test('19. powinien cofnąć się do Step1 po kliknięciu przycisku Wróć', async () => {
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([]);
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+    await waitFor(() => expect(screen.getByText('Wróć')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Wróć'));
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('20. powinien poprawnie lokalizować różne warianty notatek i etykiet tras', async () => {
+    const mockOption = { id: 'train-note-1', type: 'train', provider: 'Koleo' } as any;
+    (transportCalculator.fetchTransportComparisons as jest.Mock).mockResolvedValueOnce([mockOption]);
+
+    (transportCalculator.getTransportRouteMetadata as jest.Mock).mockReturnValueOnce({
+      notes: [
+        'Trasa lokalna (~50 km)',
+        'Miejscowość bez bezpośredniej stacji (~30 km)',
+        'Pociąg + dojazd lokalny. Najbliższa stacja: Modlin (~10 km)',
+        'Brak czynnej stacji (~40 km)',
+        'Alternatywne połączenie autokarowe',
+      ],
+      actionLinks: [
+        { label: 'nawiguj do: Rzym', url: 'https://maps.google.com/?q=Rzym' },
+        { label: 'dworzec autobusowy: Warszawa', url: 'https://maps.google.com/?q=Warszawa' },
+        { label: 'lotnisko w okolicach: Modlin', url: 'https://maps.google.com/?q=Modlin' },
+        { label: 'stacja przesiadkowa: Kutno', url: 'https://maps.google.com/?q=Kutno' },
+      ],
+    });
+
+    render(<Step2TransportScreen navigation={mockNavigation} transportProvider={mockProvider as any} />);
+    await waitFor(() => {
+      expect(screen.getByText('Pociąg')).toBeTruthy();
+    });
   });
 });

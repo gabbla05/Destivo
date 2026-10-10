@@ -13,7 +13,7 @@ import { Step4AttractionsScreen } from '../src/screens/TripCreator/Step4Attracti
 // --------------------------------------------------------------------------
 // STAŁE I MOCKOWANIE ZALEŻNOŚCI
 // --------------------------------------------------------------------------
-const MOCK_CURRENT_DATE = new Date('2026-09-02T10:00:00Z');
+const MOCK_CURRENT_DATE = new Date('2026-08-30T10:00:00Z');
 
 // 1. Mock Auth Store
 const mockAuthState = {
@@ -333,7 +333,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(screen.getByText('Paryż 2026')).toBeTruthy();
       });
 
-      const deleteButtons = screen.getAllByText('');
+      const deleteButtons = screen.getAllByTestId('trip-delete-btn-trip-upcoming');
       if (deleteButtons.length > 0) {
         fireEvent.press(deleteButtons[0]);
         expect(alertSpy).toHaveBeenCalledWith(

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, ImageBackground, TouchableOpacity, Linking, Alert, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LiveDestination } from '../lib/liveExplore';
+import { LiveDestination, resolveAirportIataCode } from '../lib/liveExplore';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import { useTripCreatorStore } from '../store/tripCreatorStore';
@@ -41,19 +41,23 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
     return t.crowdModerate;
   };
 
+  const descDict = (t.destinationDescriptions as Record<string, string>) || {};
   const description = language === 'en'
-    ? (t.destinationDescriptions as Record<string, string>)[destData.city] || destData.shortDescription
-    : destData.shortDescription;
+    ? (descDict[destData.city] || (localizedCity ? descDict[localizedCity] : undefined) || destData.shortDescriptionEn || destData.shortDescription)
+    : (destData.shortDescription || descDict[destData.city]);
 
   const handleCheckTransport = async () => {
     let url = '';
     const originAirport = (destData.nearestAirport || 'WAW').toLowerCase();
-    const destCode = (destData.transportCode || destData.city).toLowerCase();
+    const destCode = resolveAirportIataCode(destData.transportCode, destData.city).toLowerCase();
 
     if (destData.recommendedTransport === 'flight') {
-      url = `https://www.skyscanner.pl/transport/loty/${originAirport}/${destCode}/`;
+      const isEnglish = language === 'en';
+      url = isEnglish
+        ? `https://www.skyscanner.net/transport/flights/${originAirport}/${destCode}/`
+        : `https://www.skyscanner.pl/transport/loty/${originAirport}/${destCode}/`;
     } else if (destData.recommendedTransport === 'train') {
-      url = 'https://koleo.pl';
+      url = language === 'en' ? 'https://koleo.pl/en/' : 'https://koleo.pl';
     } else {
       url = `https://www.google.com/maps/dir/?api=1&destination=${destData.lat},${destData.lon}`;
     }
@@ -63,26 +67,30 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
   };
 
   const handleCheckLodging = async () => {
-    const url = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destData.city)}`;
+    const langParam = language === 'en' ? '&lang=en-us' : '&lang=pl';
+    const url = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destData.city)}${langParam}`;
     const supported = await Linking.canOpenURL(url);
     if (supported) await Linking.openURL(url);
     else Alert.alert('DESTIVO', t.lodgingError);
   };
 
   const handleCheckDining = async () => {
-    const query = encodeURIComponent(`restauracje obiad ${destData.city}`);
+    const isEnglish = language === 'en';
+    const query = encodeURIComponent(isEnglish ? `restaurants dining in ${destData.city}` : `restauracje obiad ${destData.city}`);
     const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
     const supported = await Linking.canOpenURL(url);
     if (supported) await Linking.openURL(url);
     else Alert.alert('DESTIVO', t.transportError);
   };
 
+
   const normalizeDate = (d?: string) => (d ? d.replace(/[./]/g, '-') : '');
 
   const handleBuildCustomPlan = () => {
+    const prefix = t.tripPrefix || (language === 'en' ? 'Trip to ' : 'Wyprawa: ');
     useTripCreatorStore.getState().setStep1Data({
-      tripName: `Wyprawa: ${destData.city}`,
-      origin: destData.nearestAirport || 'Warszawa',
+      tripName: `${prefix}${localizedCity || destData.city}`,
+      origin: destData.nearestAirport || (language === 'en' ? 'Warsaw' : 'Warszawa'),
       destination: destData.city,
       startDate: normalizeDate(trip?.startDate),
       endDate: normalizeDate(trip?.endDate),
@@ -94,19 +102,38 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
-      <ImageBackground source={{ uri: destData.coverImage }} style={styles.heroImage}>
-        <SafeAreaView edges={['top']} style={styles.topNav}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} testID="explore-back-button">
-            <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        </SafeAreaView>
-        <View style={styles.heroOverlay}>
-          <Text style={styles.cityTitle}>{localizedCity}</Text>
-          <Text style={styles.countryTitle}>
-            {localizedCountry} • {destData.isDayTrip ? (t.heroDayTripSubtitle || 'Jednodniowy wypad bez noclegu') : t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
-          </Text>
+      {destData.coverImage ? (
+        <ImageBackground source={{ uri: destData.coverImage }} style={styles.heroImage}>
+          <SafeAreaView edges={['top']} style={styles.topNav}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} testID="explore-back-button">
+              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </SafeAreaView>
+          <View style={styles.heroOverlay}>
+            <Text style={styles.cityTitle}>{localizedCity}</Text>
+            <Text style={styles.countryTitle}>
+              {localizedCountry} • {destData.isDayTrip ? (t.heroDayTripSubtitle || 'Jednodniowy wypad bez noclegu') : t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
+            </Text>
+          </View>
+        </ImageBackground>
+      ) : (
+        <View style={[styles.heroImage, styles.heroPlaceholder]}>
+          <SafeAreaView edges={['top']} style={styles.topNav}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} testID="explore-back-button">
+              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </SafeAreaView>
+          <View style={styles.heroPlaceholderContent}>
+            <Ionicons name="map-outline" size={48} color="#64748B" />
+          </View>
+          <View style={styles.heroOverlay}>
+            <Text style={styles.cityTitle}>{localizedCity}</Text>
+            <Text style={styles.countryTitle}>
+              {localizedCountry} • {destData.isDayTrip ? (t.heroDayTripSubtitle || 'Jednodniowy wypad bez noclegu') : t.heroSubtitle.replace('{{days}}', String(trip?.durationDays || 0))}
+            </Text>
+          </View>
         </View>
-      </ImageBackground>
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent} bounces={false}>
         {/* BANNER TRANSPORTOWY (DOPASOWANY DO ODLEGŁOŚCI: LOT / POCIĄG / AUTO) */}
@@ -323,6 +350,8 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1120' },
   heroImage: { width: '100%', height: 350, justifyContent: 'space-between' },
+  heroPlaceholder: { backgroundColor: '#1E293B' },
+  heroPlaceholderContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   topNav: { paddingHorizontal: 20, paddingTop: 10 },
   backButton: { width: 44, height: 44, backgroundColor: 'rgba(11, 17, 32, 0.7)', borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   backIcon: { color: '#FFFFFF', fontSize: 24, fontWeight: 'bold' },

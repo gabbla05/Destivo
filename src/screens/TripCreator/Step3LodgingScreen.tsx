@@ -13,6 +13,7 @@ import {
   StatusBar,
   Keyboard
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
@@ -58,10 +59,8 @@ export const Step3LodgingScreen = () => {
   const handleOpenBooking = async () => {
     try {
       const encodedDestination = encodeURIComponent(destination);
-      const url = `https://www.booking.com/searchresults.html?ss=${encodedDestination}`;
-      
-      // LOGOWANIE LINKU DO KONSOLI
-      console.log('Wygenerowany link do Booking.com:', url);
+      const langParam = language === 'en' ? '&lang=en-us' : '&lang=pl';
+      const url = `https://www.booking.com/searchresults.html?ss=${encodedDestination}${langParam}`;
       
       const supported = await Linking.canOpenURL(url);
       if (supported) {
@@ -101,7 +100,7 @@ export const Step3LodgingScreen = () => {
               { 
                 paddingTop: Math.max(insets.top > 0 ? 12 : 20, 16),
                 paddingBottom: isKeyboardVisible
-                  ? (Platform.OS === 'android' ? 400 : keyboardHeight + 80)
+                  ? Math.max(keyboardHeight + 24, 100)
                   : Math.max(insets.bottom, 16) + 40
               }
             ]} 
@@ -110,6 +109,20 @@ export const Step3LodgingScreen = () => {
             keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
+            {/* GÓRNY PRZYCISK POWROTU */}
+            <View style={styles.topNavRow}>
+              <TouchableOpacity 
+                style={styles.topBackBtn} 
+                onPress={() => navigation?.goBack()} 
+                activeOpacity={0.7}
+                testID="step3-top-back-btn"
+                accessibilityLabel={commonT.button_goBack || 'Wróć'}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
             {/* PASEK POSTĘPU */}
             <View style={styles.progressHeader}>
               <Text style={styles.progressText}>{t.step_indicator}</Text>
@@ -190,6 +203,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1120' },
   scrollContent: { paddingHorizontal: 20, flexGrow: 1, paddingBottom: 120 },
   
+  topNavRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  topBackBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' },
+
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 4 },
   progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
   progressStepName: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },

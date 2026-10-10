@@ -10,6 +10,12 @@ import * as UPNG from 'upng-js';
 import pako from 'pako';
 import { getEmergencyNumber } from '../screens/HomeScreen';
 import { translations } from '../i18n/translations';
+import {
+  DEFAULT_EXCHANGE_RATES,
+  getCachedExchangeRates,
+  getDestinationCurrencyCode,
+  getCurrencyInfoForDestination,
+} from './currencyService';
 
 export interface BriefingTrip {
   id: string;
@@ -27,7 +33,9 @@ export interface BriefingTrip {
 export interface BriefingOptions {
   language?: 'pl' | 'en';
   includeQrCodes?: boolean;
+  exchangeRates?: Record<string, number>;
 }
+
 
 export interface FormattedTicket {
   id: string;
@@ -85,34 +93,16 @@ const safeJsonParse = (input: any): any => {
 };
 
 /**
- * Pomocnik waluty dla destynacji
+ * Pomocnik waluty dla destynacji korzystający ze scentralizowanego serwisu walut (currencyService).
+ * Obsługuje opcjonalny zestaw dynamicznych/zapisanych kursów walut.
  */
-export const getCurrencyInfo = (destination?: string): { code: string; ratePln: number } => {
-  if (!destination) return { code: 'EUR', ratePln: 4.30 };
-  const d = destination.toLowerCase().trim();
-  if (['warszawa', 'warsaw', 'kraków', 'krakow', 'gdańsk', 'wrocław', 'poznań', 'polska', 'poland'].some(c => d.includes(c))) {
-    return { code: 'PLN', ratePln: 1.0 };
-  }
-  if (['londyn', 'london', 'uk', 'wielka brytania', 'anglia', 'england', 'szkocja', 'scotland'].some(c => d.includes(c))) {
-    return { code: 'GBP', ratePln: 5.10 };
-  }
-  if (['praga', 'prague', 'czech', 'czechy'].some(c => d.includes(c))) {
-    return { code: 'CZK', ratePln: 0.17 };
-  }
-  if (['budapeszt', 'budapest', 'węgry', 'hungary'].some(c => d.includes(c))) {
-    return { code: 'HUF', ratePln: 0.011 };
-  }
-  if (['szwajcaria', 'switzerland', 'zurych', 'zurich', 'genewa'].some(c => d.includes(c))) {
-    return { code: 'CHF', ratePln: 4.50 };
-  }
-  if (['tokio', 'tokyo', 'japonia', 'japan'].some(c => d.includes(c))) {
-    return { code: 'JPY', ratePln: 0.026 };
-  }
-  if (['usa', 'nowy jork', 'new york', 'stany zjednoczone'].some(c => d.includes(c))) {
-    return { code: 'USD', ratePln: 4.00 };
-  }
-  return { code: 'EUR', ratePln: 4.30 };
+export const getCurrencyInfo = (
+  destination?: string,
+  customRates?: Record<string, number>
+): { code: string; ratePln: number } => {
+  return getCurrencyInfoForDestination(destination, customRates);
 };
+
 
 export interface ExtractedQrResult {
   qrData: string | null;
@@ -729,8 +719,19 @@ export const generateBriefingHtml = async (
   const endDate = formatBriefingDate(trip.end_date, language);
 
   const emergencyNum = getEmergencyNumber(destination);
-  const currencyInfo = getCurrencyInfo(destination);
+
+  // Pobieramy aktualne kursy walut ze zintegrowanego currencyService (opcje / pamięć podręczna AsyncStorage / domyślne)
+  let activeRates = options?.exchangeRates;
+  if (!activeRates) {
+    try {
+      activeRates = await getCachedExchangeRates();
+    } catch {
+      activeRates = DEFAULT_EXCHANGE_RATES;
+    }
+  }
+  const currencyInfo = getCurrencyInfo(destination, activeRates);
   const lodgingAddress = lodgingData?.lodgingAddress || (t.briefingPdfNoLodging || (isEn ? 'No hotel address provided' : 'Brak zapisanego adresu noclegu'));
+
 
   // Szczegóły transportu
   const outboundDepLoc = transportData?.details?.outboundDepartureLocation || origin;
@@ -1101,7 +1102,7 @@ export const generateBriefingHtml = async (
       <div class="essential-card card-transport">
         <div class="card-title"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>${t.briefingPdfCurrencyTitle || (isEn ? 'Currency & Safety' : 'Waluta & Płatności')}</div>
         <div class="essential-desc">
-          <span class="essential-highlight">${currencyInfo.code}</span> (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN)<br />
+          <span class="essential-highlight">${currencyInfo.code}</span>${currencyInfo.code !== 'PLN' ? ` (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN)` : (isEn ? ' (Local currency)' : ' (Waluta krajowa)')}<br />
           ${t.briefingPdfCurrencyTip || (isEn ? 'Keep paper copy in cabin baggage.' : 'Miej ten wydruk w bagażu podręcznym na wypadek rozładowania baterii.')}
         </div>
       </div>

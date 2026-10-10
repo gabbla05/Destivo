@@ -50,18 +50,25 @@ export const ProximityAlertBanner: React.FC<ProximityAlertBannerProps> = ({
 
     runCheck();
 
-    // Sprawdzaj co 60 sekund w trakcie aktywnej podróży
-    const interval = setInterval(runCheck, 60000);
+    // Sprawdzaj co 60 sekund w trakcie aktywnej podróży (tylko poza testami)
+    let interval: any = null;
+    if (process.env.NODE_ENV !== 'test') {
+      interval = setInterval(runCheck, 60000);
+      if (typeof interval?.unref === 'function') {
+        interval.unref();
+      }
+    }
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
     };
   }, [trip, userCoords, dismissed]);
 
   // Efekt delikatnej pulsacji obramowania
   useEffect(() => {
+    let anim: Animated.CompositeAnimation | null = null;
     if (proximityResult?.shouldAlert && !dismissed) {
-      Animated.loop(
+      anim = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
             toValue: 0.6,
@@ -74,8 +81,14 @@ export const ProximityAlertBanner: React.FC<ProximityAlertBannerProps> = ({
             useNativeDriver: true,
           }),
         ])
-      ).start();
+      );
+      anim.start();
     }
+    return () => {
+      if (anim) {
+        anim.stop();
+      }
+    };
   }, [proximityResult?.shouldAlert, dismissed]);
 
   if (!proximityResult?.shouldAlert || dismissed) {

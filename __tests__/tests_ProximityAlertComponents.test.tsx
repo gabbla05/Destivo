@@ -139,6 +139,136 @@ describe('Proximity Alert UI Components', () => {
         Brightness.restoreSystemBrightnessAsync || Brightness.setBrightnessAsync
       ).toBeTruthy();
     });
+
+    test('Obsługuje przełączanie zakładek odcinków TAM / POWRÓT', () => {
+      const { getByTestId, getByText, getAllByText } = render(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={mockTicket}
+          outboundTicket={{ id: 't-out', name: 'Tam.pdf', uri: 'file:///vault/tam.pdf', type: 'PDF' }}
+          returnTicket={{ id: 't-ret', name: 'Powrot.pdf', uri: 'file:///vault/powrot.pdf', type: 'PDF' }}
+          outboundDepartureTime="09:00"
+          returnDepartureTime="19:30"
+          outboundStation="Warszawa Centralna"
+          returnStation="Kraków Główny"
+          destination="Kraków"
+        />
+      );
+
+      expect(getByTestId('quick-pass-leg-outbound-btn')).toBeTruthy();
+      expect(getByTestId('quick-pass-leg-return-btn')).toBeTruthy();
+
+      // Przełączenie na powrót
+      fireEvent.press(getByTestId('quick-pass-leg-return-btn'));
+      expect(getAllByText('Powrot.pdf').length).toBeGreaterThan(0);
+      expect(getByText('19:30')).toBeTruthy();
+
+      // Przełączenie na wyjazd
+      fireEvent.press(getByTestId('quick-pass-leg-outbound-btn'));
+      expect(getAllByText('Tam.pdf').length).toBeGreaterThan(0);
+      expect(getByText('09:00')).toBeTruthy();
+    });
+
+    test('Rozpoznaje ikony różnych środków transportu (flight, bus, car)', () => {
+      const { rerender, getByText } = render(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={mockTicket}
+          transportType="flight"
+        />
+      );
+      expect(getByText('FLIGHT')).toBeTruthy();
+
+      rerender(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={mockTicket}
+          transportType="bus"
+        />
+      );
+      expect(getByText('BUS')).toBeTruthy();
+
+      rerender(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={mockTicket}
+          transportType="car"
+        />
+      );
+      expect(getByText('CAR')).toBeTruthy();
+    });
+
+    test('Obsługuje akcje PDF i udostępnianie pliku', async () => {
+      const Sharing = require('expo-sharing');
+      Sharing.shareAsync.mockClear();
+
+      const { getByTestId } = render(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={mockTicket}
+        />
+      );
+
+      fireEvent.press(getByTestId('quick-pass-open-pdf-btn'));
+      await waitFor(() => {
+        expect(Sharing.shareAsync).toHaveBeenCalledWith('file:///vault/bilet.pdf', expect.anything());
+      });
+
+      fireEvent.press(getByTestId('quick-pass-share-pdf-btn'));
+      await waitFor(() => {
+        expect(Sharing.shareAsync).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    test('Obsługuje udostępnianie biletu graficznego oraz przycisk zoom-out', async () => {
+      const Sharing = require('expo-sharing');
+      Sharing.shareAsync.mockClear();
+
+      const imageTicket = {
+        id: 'ticket-img-2',
+        name: 'bilet.jpg',
+        uri: 'file:///vault/bilet.jpg',
+        type: 'IMAGE',
+      };
+
+      const { getByTestId } = render(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={jest.fn()}
+          ticketFile={imageTicket}
+        />
+      );
+
+      // Zoom in i zoom out
+      fireEvent.press(getByTestId('quick-pass-zoom-in-btn'));
+      fireEvent.press(getByTestId('quick-pass-zoom-out-btn'));
+
+      fireEvent.press(getByTestId('quick-pass-share-img-btn'));
+      await waitFor(() => {
+        expect(Sharing.shareAsync).toHaveBeenCalledWith('file:///vault/bilet.jpg', expect.anything());
+      });
+    });
+
+    test('Wyświetla stan pusty gdy ticketFile jest null oraz zamyka przyciskiem Gotowe', () => {
+      const onCloseMock = jest.fn();
+      const { getByText, getByTestId } = render(
+        <QuickTicketPassModal
+          visible={true}
+          onClose={onCloseMock}
+          ticketFile={null}
+        />
+      );
+
+      expect(getByText(/Brak dołączonego biletu/)).toBeTruthy();
+
+      fireEvent.press(getByTestId('quick-pass-dismiss-btn'));
+      expect(onCloseMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('2. ProximityAlertBanner - Kontekstowy baner zbliżeniowy', () => {

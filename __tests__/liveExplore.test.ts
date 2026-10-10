@@ -10,7 +10,10 @@ import {
   CITIES_WITH_PREDEFINED_PLANS,
   DESTINATION_POOL,
   POLISH_AIRPORTS,
+  resolveAirportIataCode,
+  getLocalizedDestinationDescription,
 } from '../src/lib/liveExplore';
+
 
 // Mock fetch globalny
 const originalFetch = global.fetch;
@@ -54,7 +57,26 @@ describe('LiveExplore - Rygorystyczne testy algorytmu i Etapów 1, 2, 3', () => 
     });
   });
 
+  describe('2b. resolveAirportIataCode - Poprawne kody IATA lotnisk docelowych', () => {
+    test('zwraca 3-literowy kod IATA bez zmian jeśli już jest poprawny', () => {
+      expect(resolveAirportIataCode('ROM', 'Rzym')).toBe('ROM');
+      expect(resolveAirportIataCode('BCN', 'Barcelona')).toBe('BCN');
+      expect(resolveAirportIataCode('KRK', 'Kraków')).toBe('KRK');
+      expect(resolveAirportIataCode('PAR', 'Paryż')).toBe('PAR');
+    });
+
+    test('zamienia nazwy dworców kolejowych lub miast na prawdziwe kody lotnisk', () => {
+      expect(resolveAirportIataCode('Kraków Główny', 'Kraków')).toBe('KRK');
+      expect(resolveAirportIataCode('Toruń Główny', 'Toruń')).toBe('BZG');
+      expect(resolveAirportIataCode('Zakopane', 'Zakopane')).toBe('KRK');
+      expect(resolveAirportIataCode('Sandomierz', 'Sandomierz')).toBe('RZE');
+      expect(resolveAirportIataCode('Kazimierz Dolny', 'Kazimierz Dolny')).toBe('LUW');
+      expect(resolveAirportIataCode('Łódź Fabryczna', 'Łódź')).toBe('LCJ');
+    });
+  });
+
   describe('3. Etap 1: findNearestAirport - Wyznaczanie najbliższego polskiego lotniska wylotowego', () => {
+
     test('dla lokalizacji w Warszawie zwraca lotnisko Chopina (WAW)', () => {
       const airport = findNearestAirport(52.2297, 21.0122);
       expect(airport.code).toBe('WAW');
@@ -326,6 +348,49 @@ describe('LiveExplore - Rygorystyczne testy algorytmu i Etapów 1, 2, 3', () => 
         expect(dest.proposedTrip).toBeDefined();
         expect(dest.coverImage).not.toContain('photo-1488646953014-85cb44e25828');
       });
+    });
+  });
+
+  describe('8. Wielojęzyczność opisów destynacji (PL / EN)', () => {
+    test('każda destynacja w DESTINATION_POOL posiada niepusty opis polski oraz angielski', () => {
+      expect(DESTINATION_POOL.length).toBeGreaterThan(30);
+      DESTINATION_POOL.forEach((dest) => {
+        expect(dest.shortDescription).toBeDefined();
+        expect(dest.shortDescription.trim().length).toBeGreaterThan(10);
+
+        expect(dest.shortDescriptionEn).toBeDefined();
+        expect(dest.shortDescriptionEn!.trim().length).toBeGreaterThan(10);
+      });
+    });
+
+    test('getFallbackRecommendations dołącza pole shortDescriptionEn do każdej destynacji', () => {
+      const fallbacks = getFallbackRecommendations(52.2297, 21.0122);
+      expect(fallbacks.length).toBeGreaterThan(0);
+
+      fallbacks.forEach((dest) => {
+        expect(dest.shortDescriptionEn).toBeDefined();
+        expect(dest.shortDescriptionEn!.length).toBeGreaterThan(10);
+      });
+    });
+
+    test('getLocalizedDestinationDescription zwraca poprawną wersję językową', () => {
+      const sample = {
+        city: 'Rzym',
+        shortDescription: 'Wieczne Miasto.',
+        shortDescriptionEn: 'The Eternal City.',
+      };
+
+      expect(getLocalizedDestinationDescription(sample, 'pl')).toBe('Wieczne Miasto.');
+      expect(getLocalizedDestinationDescription(sample, 'en')).toBe('The Eternal City.');
+    });
+
+    test('getLocalizedDestinationDescription bezpiecznie fallbackuje do shortDescription gdy brak shortDescriptionEn', () => {
+      const sampleNoEn = {
+        city: 'NiezwykleMiasto',
+        shortDescription: 'Tylko polski opis.',
+      };
+
+      expect(getLocalizedDestinationDescription(sampleNoEn, 'en')).toBe('Tylko polski opis.');
     });
   });
 });

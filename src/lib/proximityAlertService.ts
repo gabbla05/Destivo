@@ -490,6 +490,29 @@ export async function checkProximityStatus(
 }
 
 /**
+ * Weryfikuje i w razie potrzeby prosi użytkownika o uprawnienia do powiadomień (w tym Android 13+ POST_NOTIFICATIONS oraz iOS).
+ */
+export async function ensureNotificationPermissions(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    if (existingStatus === 'granted') {
+      return true;
+    }
+    const { status: requestedStatus } = await Notifications.requestPermissionsAsync();
+    if (requestedStatus !== 'granted') {
+      console.warn('Destivo: Brak uprawnień do powiadomień systemowych (POST_NOTIFICATIONS na Androidzie 13+).');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Destivo: Błąd weryfikacji uprawnień powiadomień:', err);
+    return false;
+  }
+}
+
+/**
  * Planuje lokalne powiadomienie offline na czas przed odjazdem (np. T-60 min).
  * Działa w 100% lokalnie na urządzeniu, nie wymaga serwera push i działa w trybie offline!
  */
@@ -519,20 +542,10 @@ export async function scheduleLocalDepartureNotification(
     // Wyczyść ewentualne stare wygasłe powiadomienia
     await dismissExpiredDepartureNotifications().catch(() => {});
 
-    // Weryfikacja i żądanie uprawnień do powiadomień (Android 13+ oraz iOS)
-    try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      if (finalStatus !== 'granted') {
-        console.warn('Destivo: Brak uprawnień do powiadomień systemowych.');
-        return null;
-      }
-    } catch (permErr) {
-      console.warn('Destivo: Błąd weryfikacji uprawnień powiadomień:', permErr);
+    // Weryfikacja i żądanie uprawnień do powiadomień (Android 13+ POST_NOTIFICATIONS oraz iOS)
+    const hasPermission = await ensureNotificationPermissions();
+    if (!hasPermission) {
+      return null;
     }
 
     const storageKey = `${NOTIFICATION_STORAGE_KEY_PREFIX}${trip.id}`;
@@ -647,11 +660,14 @@ export async function scheduleLocalDepartureNotification(
     // Zaplanuj automatyczne usunięcie z paska powiadomień po upływie 1h od odjazdu
     const timeUntilExpiry = expiresAt - Date.now();
     if (timeUntilExpiry > 0 && timeUntilExpiry < 24 * 60 * 60 * 1000) {
-      setTimeout(async () => {
+      const timer = setTimeout(async () => {
         try {
           await Notifications.dismissNotificationAsync(notificationId).catch(() => {});
         } catch {}
       }, timeUntilExpiry);
+      if (typeof (timer as any)?.unref === 'function') {
+        (timer as any).unref();
+      }
     }
 
     return notificationId;
@@ -727,6 +743,9 @@ export async function setupGeofencingForTrip(trip: any): Promise<boolean> {
     // Uprawnienia lokalizacji w tle
     const { status } = await Location.getForegroundPermissionsAsync();
     if (status !== 'granted') return false;
+
+    // Uprawnienia do powiadomień (Android 13+ POST_NOTIFICATIONS oraz iOS)
+    await ensureNotificationPermissions().catch(() => false);
 
     const radius = getGeofenceRadiusForTransport(trip.transport_type);
 

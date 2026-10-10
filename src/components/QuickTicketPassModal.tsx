@@ -152,15 +152,19 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
       ? returnDepartureTime || '12:00'
       : outboundDepartureTime || departureTime || '08:00';
 
+  const defaultStation = t.defaultStation || (language === 'en' ? 'Station / Airport' : 'Stacja / Lotnisko');
+  const defaultReturn = t.defaultReturn || (language === 'en' ? 'Return' : 'Powrót');
+  const defaultDestination = t.defaultDestination || (language === 'en' ? 'Destination' : 'Cel podróży');
+
   const currentStation =
     selectedLeg === 'return'
-      ? returnStation || destination || 'Stacja / Lotnisko'
-      : outboundStation || stationName || 'Stacja / Lotnisko';
+      ? returnStation || destination || defaultStation
+      : outboundStation || stationName || defaultStation;
 
   const currentDestination =
     selectedLeg === 'return'
-      ? outboundStation || stationName || 'Powrót'
-      : destination || 'Cel podróży';
+      ? outboundStation || stationName || defaultReturn
+      : destination || defaultDestination;
 
   const calcDistance = (t0: any, t1: any) => {
     const dx = t0.pageX - t1.pageX;
@@ -173,13 +177,11 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
   };
 
   const handleZoomOut = () => {
-    setScale((prev) => {
-      const next = Math.max(1, Number((prev - 0.5).toFixed(1)));
-      if (next === 1) {
-        pan.setValue({ x: 0, y: 0 });
-      }
-      return next;
-    });
+    const next = Math.max(1, Number((scale - 0.5).toFixed(1)));
+    if (next === 1) {
+      pan.setValue({ x: 0, y: 0 });
+    }
+    setScale(next);
   };
 
   const handleResetZoom = () => {
@@ -380,7 +382,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       selectedLeg === 'outbound' && styles.legTabTextActive,
                     ]}
                   >
-                    {t.legOutbound || 'TAM'} ({outboundDepartureTime || departureTime || '08:00'})
+                    {t.legOutbound || (language === 'en' ? 'OUTBOUND' : 'TAM')} ({outboundDepartureTime || departureTime || '08:00'})
                   </Text>
                 </TouchableOpacity>
 
@@ -405,7 +407,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       selectedLeg === 'return' && styles.legTabTextActive,
                     ]}
                   >
-                    {t.legReturn || 'POWRÓT'} ({returnDepartureTime || '12:00'})
+                    {t.legReturn || (language === 'en' ? 'RETURN' : 'POWRÓT')} ({returnDepartureTime || '12:00'})
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -477,10 +479,10 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       <Ionicons name="document-text" size={34} color="#EF4444" />
                     </View>
                     <Text style={styles.pdfTitle} numberOfLines={2}>
-                      {currentFile.name || 'Bilet_Podrozy.pdf'}
+                      {currentFile.name || (language === 'en' ? 'Travel_Ticket.pdf' : 'Bilet_Podrozy.pdf')}
                     </Text>
                     <Text style={styles.pdfSubtitle}>
-                      {t.openPdfHint || 'Uruchamia zewnętrzną przeglądarkę PDF (np. Adobe Acrobat, Dysk Google)'}
+                      {t.openPdfHint || (language === 'en' ? 'Tap to view this ticket in your phone’s PDF reader' : 'Uruchamia zewnętrzną przeglądarkę PDF (np. Adobe Acrobat, Dysk Google)')}
                     </Text>
 
                     {/* GŁÓWNY PRZYCISK: OTWARCIE W APLIKACJI PDF */}
@@ -491,7 +493,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       testID="quick-pass-open-pdf-btn"
                     >
                       <Ionicons name="open-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                      <Text style={styles.openPdfPrimaryBtnText}>{t.openPdfApp || 'Otwórz w aplikacji PDF'}</Text>
+                      <Text style={styles.openPdfPrimaryBtnText}>{t.openPdfApp || (language === 'en' ? 'Open in PDF app' : 'Otwórz w aplikacji PDF')}</Text>
                     </TouchableOpacity>
 
                     {/* DRUGI PRZYCISK: UDOSTĘPNIJ / ZAPISZ */}
@@ -502,7 +504,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       testID="quick-pass-share-pdf-btn"
                     >
                       <Ionicons name="share-social-outline" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                      <Text style={styles.shareSecondaryBtnText}>{t.shareFile || 'Udostępnij / Zapisz plik'}</Text>
+                      <Text style={styles.shareSecondaryBtnText}>{t.shareFile || (language === 'en' ? 'Share file' : 'Udostępnij / Zapisz plik')}</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (

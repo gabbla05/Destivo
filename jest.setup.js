@@ -31,6 +31,7 @@ jest.mock('react-native-safe-area-context', () => {
   return {
     ...actual,
     useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
+    SafeAreaProvider: ({ children }) => children,
   };
 });
 
@@ -78,5 +79,32 @@ jest.mock('expo-brightness', () => ({
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
 }));
+
+// Mock @expo/vector-icons to prevent async font load state updates outside act(...)
+jest.mock('@expo/vector-icons', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  const MockIcon = (props) => React.createElement(Text, { testID: props.testID || 'mock-icon' }, props.name);
+  return {
+    Ionicons: MockIcon,
+    MaterialIcons: MockIcon,
+    FontAwesome: MockIcon,
+    Feather: MockIcon,
+    createIconSet: () => MockIcon,
+  };
+});
+
+// Mock currencyService to prevent unmocked fetch network calls during tests
+jest.mock('./src/lib/currencyService', () => {
+  const actual = jest.requireActual('./src/lib/currencyService');
+  return {
+    ...actual,
+    fetchLiveExchangeRates: jest.fn().mockResolvedValue({
+      rates: actual.DEFAULT_EXCHANGE_RATES,
+      lastUpdated: new Date(),
+      fromCache: true,
+    }),
+  };
+});
 
 

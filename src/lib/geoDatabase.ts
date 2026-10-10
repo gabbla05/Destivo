@@ -1,4 +1,6 @@
 // src/lib/geoDatabase.ts
+import { getGoogleApiKey } from './config';
+
 /**
  * Moduł geolokalizacji, słownika miast i wyznaczania rekomendacji transportowych.
  * Zapewnia:
@@ -586,8 +588,7 @@ export async function checkDestinationStation(
     return { hasStation: false };
   }
 
-  const googleApiKey =
-    process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ';
+  const googleApiKey = getGoogleApiKey();
 
   // 2. Sprawdzenie stacji przez Google Places API Nearby Search (promień 20 km)
   if (googleApiKey && !googleApiKey.includes('TYMCZASOWY')) {

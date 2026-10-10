@@ -5,10 +5,14 @@ import { Linking, Alert } from 'react-native';
 import { ExploreDetailsScreen } from '../src/screens/ExploreDetailsScreen';
 import { useTripCreatorStore } from '../src/store/tripCreatorStore';
 import { LiveDestination } from '../src/lib/liveExplore';
+import { translations } from '../src/i18n/translations';
 
+let mockCurrentLanguage = 'pl';
 jest.mock('../src/store/authStore', () => ({
   useAuthStore: () => ({
-    language: 'pl',
+    get language() {
+      return mockCurrentLanguage;
+    },
   }),
 }));
 
@@ -28,6 +32,11 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
     navigate: jest.fn(),
     goBack: jest.fn(),
   };
+
+  afterEach(() => {
+    mockCurrentLanguage = 'pl';
+    jest.clearAllMocks();
+  });
 
   const mockPredefinedDestination: LiveDestination = {
     id: 'rome_01',
@@ -179,7 +188,34 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
     });
   });
 
+  test('3b. [Transport: Lot Kraków] dla Krakowa poprawnie tworzy link Skyscanner z kodem KRK zamiast nazwy dworca', async () => {
+    const krakowFlightDest: LiveDestination = {
+      ...mockPredefinedDestination,
+      city: 'Kraków',
+      transportCode: 'Kraków Główny',
+      recommendedTransport: 'flight',
+      nearestAirport: 'WAW',
+    };
+
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: krakowFlightDest } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    const checkFlightBtn = screen.getByText(/Sprawdź loty/i);
+    fireEvent.press(checkFlightBtn);
+
+    await waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        expect.stringContaining('skyscanner.pl/transport/loty/waw/krk')
+      );
+    });
+  });
+
   test('4. [Transport: Kolej] dla pociągu otwiera link do Koleo', async () => {
+
     const trainDest: LiveDestination = {
       ...mockPredefinedDestination,
       city: 'Kraków',
@@ -312,6 +348,109 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
       );
       expect(Linking.openURL).toHaveBeenCalledWith(
         expect.stringContaining('Kazimierz')
+      );
+    });
+  });
+
+  test('11. [Język EN - Opis z tłumaczeń] renderuje angielski opis destynacji gdy language === "en"', () => {
+    mockCurrentLanguage = 'en';
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: mockPredefinedDestination } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    expect(screen.getByText(/The Eternal City, where ancient history meets some of the world's best cuisine/i)).toBeTruthy();
+  });
+
+  test('12. [Język EN - Angielska nazwa miasta] renderuje angielski opis gdy destData.city to nazwa angielska (np. Rome / Vienna)', () => {
+    mockCurrentLanguage = 'en';
+    const viennaDest: LiveDestination = {
+      ...mockPredefinedDestination,
+      city: 'Vienna',
+      country: 'Austria',
+      shortDescription: 'Muzyka klasyczna, wiedeńska kawa i majestatyczne pałace Habsburgów.',
+      shortDescriptionEn: 'Classical music, Viennese coffee and majestic Habsburg palaces.',
+    };
+
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: viennaDest } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    expect(screen.getByText(/Classical music, Viennese coffee and majestic Habsburg palaces/i)).toBeTruthy();
+  });
+
+  test('13. [Język EN - Fallback do shortDescriptionEn] renderuje shortDescriptionEn dla nowego miasta spoza słownika', () => {
+    mockCurrentLanguage = 'en';
+    const customDest: LiveDestination = {
+      ...mockPredefinedDestination,
+      city: 'NowaNiezwyklaWioska',
+      shortDescription: 'Polski unikatowy opis',
+      shortDescriptionEn: 'English unique custom description',
+    };
+
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: customDest } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    expect(screen.getByText('English unique custom description')).toBeTruthy();
+  });
+
+  test('14. [Język EN - Przekierowanie lotów] otwiera skyscanner.net zamiast skyscanner.pl dla language === "en"', async () => {
+    mockCurrentLanguage = 'en';
+    const krakowFlightDest: LiveDestination = {
+      ...mockPredefinedDestination,
+      city: 'Kraków',
+      transportCode: 'KRK',
+      recommendedTransport: 'flight',
+      nearestAirport: 'WAW',
+    };
+
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: krakowFlightDest } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    const checkFlightBtn = screen.getByText(/Check flights/i);
+    fireEvent.press(checkFlightBtn);
+
+    await waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        expect.stringContaining('skyscanner.net/transport/flights/waw/krk')
+      );
+    });
+  });
+
+  test('15. [Język EN - Przekierowanie gastronomii] otwiera Google Maps z angielskim zapytaniem restaurants dining', async () => {
+    mockCurrentLanguage = 'en';
+    const dayTrip: LiveDestination = {
+      ...mockDayTripDestination,
+      isDayTrip: true,
+      city: 'Kazimierz Dolny',
+    };
+
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: dayTrip } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    const diningBtn = screen.getByText(new RegExp((translations.en.exploreDetails.dayTripDining || 'Where to eat').replace('🍴 ', ''), 'i'));
+    fireEvent.press(diningBtn);
+
+    await waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        expect.stringContaining(encodeURIComponent('restaurants dining in Kazimierz Dolny'))
       );
     });
   });

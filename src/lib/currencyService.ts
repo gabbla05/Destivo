@@ -49,14 +49,13 @@ export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
   }
 
   // 2. Pobranie kursów na żywo z open.er-api.com (baza PLN)
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
 
+  try {
     const response = await fetch('https://open.er-api.com/v6/latest/PLN', {
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
 
     if (response.ok) {
       const data = await response.json();
@@ -93,6 +92,8 @@ export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
   } catch (fetchErr) {
     // W razie braku sieci lub timeoutu używamy cache lub fallbacku
     console.warn('Brak połączenia z API kursów walut, użyto cache:', fetchErr);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   return {
@@ -103,15 +104,114 @@ export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
 }
 
 /**
- * Formatuje czas aktualizacji kursu w czytelnej formie zależnie od języka (PL / EN).
+ * Pobiera zapisane w pamięci podręcznej kursy walut bez blokującego zapytania sieciowego (100% offline).
+ * Jeśli brak w pamięci podręcznej, zwraca DEFAULT_EXCHANGE_RATES.
  */
-export function formatRatesUpdatedTime(date: Date, language: string = 'pl'): string {
-  if (!date || isNaN(date.getTime())) {
+export async function getCachedExchangeRates(): Promise<Record<string, number>> {
+  try {
+    const storedRatesJson = await AsyncStorage.getItem(STORAGE_RATES_KEY);
+    if (storedRatesJson) {
+      return { ...DEFAULT_EXCHANGE_RATES, ...JSON.parse(storedRatesJson) };
+    }
+  } catch (err) {
+    console.warn('Błąd odczytu kursów z AsyncStorage:', err);
+  }
+  return { ...DEFAULT_EXCHANGE_RATES };
+}
+
+/**
+ * Wykrywa oficjalną walutę kraju/miasta na podstawie nazwy destynacji.
+ */
+export function getDestinationCurrencyCode(destination?: string): string {
+  if (!destination) return 'EUR';
+  const d = destination.toLowerCase().trim();
+
+  // Polska
+  if (['warszawa', 'warsaw', 'kraków', 'krakow', 'gdańsk', 'gdansk', 'wrocław', 'wroclaw', 'poznań', 'poznan', 'polska', 'poland', 'zakopane', 'sopot', 'lublin', 'katowice', 'szczecin'].some(c => d.includes(c))) {
+    return 'PLN';
+  }
+  // Wielka Brytania
+  if (['londyn', 'london', 'uk', 'wielka brytania', 'wielkiej brytanii', 'anglia', 'england', 'szkocja', 'scotland', 'edynburg', 'edinburgh', 'manchester', 'liverpool', 'birmingham'].some(c => d.includes(c))) {
+    return 'GBP';
+  }
+  // Czechy
+  if (['praga', 'prague', 'czech', 'czechy', 'ostrawa', 'ostrava', 'brno'].some(c => d.includes(c))) {
+    return 'CZK';
+  }
+  // Węgry
+  if (['budapeszt', 'budapest', 'węgry', 'wegry', 'hungary'].some(c => d.includes(c))) {
+    return 'HUF';
+  }
+  // Szwajcaria
+  if (['szwajcaria', 'switzerland', 'zurych', 'zurich', 'genewa', 'geneva', 'basel', 'bazylea', 'berno', 'bern'].some(c => d.includes(c))) {
+    return 'CHF';
+  }
+  // Japonia
+  if (['tokio', 'tokyo', 'japonia', 'japan', 'kioto', 'kyoto', 'osaka'].some(c => d.includes(c))) {
+    return 'JPY';
+  }
+  // Stany Zjednoczone
+  if (['usa', 'nowy jork', 'new york', 'stany zjednoczone', 'united states', 'los angeles', 'chicago', 'miami', 'san francisco', 'las vegas'].some(c => d.includes(c))) {
+    return 'USD';
+  }
+  // Norwegia
+  if (['norwegia', 'norway', 'oslo', 'bergen', 'tromso', 'tromsø'].some(c => d.includes(c))) {
+    return 'NOK';
+  }
+  // Szwecja
+  if (['szwecja', 'sweden', 'sztokholm', 'stockholm', 'goteborg', 'göteborg', 'malmo', 'malmö'].some(c => d.includes(c))) {
+    return 'SEK';
+  }
+  // Dania
+  if (['dania', 'denmark', 'kopenhaga', 'copenhagen'].some(c => d.includes(c))) {
+    return 'DKK';
+  }
+  // Islandia
+  if (['islandia', 'iceland', 'reykjavik', 'keflavik'].some(c => d.includes(c))) {
+    return 'ISK';
+  }
+  // Turcja
+  if (['turcja', 'turkey', 'stambuł', 'istanbul', 'antalya', 'ankara'].some(c => d.includes(c))) {
+    return 'TRY';
+  }
+
+  // Domyślnie strefa euro
+  return 'EUR';
+}
+
+/**
+ * Zwraca informację o walucie (kod i kurs w PLN) dla podanej destynacji,
+ * korzystając ze zaktualizowanych lub domyślnych kursów walut.
+ */
+export function getCurrencyInfoForDestination(
+  destination?: string,
+  rates?: Record<string, number>
+): { code: string; ratePln: number } {
+  const code = getDestinationCurrencyCode(destination);
+  const activeRates = rates || DEFAULT_EXCHANGE_RATES;
+  const rawRate = activeRates[code] !== undefined ? activeRates[code] : (DEFAULT_EXCHANGE_RATES[code] ?? 1.0);
+
+  let ratePln = 1.0;
+  if (code === 'PLN') {
+    ratePln = 1.0;
+  } else if (rawRate < 0.1) {
+    ratePln = Number(rawRate.toFixed(rawRate < 0.01 ? 4 : 3));
+  } else {
+    ratePln = Number(rawRate.toFixed(2));
+  }
+
+  return { code, ratePln };
+}
+
+
+export function formatRatesUpdatedTime(date: Date | string | number, language: string = 'pl'): string {
+  const parsedDate = date instanceof Date ? date : new Date(date);
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
     return language === 'pl' ? 'dzisiaj' : 'today';
   }
 
   const now = new Date();
-  const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+  const diffMinutes = Math.floor((now.getTime() - parsedDate.getTime()) / (1000 * 60));
 
   if (diffMinutes < 2) {
     return language === 'pl' ? 'przed chwilą' : 'just now';
@@ -121,21 +221,22 @@ export function formatRatesUpdatedTime(date: Date, language: string = 'pl'): str
   }
 
   const isToday =
-    now.getDate() === date.getDate() &&
-    now.getMonth() === date.getMonth() &&
-    now.getFullYear() === date.getFullYear();
+    now.getDate() === parsedDate.getDate() &&
+    now.getMonth() === parsedDate.getMonth() &&
+    now.getFullYear() === parsedDate.getFullYear();
 
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const hours = String(parsedDate.getHours()).padStart(2, '0');
+  const minutes = String(parsedDate.getMinutes()).padStart(2, '0');
 
   if (isToday) {
     return language === 'pl' ? `dzisiaj, ${hours}:${minutes}` : `today, ${hours}:${minutes}`;
   }
 
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(parsedDate.getDate()).padStart(2, '0');
+  const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
   return `${day}.${month}, ${hours}:${minutes}`;
 }
+
 
 /**
  * Przelicza kwotę pomiędzy walutami z użyciem zadanych kursów.
