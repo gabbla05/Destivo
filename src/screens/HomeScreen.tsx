@@ -537,6 +537,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 outboundArrivalTime: transportDetails.outboundArrivalTime,
                 returnDepartureTime: transportDetails.returnDepartureTime,
                 returnDepartureLocation: transportDetails.returnDepartureLocation,
+                returnArrivalTime: transportDetails.returnArrivalTime,
                 lodgingAddress: cleanLodgingAddr,
                 selectedAttractions: attractionsData.selected || [],
                 poolAttractions: attractionsData.pool || [],

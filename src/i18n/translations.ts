@@ -59,8 +59,9 @@ export const translations = {
       addTitle: 'Dodaj punkt w trasie', suggestions: 'Propozycje z okolicy', suggestionsHint: 'Kliknij, aby błyskawicznie dodać do planu.', noSuggestions: 'Brak więcej propozycji w okolicy.', manual: 'Dodaj ręcznie',
       titleLabel: 'Tytuł *', titlePlaceholder: 'np. Obiad w restauracji', dateLabel: 'Data (DD-MM-YYYY) *', datePlaceholder: '15-08-2026', timeLabel: 'Godzina (HH:MM)', timePlaceholder: '12:00', add: 'DODAJ', saveLayout: 'Zapisz układ osi czasu',
       dateLabelWithFormat: 'Data (DD-MM-YYYY)', timeLabelWithFormat: 'Czas (HH:MM)', eventTitleLabel: 'Tytuł wydarzenia', eventSubtitleLabel: 'Opis',
-      departurePrefix: 'Wyjazd: {{origin}} ➔ {{destination}}', returnPrefix: 'Powrót: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
+      departurePrefix: 'Wyjazd: {{origin}} ➔ {{destination}}', arrivalPrefix: 'Przyjazd: {{destination}}', returnPrefix: 'Powrót: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
       home: 'Dom', newEvent: 'Nowe wydarzenie', recommendedPlace: 'Rekomendowane miejsce', addedManually: 'Dodano ręcznie', noDate: 'Brak daty',
+      arrival: 'Przyjazd do celu', reorderMode: 'Tryb przesuwania', moveUp: 'W górę', moveDown: 'W dół', done: 'Gotowe', reorderHint: 'Przytrzymaj punkt, aby go przesunąć',
       allDays: 'Wszystkie',
       allDaysOption: 'Wszystkie dni',
       dayLabel: 'Dzień',
@@ -1065,8 +1066,9 @@ export const translations = {
     timeline: {
       back: '← Back', title: 'Timeline', noTrip: 'No trip', empty: 'You have no planned trip yet.', departure: 'Trip start', returnTrip: 'Trip end', transport: 'Transport', lodging: 'Accommodation', lodgingNightTitle: 'Overnight stay', sightseeing: 'Sightseeing', nowNext: 'NOW / NEXT', deletePointTitle: 'Delete point', deletePointMessage: 'Are you sure you want to remove this timeline item?', delete: 'Delete', cancel: 'Cancel', dateRequired: 'Date is required (e.g. 15-08-2026)', saveSuccess: 'Timeline updated.', saveError: 'Could not save changes.', deleteTripTitle: 'Delete trip', deleteTripMessage: 'Are you sure you want to permanently delete this trip and all its data?', deleteTrip: 'Delete trip', deleteTripError: 'Could not delete the trip.', addTitle: 'Add a route point', suggestions: 'Nearby suggestions', suggestionsHint: 'Tap to add instantly to your plan.', noSuggestions: 'No more nearby suggestions.', manual: 'Add manually', titleLabel: 'Title *', titlePlaceholder: 'e.g. Dinner at a restaurant', dateLabel: 'Date (DD-MM-YYYY) *', datePlaceholder: '15-08-2026', timeLabel: 'Time (HH:MM)', timePlaceholder: '12:00', add: 'ADD', saveLayout: 'Save timeline layout',
       dateLabelWithFormat: 'Date (DD-MM-YYYY)', timeLabelWithFormat: 'Time (HH:MM)', eventTitleLabel: 'Event title', eventSubtitleLabel: 'Description',
-      departurePrefix: 'Departure: {{origin}} ➔ {{destination}}', returnPrefix: 'Return: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
+      departurePrefix: 'Departure: {{origin}} ➔ {{destination}}', arrivalPrefix: 'Arrival: {{destination}}', returnPrefix: 'Return: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
       home: 'Home', newEvent: 'New event', recommendedPlace: 'Recommended place', addedManually: 'Added manually', noDate: 'No date',
+      arrival: 'Arrival at destination', reorderMode: 'Reorder Mode', moveUp: 'Move up', moveDown: 'Move down', done: 'Done', reorderHint: 'Hold a card to reorder',
       allDays: 'All',
       allDaysOption: 'All days',
       dayLabel: 'Day',
@@ -2084,6 +2086,20 @@ export function localizeTimelineTitle(title: string, type?: string, language: st
     }
   }
 
+  // 1b. Przyjazd / Arrival
+  if (type === 'ARRIVAL' || /^(przyjazd:|arrival:)/i.test(trimmed)) {
+    if (/^(przyjazd:|arrival:)/i.test(trimmed)) {
+      const rest = trimmed.replace(/^(przyjazd:|arrival:)\s*/i, '');
+      return isEn ? `Arrival: ${rest}` : `Przyjazd: ${rest}`;
+    }
+    if (/^(przyjazd do celu|arrival at destination)$/i.test(trimmed)) {
+      return isEn ? 'Arrival at destination' : 'Przyjazd do celu';
+    }
+    if (/^(przyjazd|arrival)$/i.test(trimmed)) {
+      return isEn ? 'Arrival' : 'Przyjazd';
+    }
+  }
+
   // 2. Zakwaterowanie / Nocleg / Accommodation
   if (type === 'LODGING' || /^(zakwaterowanie|accommodation|nocleg|overnight stay|hotel check-in|zakwaterowanie w hotelu)$/i.test(trimmed)) {
     if (/^(zakwaterowanie|accommodation)$/i.test(trimmed)) {
@@ -2098,7 +2114,7 @@ export function localizeTimelineTitle(title: string, type?: string, language: st
   }
 
   // 3. Powrót / Return / Zakończenie podróży
-  if (type === 'RETURN' || /^(powr[oó]t:|return:)/i.test(trimmed)) {
+  if (type === 'RETURN' || type === 'END' || /^(powr[oó]t:|return:)/i.test(trimmed)) {
     if (/^(powr[oó]t:|return:)/i.test(trimmed)) {
       const rest = trimmed.replace(/^(powr[oó]t:|return:)\s*/i, '');
       return isEn ? `Return: ${rest}` : `Powrót: ${rest}`;
@@ -2134,6 +2150,14 @@ export function localizeTimelineSubtitle(sub: string, type?: string, language: s
 
   if (lower === 'rozpoczęcie podróży' || lower === 'trip start') {
     return isEn ? 'Trip start' : 'Rozpoczęcie podróży';
+  }
+
+  if (lower === 'przyjazd do celu' || lower === 'arrival at destination') {
+    return isEn ? 'Arrival at destination' : 'Przyjazd do celu';
+  }
+
+  if (lower === 'przyjazd' || lower === 'arrival') {
+    return isEn ? 'Arrival' : 'Przyjazd';
   }
 
   if (lower === 'zakończenie podróży' || lower === 'trip end') {

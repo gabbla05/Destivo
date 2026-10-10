@@ -106,20 +106,18 @@ const findPressableAncestor = (node: any): any => {
 };
 
 jest.mock('@react-navigation/native', () => {
-  const executedCallbacks = new Set<() => void>();
-
+  const React = require('react');
   return {
     useNavigation: () => ({
       navigate: mockNavigate,
       goBack: mockGoBack,
       canGoBack: () => true,
     }),
-    useFocusEffect: jest.fn((cb: () => void) => {
-      if (!executedCallbacks.has(cb)) {
-        executedCallbacks.add(cb);
-        cb();
-      }
-    }),
+    useFocusEffect: (cb: any) => {
+      React.useEffect(() => {
+        return cb();
+      }, [cb]);
+    },
   };
 });
 
@@ -200,6 +198,7 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
   beforeEach(() => {
     jest.clearAllMocks();
+    AsyncStorage.clear();
     mockAuthState.user = { id: 'test-user-id', email: 'test@destivo.io', isGuest: false };
     mockAuthState.isGuest = false;
     globalThis.fetch = mockFetch as any;

@@ -395,6 +395,7 @@ export const Step4AttractionsScreen = () => {
         outboundArrivalTime: transportDetails?.outboundArrivalTime,
         returnDepartureTime: transportDetails?.returnDepartureTime,
         returnDepartureLocation: transportDetails?.returnDepartureLocation,
+        returnArrivalTime: transportDetails?.returnArrivalTime,
         lodgingAddress: lodgingAddress || '',
         selectedAttractions: storeAttractions.selected,
         poolAttractions: poolResults,

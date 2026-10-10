@@ -18,6 +18,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Linking,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,13 +52,15 @@ import {
   generateSmartMultiDayTimeline,
   haversineDistance,
   parseTimelineDate,
+  timeStrToMinutes,
+  minutesToTimeStr,
   type StreetRouteInfo,
 } from '../lib/routeOptimization';
 import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
 
 const { height: screenHeight } = Dimensions.get('window');
 
-type TimelineEventType = 'DEPARTURE' | 'LODGING' | 'ATTRACTION' | 'RETURN' | 'END';
+type TimelineEventType = 'DEPARTURE' | 'ARRIVAL' | 'LODGING' | 'ATTRACTION' | 'RETURN' | 'END';
 
 interface TimelineEvent {
   id: string;
@@ -241,8 +244,9 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const [tripData, setTripData] = useState<TripRecord | null>(null);
   const [cityPhotoUrl, setCityPhotoUrl] = useState<string | null>(null);
   
-  // Stan edycji
+  // Stan edycji i przesuwania punktów
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [reorderingEventId, setReorderingEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Stan Modala do dodawania
@@ -685,21 +689,101 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             };
           });
 
-          // Bezpieczna synchronizacja z formularzem transportu (jeśli użytkownik podał godziny w kreatorze, ale na osi były 08:00 / 12:00)
+          // Bezpieczna synchronizacja z formularzem transportu (odjazd, przyjazd, powrót, zakończenie)
           if (transportDetails.outboundDepartureTime) {
             const depEvt = currentEvents.find(e => e.type === 'DEPARTURE');
-            if (depEvt && (depEvt.timeStr === '08:00' || !depEvt.timeStr) && transportDetails.outboundDepartureTime !== '08:00') {
+            if (depEvt) {
               depEvt.timeStr = transportDetails.outboundDepartureTime;
               depEvt.parsedDate = parseDate(trip.start_date, transportDetails.outboundDepartureTime);
+              if (transportDetails.outboundDepartureLocation) {
+                depEvt.subtitle = transportDetails.outboundDepartureLocation;
+              }
             }
           }
+
+          if (transportDetails.outboundArrivalTime) {
+            const arrEvt = currentEvents.find(e => e.type === 'ARRIVAL');
+            if (arrEvt) {
+              arrEvt.timeStr = transportDetails.outboundArrivalTime;
+              arrEvt.parsedDate = parseDate(trip.start_date, transportDetails.outboundArrivalTime);
+              if (transportDetails.outboundArrivalLocation) {
+                arrEvt.subtitle = transportDetails.outboundArrivalLocation;
+              }
+            } else {
+              const depDate = currentEvents.find(e => e.type === 'DEPARTURE')?.dateStr || normalizeDateForTimeline(trip.start_date);
+              currentEvents.push({
+                id: 'evt_arrival',
+                type: 'ARRIVAL',
+                title: t.arrivalPrefix ? t.arrivalPrefix.replace('{{destination}}', trip.destination) : `Przyjazd: ${trip.destination}`,
+                subtitle: transportDetails.outboundArrivalLocation || t.arrival || 'Przyjazd do celu',
+                dateStr: depDate,
+                timeStr: transportDetails.outboundArrivalTime,
+                parsedDate: parseDate(trip.start_date, transportDetails.outboundArrivalTime),
+                isCompleted: false,
+              });
+            }
+          }
+
           if (transportDetails.returnDepartureTime) {
             const retEvt = currentEvents.find(e => e.type === 'RETURN');
-            if (retEvt && (retEvt.timeStr === '12:00' || !retEvt.timeStr) && transportDetails.returnDepartureTime !== '12:00') {
+            if (retEvt) {
               retEvt.timeStr = transportDetails.returnDepartureTime;
               retEvt.parsedDate = parseDate(trip.end_date, transportDetails.returnDepartureTime);
+              if (transportDetails.returnDepartureLocation) {
+                retEvt.subtitle = transportDetails.returnDepartureLocation;
+              }
             }
           }
+
+          if (transportDetails.returnArrivalTime) {
+            const endEvt = currentEvents.find(e => e.type === 'END');
+            if (endEvt) {
+              endEvt.timeStr = transportDetails.returnArrivalTime;
+              endEvt.parsedDate = parseDate(trip.end_date, transportDetails.returnArrivalTime);
+            } else {
+              const retDate = currentEvents.find(e => e.type === 'RETURN')?.dateStr || normalizeDateForTimeline(trip.end_date);
+              currentEvents.push({
+                id: 'evt_end',
+                type: 'END',
+                title: t.returnTrip || `Powrót: ${trip.origin || 'Dom'}`,
+                subtitle: t.home || 'Powrót do domu',
+                dateStr: retDate,
+                timeStr: transportDetails.returnArrivalTime,
+                parsedDate: parseDate(trip.end_date, transportDetails.returnArrivalTime),
+                isCompleted: false,
+              });
+            }
+          }
+
+          // Weryfikacja granic podróży (atrakcje nie mogą być przed przyjazdem ani po powrocie)
+          const firstDayStr = normalizeDateForTimeline(trip.start_date);
+          const lastDayStr = normalizeDateForTimeline(trip.end_date);
+          const syncArrEvt = currentEvents.find(e => e.type === 'ARRIVAL');
+          const syncRetEvt = currentEvents.find(e => e.type === 'RETURN');
+
+          for (let i = 0; i < currentEvents.length; i++) {
+            const cur = currentEvents[i];
+            if (cur.type === 'ATTRACTION') {
+              const curM = timeStrToMinutes(cur.timeStr);
+              if (syncArrEvt && cur.dateStr === firstDayStr) {
+                const arrM = timeStrToMinutes(syncArrEvt.timeStr);
+                if (curM < arrM + 30) {
+                  const adjM = Math.min(22 * 60, arrM + 45);
+                  cur.timeStr = minutesToTimeStr(adjM);
+                  cur.parsedDate = parseTimelineDate(cur.dateStr, cur.timeStr);
+                }
+              }
+              if (syncRetEvt && cur.dateStr === lastDayStr) {
+                const retM = timeStrToMinutes(syncRetEvt.timeStr);
+                if (curM > retM - 45) {
+                  const adjM = Math.max(9 * 60, retM - 60);
+                  cur.timeStr = minutesToTimeStr(adjM);
+                  cur.parsedDate = parseTimelineDate(cur.dateStr, cur.timeStr);
+                }
+              }
+            }
+          }
+          currentEvents.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
         } else {
           const cleanAccom = trip.accommodation_address && !['ok', 'brak', 'none', '-'].includes(trip.accommodation_address.trim().toLowerCase())
             ? trip.accommodation_address.trim()
@@ -717,14 +801,17 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             outboundArrivalTime: transportDetails.outboundArrivalTime,
             returnDepartureTime: transportDetails.returnDepartureTime,
             returnDepartureLocation: transportDetails.returnDepartureLocation,
+            returnArrivalTime: transportDetails.returnArrivalTime,
             lodgingAddress: cleanAccom,
             selectedAttractions: selectedAttractions,
             poolAttractions: rawPool,
             isDayTrip: trip.start_date === trip.end_date,
             translations: {
               departurePrefix: t.departurePrefix,
+              arrivalPrefix: t.arrivalPrefix,
               returnPrefix: t.returnPrefix,
               departure: t.departure,
+              arrival: t.arrival,
               returnTrip: t.returnTrip,
               lodging: t.lodging,
               sightseeing: t.sightseeing,
@@ -936,19 +1023,73 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
     setHasUnsavedChanges(true);
   };
 
-  const moveEvent = (index: number, direction: 'UP' | 'DOWN') => {
-    if (direction === 'UP' && index === 0) return;
-    if (direction === 'DOWN' && index === events.length - 1) return;
+  const moveEvent = (target: number | string, direction: 'UP' | 'DOWN') => {
+    let currentEvt: TimelineEvent | undefined;
+    if (typeof target === 'string') {
+      currentEvt = events.find((e) => e.id === target);
+    } else {
+      currentEvt = displayedEvents[target] || events[target];
+    }
+    if (!currentEvt) return;
+
+    // Znajdź indeks w displayedEvents, aby zamiana odpowiadała widokowi użytkownika
+    const dispIdx = displayedEvents.findIndex((e) => e.id === currentEvt!.id);
+    if (dispIdx === -1) return;
+
+    const neighborDispIdx = direction === 'UP' ? dispIdx - 1 : dispIdx + 1;
+    if (neighborDispIdx < 0 || neighborDispIdx >= displayedEvents.length) return;
+
+    const neighborEvt = displayedEvents[neighborDispIdx];
+    if (!neighborEvt) return;
+
+    // KRYTYCZNA OCHRONA:
+    // 1. Żadna atrakcja nie może być przesunięta PRZED odjazd (DEPARTURE) ani przyjazd (ARRIVAL)!
+    if (direction === 'UP' && (neighborEvt.type === 'DEPARTURE' || neighborEvt.type === 'ARRIVAL')) {
+      return;
+    }
+    // 2. Żadna atrakcja nie może być przesunięta PO powrót (RETURN) ani zakończenie (END)!
+    if (direction === 'DOWN' && (neighborEvt.type === 'RETURN' || neighborEvt.type === 'END')) {
+      return;
+    }
+
+    // Zamiana kolejności w głównej tablicy events
+    const idxA = events.findIndex((e) => e.id === currentEvt!.id);
+    const idxB = events.findIndex((e) => e.id === neighborEvt.id);
+    if (idxA === -1 || idxB === -1) return;
+
+    // Zamieniamy również ich godziny (timeStr) i parsedDate, gwarantując spójność chronologiczną
+    const timeA = currentEvt.timeStr;
+    const timeB = neighborEvt.timeStr;
+    const dateA = currentEvt.dateStr;
+    const dateB = neighborEvt.dateStr;
+
+    const updatedEvtA = {
+      ...currentEvt,
+      timeStr: timeB,
+      dateStr: dateB,
+      parsedDate: parseTimelineDate(dateB, timeB),
+    };
+
+    const updatedEvtB = {
+      ...neighborEvt,
+      timeStr: timeA,
+      dateStr: dateA,
+      parsedDate: parseTimelineDate(dateA, timeA),
+    };
 
     const newEvents = [...events];
-    const swapIndex = direction === 'UP' ? index - 1 : index + 1;
-    
-    const temp = newEvents[index];
-    newEvents[index] = newEvents[swapIndex];
-    newEvents[swapIndex] = temp;
+    newEvents[idxA] = updatedEvtB;
+    newEvents[idxB] = updatedEvtA;
+
+    // Sortujemy stabilnie po nowym parsedDate
+    newEvents.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
 
     setEvents(newEvents);
     setHasUnsavedChanges(true);
+
+    try {
+      Vibration.vibrate(30);
+    } catch {}
   };
 
   const deleteEvent = (id: string) => {
@@ -1259,9 +1400,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const getTypeColor = (type: TimelineEventType) => {
     switch (type) {
       case 'DEPARTURE': return '#0284C7';
+      case 'ARRIVAL': return '#0EA5E9';
       case 'LODGING': return '#8B5CF6';
       case 'ATTRACTION': return '#F59E0B';
       case 'RETURN': return '#10B981';
+      case 'END': return '#10B981';
       default: return '#64748B';
     }
   };
@@ -1269,9 +1412,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const getTypeSmallIcon = (type: TimelineEventType): any => {
     switch (type) {
       case 'DEPARTURE': return 'airplane-outline';
+      case 'ARRIVAL': return 'location-outline';
       case 'LODGING': return 'bed-outline';
       case 'ATTRACTION': return 'camera-outline';
       case 'RETURN': return 'home-outline';
+      case 'END': return 'home-outline';
       default: return 'location-outline';
     }
   };
@@ -1283,13 +1428,16 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
     if (type === 'DEPARTURE') {
       iconName = 'airplane';
       bgColor = '#0284C7';
+    } else if (type === 'ARRIVAL') {
+      iconName = 'location';
+      bgColor = '#0EA5E9';
     } else if (type === 'LODGING') {
       iconName = 'bed';
       bgColor = '#8B5CF6';
     } else if (type === 'ATTRACTION') {
       iconName = 'camera';
       bgColor = '#F59E0B';
-    } else if (type === 'RETURN') {
+    } else if (type === 'RETURN' || type === 'END') {
       iconName = 'home';
       bgColor = '#10B981';
     }
@@ -1697,64 +1845,127 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                       {evt.isCurrent && !evt.isCompleted && <View style={styles.currentNodePulse} />}
                     </View>
 
-                    <TouchableOpacity 
-                      style={[
-                        styles.eventCard, 
-                        { borderLeftColor: typeColor },
-                        evt.isCurrent && !evt.isCompleted && styles.eventCardCurrent, 
-                        isExpanded && styles.eventCardExpanded,
-                        (evt.isPast || evt.isCompleted) && styles.eventCardPast,
-                      ]}
-                      activeOpacity={0.8}
-                      onPress={() => setExpandedEventId(isExpanded ? null : evt.id)}
-                    >
-                      <View style={styles.cardHeader}>
-                        <View style={styles.cardHeaderTexts}>
-                          <View style={styles.cardTitleWithCheckRow}>
-                            <TouchableOpacity
-                              style={styles.checkToggleBtn}
-                              onPress={() => handleToggleComplete(evt.id)}
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons
-                                name={evt.isCompleted ? "checkmark-circle" : "ellipse-outline"}
-                                size={18}
-                                color={evt.isCompleted ? "#10B981" : "#64748B"}
-                              />
-                            </TouchableOpacity>
-                            <Text style={[
-                              styles.eventTitle, 
-                              (evt.isPast || evt.isCompleted) && styles.textPast,
-                              evt.isCompleted && styles.eventTitleCompleted,
-                              { flex: 1 }
-                            ]}>
-                              {localizeTimelineTitle(evt.title, evt.type, language)}
-                            </Text>
-                          </View>
-                          {(() => {
-                            const rawSub = (evt.subtitle || '').trim();
-                            const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.toLowerCase());
-                            if (!rawSub || isDummySub) return null;
-                            const displaySub = localizeTimelineSubtitle(rawSub, evt.type, language);
-                            return (
-                              <View style={styles.subtitleRow}>
-                                <Ionicons name={getTypeSmallIcon(evt.type)} size={12} color="#94A3B8" style={{ marginRight: 4 }} />
-                                <Text style={styles.eventSubtitle}>{displaySub}</Text>
+                    {(() => {
+                      const isReordering = reorderingEventId === evt.id;
+                      const canMoveUp = index > 0 && 
+                        displayedEvents[index - 1]?.type !== 'DEPARTURE' && 
+                        displayedEvents[index - 1]?.type !== 'ARRIVAL';
+                      const canMoveDown = index < displayedEvents.length - 1 && 
+                        displayedEvents[index + 1]?.type !== 'RETURN' && 
+                        displayedEvents[index + 1]?.type !== 'END';
+
+                      return (
+                        <TouchableOpacity 
+                          style={[
+                            styles.eventCard, 
+                            { borderLeftColor: typeColor },
+                            evt.isCurrent && !evt.isCompleted && styles.eventCardCurrent, 
+                            isExpanded && styles.eventCardExpanded,
+                            (evt.isPast || evt.isCompleted) && styles.eventCardPast,
+                            isReordering && styles.eventCardReordering,
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            if (isReordering) {
+                              setReorderingEventId(null);
+                            } else {
+                              setExpandedEventId(isExpanded ? null : evt.id);
+                            }
+                          }}
+                          onLongPress={() => {
+                            if (evt.type === 'DEPARTURE' || evt.type === 'ARRIVAL' || evt.type === 'RETURN' || evt.type === 'END') {
+                              return;
+                            }
+                            try { Vibration.vibrate(50); } catch {}
+                            setReorderingEventId(isReordering ? null : evt.id);
+                          }}
+                          delayLongPress={250}
+                        >
+                          <View style={styles.cardHeader}>
+                            <View style={styles.cardHeaderTexts}>
+                              <View style={styles.cardTitleWithCheckRow}>
+                                <TouchableOpacity
+                                  style={styles.checkToggleBtn}
+                                  onPress={() => handleToggleComplete(evt.id)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons
+                                    name={evt.isCompleted ? "checkmark-circle" : "ellipse-outline"}
+                                    size={18}
+                                    color={evt.isCompleted ? "#10B981" : "#64748B"}
+                                  />
+                                </TouchableOpacity>
+                                <Text style={[
+                                  styles.eventTitle, 
+                                  (evt.isPast || evt.isCompleted) && styles.textPast,
+                                  evt.isCompleted && styles.eventTitleCompleted,
+                                  { flex: 1 }
+                                ]}>
+                                  {localizeTimelineTitle(evt.title, evt.type, language)}
+                                </Text>
                               </View>
-                            );
-                          })()}
-                        </View>
-                        <View style={styles.dotsButton}>
-                          <Ionicons name={isExpanded ? "chevron-up" : "ellipsis-vertical"} size={16} color="#94A3B8" />
-                        </View>
-                      </View>
-                      
-                      {evt.isCurrent && !isExpanded && !evt.isCompleted && (
-                        <View style={styles.currentBadgeContainer}>
-                          <View style={styles.currentBadgeDot} />
-                          <Text style={styles.currentBadge}>{t.nowNext}</Text>
-                        </View>
-                      )}
+                              {(() => {
+                                const rawSub = (evt.subtitle || '').trim();
+                                const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.toLowerCase());
+                                if (!rawSub || isDummySub) return null;
+                                const displaySub = localizeTimelineSubtitle(rawSub, evt.type, language);
+                                return (
+                                  <View style={styles.subtitleRow}>
+                                    <Ionicons name={getTypeSmallIcon(evt.type)} size={12} color="#94A3B8" style={{ marginRight: 4 }} />
+                                    <Text style={styles.eventSubtitle}>{displaySub}</Text>
+                                  </View>
+                                );
+                              })()}
+                            </View>
+                            <View style={styles.dotsButton}>
+                              <Ionicons name={isReordering ? "swap-vertical" : (isExpanded ? "chevron-up" : "ellipsis-vertical")} size={16} color={isReordering ? "#38BDF8" : "#94A3B8"} />
+                            </View>
+                          </View>
+
+                          {/* PASEK SZYBKIEGO PRZESUWANIA PO DŁUGIM PRZYTRZYMANIU */}
+                          {isReordering && (
+                            <View style={styles.reorderBarContainer}>
+                              <View style={styles.reorderBadgeRow}>
+                                <Ionicons name="swap-vertical" size={13} color="#38BDF8" style={{ marginRight: 5 }} />
+                                <Text style={styles.reorderBadgeText}>{t.reorderMode || 'Tryb przesuwania'}</Text>
+                              </View>
+                              <View style={styles.reorderButtonsRow}>
+                                <TouchableOpacity
+                                  style={[styles.reorderMoveBtn, !canMoveUp && styles.actionBtnDisabled]}
+                                  onPress={() => moveEvent(evt.id, 'UP')}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="arrow-up" size={15} color="#F8FAFC" style={{ marginRight: 4 }} />
+                                  <Text style={styles.reorderMoveBtnText}>{t.moveUp || 'W górę'}</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={[styles.reorderMoveBtn, !canMoveDown && styles.actionBtnDisabled]}
+                                  onPress={() => moveEvent(evt.id, 'DOWN')}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="arrow-down" size={15} color="#F8FAFC" style={{ marginRight: 4 }} />
+                                  <Text style={styles.reorderMoveBtnText}>{t.moveDown || 'W dół'}</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={styles.reorderDoneBtn}
+                                  onPress={() => setReorderingEventId(null)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="checkmark-circle-outline" size={16} color="#10B981" style={{ marginRight: 4 }} />
+                                  <Text style={styles.reorderDoneBtnText}>{t.done || 'Gotowe'}</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )}
+                          
+                          {evt.isCurrent && !isExpanded && !evt.isCompleted && !isReordering && (
+                            <View style={styles.currentBadgeContainer}>
+                              <View style={styles.currentBadgeDot} />
+                              <Text style={styles.currentBadge}>{t.nowNext}</Text>
+                            </View>
+                          )}
 
                     {isExpanded && (
                       <View style={styles.expandedSection}>
@@ -1907,16 +2118,16 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                         <View style={styles.cardActionsRow}>
                           <View style={styles.moveActions}>
                             <TouchableOpacity 
-                              style={[styles.actionBtn, index === 0 && styles.actionBtnDisabled]} 
-                              onPress={() => moveEvent(index, 'UP')}
+                              style={[styles.actionBtn, !canMoveUp && styles.actionBtnDisabled]} 
+                              onPress={() => moveEvent(evt.id, 'UP')}
                               testID={`timeline-move-up-btn-${index}`}
                             >
                               <Ionicons name="chevron-up" size={14} color="#F8FAFC" />
                               <Text style={styles.hiddenTestText}>▲</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
-                              style={[styles.actionBtn, index === events.length - 1 && styles.actionBtnDisabled]} 
-                              onPress={() => moveEvent(index, 'DOWN')}
+                              style={[styles.actionBtn, !canMoveDown && styles.actionBtnDisabled]} 
+                              onPress={() => moveEvent(evt.id, 'DOWN')}
                               testID={`timeline-move-down-btn-${index}`}
                             >
                               <Ionicons name="chevron-down" size={14} color="#F8FAFC" />
@@ -1931,6 +2142,8 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                       </View>
                     )}
                   </TouchableOpacity>
+                );
+              })()}
                 </View>
               </React.Fragment>
             );
@@ -2307,6 +2520,72 @@ const styles = StyleSheet.create({
   },
   eventCardExpanded: { borderColor: '#38BDF8' },
   eventCardPast: { opacity: 0.65 },
+  eventCardReordering: {
+    borderColor: '#38BDF8',
+    borderWidth: 2,
+    backgroundColor: 'rgba(30, 41, 59, 0.98)',
+    shadowColor: '#38BDF8',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  reorderBarContainer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(56, 189, 248, 0.25)',
+  },
+  reorderBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  reorderBadgeText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  reorderButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reorderMoveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  reorderMoveBtnText: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  reorderDoneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  reorderDoneBtnText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardHeaderTexts: { flex: 1, paddingRight: 8 },
   eventTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 4 },

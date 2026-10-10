@@ -2231,6 +2231,10 @@ export const findIntelligentInsertionSlot = <
     if (dayDeparture) {
       minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayDeparture.idx + 1);
     }
+    const dayArrival = dayIndices.find((item) => item.e.type === 'ARRIVAL');
+    if (dayArrival) {
+      minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayArrival.idx + 1);
+    }
   }
 
   // Nigdy nie wstawiamy przed minionymi wydarzeniami dzisiaj!
@@ -2271,6 +2275,8 @@ export const findIntelligentInsertionSlot = <
         minAllowedSlotOnDay = Math.max(minIdx, dayIndices[0].idx);
         const dayDeparture = dayIndices.find((item) => item.e.type === 'DEPARTURE');
         if (dayDeparture) minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayDeparture.idx + 1);
+        const dayArrival = dayIndices.find((item) => item.e.type === 'ARRIVAL');
+        if (dayArrival) minAllowedSlotOnDay = Math.max(minAllowedSlotOnDay, dayArrival.idx + 1);
       }
     }
   }
@@ -2351,6 +2357,31 @@ export const findIntelligentInsertionSlot = <
     }
   }
 
+  // Jeśli na tym dniu jest przyjazd do celu, godzina MUSI być po przyjeździe:
+  const curDayArrival = dayIndices.find((item) => item.e.type === 'ARRIVAL');
+  if (curDayArrival && curDayArrival.e.timeStr) {
+    const arrM = timeStrToMinutes(curDayArrival.e.timeStr);
+    if (timeStrToMinutes(targetTimeStr) < arrM + 30) {
+      targetTimeStr = minutesToTimeStr(Math.min(22 * 60, arrM + 45));
+    }
+  } else {
+    const curDayDep = dayIndices.find((item) => item.e.type === 'DEPARTURE');
+    if (curDayDep && curDayDep.e.timeStr) {
+      const depM = timeStrToMinutes(curDayDep.e.timeStr);
+      if (timeStrToMinutes(targetTimeStr) < depM + 60) {
+        targetTimeStr = minutesToTimeStr(Math.min(22 * 60, depM + 90));
+      }
+    }
+  }
+
+  // Jeśli na tym dniu jest powrót (RETURN), godzina MUSI być przed powrotem:
+  if (dayReturn && dayReturn.e.timeStr) {
+    const retM = timeStrToMinutes(dayReturn.e.timeStr);
+    if (timeStrToMinutes(targetTimeStr) > retM - 45) {
+      targetTimeStr = minutesToTimeStr(Math.max(8 * 60, retM - 60));
+    }
+  }
+
   // KRYTYCZNA OCHRONA: Jeśli to dzisiaj, godzina NIE MOŻE być w przeszłości
   if (targetIsToday) {
     const minSafeFutureMinutes = Math.min(22 * 60, Math.max(nowMinutes + 20, 9 * 60));
@@ -2416,23 +2447,53 @@ export const insertTimelineEventIntelligently = <
       return eDate.getTime() > pDate.getTime();
     });
     if (slot === -1) slot = events.length;
-    let minIdx = 0;
-    if (events.length > 0 && events[0].type === 'DEPARTURE') minIdx = 1;
-    let maxIdx = events.length;
-    if (events.length > 0 && events[events.length - 1].type === 'RETURN') maxIdx = events.length - 1;
-    let finalSlot = Math.max(minIdx, Math.min(maxIdx, slot));
 
-    // KRYTYCZNA OCHRONA: Nawet przy podaniu ręcznym atrakcja NIE MOŻE być po noclegu na tym samym dniu!
     const dayIndices = events
       .map((e, idx) => ({ e, idx }))
       .filter((x) => x.e.dateStr === newEventData.dateStr);
     const dayLodging = dayIndices.find((item) => isLodgingEvent(item.e));
+    const dayReturn = dayIndices.find((item) => item.e.type === 'RETURN');
+    const dayArrival = dayIndices.find((item) => item.e.type === 'ARRIVAL');
+    const dayDeparture = dayIndices.find((item) => item.e.type === 'DEPARTURE');
+
+    let minIdx = 0;
+    if (dayArrival) minIdx = dayArrival.idx + 1;
+    else if (dayDeparture) minIdx = dayDeparture.idx + 1;
+    else if (events.length > 0 && events[0].type === 'DEPARTURE') minIdx = 1;
+
+    let maxIdx = events.length;
+    if (dayReturn) maxIdx = dayReturn.idx;
+    else if (dayLodging) maxIdx = dayLodging.idx;
+    else if (events.length > 0 && events[events.length - 1].type === 'RETURN') maxIdx = events.length - 1;
+
+    let finalSlot = Math.max(minIdx, Math.min(maxIdx, slot));
     let finalTimeStr = newEventData.timeStr!;
 
+    // KRYTYCZNA OCHRONA:
+    // 1. Nawet przy podaniu ręcznym atrakcja NIE MOŻE być po noclegu na tym samym dniu!
     if (dayLodging && finalSlot > dayLodging.idx) {
       finalSlot = dayLodging.idx;
       const lodgingM = dayLodging.e.timeStr ? timeStrToMinutes(dayLodging.e.timeStr) : 20 * 60;
       finalTimeStr = minutesToTimeStr(Math.max(9 * 60, lodgingM - 90));
+      pDate = parseTimelineDate(newEventData.dateStr!, finalTimeStr);
+    }
+    // 2. Atrakcja NIE MOŻE być po powrocie z podróży!
+    if (dayReturn && finalSlot >= dayReturn.idx) {
+      finalSlot = dayReturn.idx;
+      const returnM = dayReturn.e.timeStr ? timeStrToMinutes(dayReturn.e.timeStr) : 18 * 60;
+      finalTimeStr = minutesToTimeStr(Math.max(8 * 60, returnM - 60));
+      pDate = parseTimelineDate(newEventData.dateStr!, finalTimeStr);
+    }
+    // 3. Atrakcja NIE MOŻE być przed przyjazdem do celu!
+    if (dayArrival && (finalSlot <= dayArrival.idx || timeStrToMinutes(finalTimeStr) < timeStrToMinutes(dayArrival.e.timeStr) + 30)) {
+      finalSlot = Math.max(dayArrival.idx + 1, finalSlot);
+      const arrM = dayArrival.e.timeStr ? timeStrToMinutes(dayArrival.e.timeStr) : 11 * 60;
+      finalTimeStr = minutesToTimeStr(Math.min(22 * 60, arrM + 45));
+      pDate = parseTimelineDate(newEventData.dateStr!, finalTimeStr);
+    } else if (dayDeparture && (finalSlot <= dayDeparture.idx || timeStrToMinutes(finalTimeStr) < timeStrToMinutes(dayDeparture.e.timeStr) + 45)) {
+      finalSlot = Math.max(dayDeparture.idx + 1, finalSlot);
+      const depM = dayDeparture.e.timeStr ? timeStrToMinutes(dayDeparture.e.timeStr) : 8 * 60;
+      finalTimeStr = minutesToTimeStr(Math.min(22 * 60, depM + 90));
       pDate = parseTimelineDate(newEventData.dateStr!, finalTimeStr);
     }
 
@@ -2492,7 +2553,9 @@ export const insertTimelineEventIntelligently = <
     }
   }
 
-  // KRYTYCZNY INWARIANT: Żadna atrakcja (ATTRACTION) na danym dniu NIE MOŻE znajdować się po noclegu (LODGING)!
+  // KRYTYCZNY INWARIANT:
+  // 1. Żadna atrakcja (ATTRACTION) na danym dniu NIE MOŻE znajdować się po noclegu ani po powrocie!
+  // 2. Żadna atrakcja (ATTRACTION) na danym dniu NIE MOŻE znajdować się przed przyjazdem ani przed odjazdem!
   const allUniqueDates = Array.from(
     new Set(result.map((e) => e.dateStr).filter((d): d is string => Boolean(d && d.trim())))
   );
@@ -2525,6 +2588,34 @@ export const insertTimelineEventIntelligently = <
         }
       }
     }
+    if (cur.type === 'RETURN') {
+      for (let j = i + 1; j < result.length; j++) {
+        if (result[j].dateStr === cur.dateStr && result[j].type === 'ATTRACTION') {
+          const retM = cur.timeStr ? timeStrToMinutes(cur.timeStr) : 18 * 60;
+          const newM = Math.max(8 * 60, retM - 60);
+          const newT = minutesToTimeStr(newM);
+          result[j] = {
+            ...result[j],
+            timeStr: newT,
+            parsedDate: parseTimelineDate(cur.dateStr, newT),
+          };
+        }
+      }
+    }
+    if (cur.type === 'ARRIVAL') {
+      for (let j = 0; j < i; j++) {
+        if (result[j].dateStr === cur.dateStr && result[j].type === 'ATTRACTION') {
+          const arrM = cur.timeStr ? timeStrToMinutes(cur.timeStr) : 11 * 60;
+          const newM = Math.min(22 * 60, arrM + 45);
+          const newT = minutesToTimeStr(newM);
+          result[j] = {
+            ...result[j],
+            timeStr: newT,
+            parsedDate: parseTimelineDate(cur.dateStr, newT),
+          };
+        }
+      }
+    }
   }
 
   // Ostateczne sortowanie chronologiczne gwarantujące spójność całej osi
@@ -2548,14 +2639,17 @@ export interface SmartTimelineGenerationConfig {
   outboundArrivalTime?: string;
   returnDepartureTime?: string;
   returnDepartureLocation?: string;
+  returnArrivalTime?: string;
   lodgingAddress?: string;
   selectedAttractions: (string | { name?: string; title?: string; id?: string })[];
   poolAttractions?: { name: string; lat?: number; lon?: number; [key: string]: any }[];
   isDayTrip?: boolean;
   translations?: {
     departurePrefix?: string;
+    arrivalPrefix?: string;
     returnPrefix?: string;
     departure?: string;
+    arrival?: string;
     returnTrip?: string;
     lodging?: string;
     sightseeing?: string;
@@ -2567,7 +2661,7 @@ export interface SmartTimelineGenerationConfig {
  * Automatyczny generator inteligentnej, wielodniowej osi czasu.
  * - Wyznacza optymalną trasę geograficzną (TSP) dla wybranych atrakcji.
  * - Mądrze rozdziela atrakcje pomiędzy pełne dni podróży z naturalnymi przerwami.
- * - Eliminuje zbędny spam kafelkami 'Nocleg' o 22:00.
+ * - Ściśle respektuje godziny przyjazdu i odjazdu z formularza transportu.
  * - Gwarantuje brak jakichkolwiek emoji (wyłącznie ikony wektorowe).
  */
 export const generateSmartMultiDayTimeline = (
@@ -2652,6 +2746,26 @@ export const generateSmartMultiDayTimeline = (
     isCompleted: false,
   });
 
+  // 1b. PRZYJAZD DO CELU (ARRIVAL) - godzina z formularza transportu lub realistyczny czas po odjeździe
+  const arrTime = config.outboundArrivalTime || (
+    minutesToTimeStr(Math.min(22 * 60, timeStrToMinutes(outboundTime) + 150))
+  );
+  const arrTitle = config.translations?.arrivalPrefix
+    ? config.translations.arrivalPrefix.replace('{{destination}}', config.destination)
+    : `Przyjazd: ${config.destination}`;
+  const arrSubtitle = config.translations?.arrival || 'Przyjazd do celu';
+
+  events.push({
+    id: 'evt_arrival',
+    type: 'ARRIVAL',
+    title: arrTitle,
+    subtitle: arrSubtitle,
+    dateStr: dayDates[0],
+    timeStr: arrTime,
+    parsedDate: parseTimelineDate(dayDates[0], arrTime),
+    isCompleted: false,
+  });
+
   // 2. ZAMELDOWANIE (LODGING) - Tylko 1. dnia po przyjeździe (bez spamu co noc)
   const rawAccom = (config.lodgingAddress || '').trim();
   const hasValidLodging =
@@ -2660,7 +2774,9 @@ export const generateSmartMultiDayTimeline = (
     !['ok', 'brak', 'none', '-'].includes(rawAccom.toLowerCase());
 
   if (hasValidLodging) {
-    const checkinTime = config.outboundArrivalTime || '14:00';
+    const arrM = timeStrToMinutes(arrTime);
+    const checkinM = Math.max(arrM + 30, Math.min(15 * 60, 14 * 60));
+    const checkinTime = minutesToTimeStr(Math.min(22 * 60, checkinM));
     events.push({
       id: 'evt_lodging',
       type: 'LODGING',
@@ -2697,6 +2813,20 @@ export const generateSmartMultiDayTimeline = (
     parsedDate: parseTimelineDate(lastDateStr, returnTime),
     isCompleted: false,
   };
+
+  // 3b. ZAKOŃCZENIE PODRÓŻY / PRZYJAZD DO DOMU (END)
+  if (config.returnArrivalTime) {
+    events.push({
+      id: 'evt_end',
+      type: 'END',
+      title: config.translations?.returnTrip || `Powrót: ${config.origin || 'Dom'}`,
+      subtitle: config.translations?.home || 'Powrót do domu',
+      dateStr: lastDateStr,
+      timeStr: config.returnArrivalTime,
+      parsedDate: parseTimelineDate(lastDateStr, config.returnArrivalTime),
+      isCompleted: false,
+    });
+  }
 
   // 4. ATRAKCJE - AUTO-TSP I INTELIGENTNE ROZMIESZCZENIE PO DNIACH
   const rawAttractions = config.selectedAttractions || [];
@@ -2766,29 +2896,10 @@ export const generateSmartMultiDayTimeline = (
       }
     }
 
-    const timeSlotsForCount = (count: number, isDayOne: boolean, isLastDay: boolean): string[] => {
-      if (count === 1) {
-        return isDayOne ? ['16:30'] : isLastDay ? ['10:30'] : ['11:30'];
-      }
-      if (count === 2) {
-        return isDayOne ? ['15:30', '18:00'] : isLastDay ? ['10:00', '12:30'] : ['10:30', '14:30'];
-      }
-      if (count === 3) {
-        return ['10:00', '13:00', '16:00'];
-      }
-      if (count === 4) {
-        return ['09:30', '12:00', '14:30', '17:00'];
-      }
-      const slots: string[] = [];
-      let startHour = 9.5;
-      for (let s = 0; s < count; s++) {
-        const h = Math.floor(startHour);
-        const m = (startHour % 1) * 60;
-        slots.push(`${String(h).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`);
-        startHour += 1.75;
-      }
-      return slots;
-    };
+    const arrivalM = timeStrToMinutes(arrTime);
+    const earliestD1M = Math.min(22 * 60, arrivalM + 45);
+    const returnM = timeStrToMinutes(returnTime);
+    const latestDNM = Math.max(9 * 60, returnM - 60);
 
     let nameIndex = 0;
     for (let dayIdx = 0; dayIdx < totalDays; dayIdx++) {
@@ -2798,7 +2909,17 @@ export const generateSmartMultiDayTimeline = (
       const dDateStr = dayDates[dayIdx];
       const isD1 = dayIdx === 0;
       const isDN = dayIdx === totalDays - 1;
-      const slots = getTimeSlotsForDayAttractions(quota, isD1, isDN);
+
+      let slots: string[];
+      if (isD1 && isDN) {
+        slots = getTimeSlotsForDayAttractions(quota, true, true, earliestD1M, latestDNM);
+      } else if (isD1) {
+        slots = getTimeSlotsForDayAttractions(quota, true, false, earliestD1M, undefined);
+      } else if (isDN) {
+        slots = getTimeSlotsForDayAttractions(quota, false, true, undefined, latestDNM);
+      } else {
+        slots = getTimeSlotsForDayAttractions(quota, false, false);
+      }
 
       for (let s = 0; s < quota && nameIndex < M; s++) {
         const attrName = orderedNames[nameIndex];
@@ -2827,6 +2948,32 @@ export const generateSmartMultiDayTimeline = (
 
   events.push(returnEvent);
 
+  // KRYTYCZNA WERYFIKACJA INWARIANTÓW:
+  // 1. Dzień 1: żadna atrakcja NIE MOŻE być przed przyjazdem!
+  // 2. Ostatni dzień: żadna atrakcja NIE MOŻE być po powrocie!
+  for (let i = 0; i < events.length; i++) {
+    const cur = events[i];
+    if (cur.type === 'ATTRACTION') {
+      const curM = timeStrToMinutes(cur.timeStr);
+      if (cur.dateStr === dayDates[0]) {
+        const arrM = timeStrToMinutes(arrTime);
+        if (curM < arrM + 30) {
+          const adjM = Math.min(22 * 60, arrM + 45);
+          cur.timeStr = minutesToTimeStr(adjM);
+          cur.parsedDate = parseTimelineDate(cur.dateStr, cur.timeStr);
+        }
+      }
+      if (cur.dateStr === lastDateStr) {
+        const retM = timeStrToMinutes(returnTime);
+        if (curM > retM - 45) {
+          const adjM = Math.max(9 * 60, retM - 60);
+          cur.timeStr = minutesToTimeStr(adjM);
+          cur.parsedDate = parseTimelineDate(cur.dateStr, cur.timeStr);
+        }
+      }
+    }
+  }
+
   // Sortowanie po parsedDate
   events.sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
   return events;
@@ -2836,9 +2983,36 @@ export const generateSmartMultiDayTimeline = (
 export const getTimeSlotsForDayAttractions = (
   count: number,
   isDayOne: boolean = false,
-  isLastDay: boolean = false
+  isLastDay: boolean = false,
+  earliestAllowedMinutes?: number,
+  latestAllowedMinutes?: number
 ): string[] => {
   if (count <= 0) return [];
+
+  if (earliestAllowedMinutes !== undefined || latestAllowedMinutes !== undefined) {
+    const minM = earliestAllowedMinutes !== undefined ? earliestAllowedMinutes : (isDayOne ? 15 * 60 : 9 * 60 + 30);
+    const maxM = latestAllowedMinutes !== undefined ? latestAllowedMinutes : (isLastDay ? 14 * 60 : 19 * 60 + 30);
+    const safeMaxM = Math.max(minM + 45, maxM);
+
+    if (count === 1) {
+      const slotM = Math.round((minM + safeMaxM) / 2);
+      return [minutesToTimeStr(slotM)];
+    }
+    if (count === 2) {
+      const diff = safeMaxM - minM;
+      const s1 = Math.round(minM + diff * 0.25);
+      const s2 = Math.round(minM + diff * 0.75);
+      return [minutesToTimeStr(s1), minutesToTimeStr(s2)];
+    }
+    const step = (safeMaxM - minM) / (count + 1);
+    const slots: string[] = [];
+    for (let s = 1; s <= count; s++) {
+      slots.push(minutesToTimeStr(Math.round(minM + s * step)));
+    }
+    return slots;
+  }
+
+  // Standardowy fallback:
   if (count === 1) {
     return isDayOne ? ['16:30'] : isLastDay ? ['10:30'] : ['11:30'];
   }
@@ -2846,7 +3020,7 @@ export const getTimeSlotsForDayAttractions = (
     return isDayOne ? ['15:30', '18:00'] : isLastDay ? ['10:00', '12:30'] : ['10:30', '14:30'];
   }
   if (count === 3) {
-    return ['10:00', '13:00', '16:00'];
+    return isDayOne ? ['15:00', '17:15', '19:30'] : isLastDay ? ['09:30', '12:00', '14:30'] : ['10:00', '13:00', '16:00'];
   }
   if (count === 4) {
     return ['09:30', '12:00', '14:30', '17:00'];
