@@ -210,6 +210,10 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
       const city = normalized.split(':').slice(1).join(':').trim();
       return t.routeAction.airportNear.replace('{{city}}', city || 'city');
     }
+    if (normalized.toLowerCase().startsWith('stacja przesiadkowa:') || normalized.toLowerCase().startsWith('transfer station:')) {
+      const station = normalized.split(':').slice(1).join(':').trim();
+      return (t.routeAction.transferStation || 'Stacja przesiadkowa: {{station}}').replace('{{station}}', station);
+    }
 
     return normalized;
   };
@@ -225,6 +229,21 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     }
     if (/Rekomendowane połączenie kolejowe|Recommended rail connection/i.test(note)) {
       return t.routeNotes.recommendedTrain.replace('{{distance}}', distance);
+    }
+    if (/Miejscowość bez bezpośredniej stacji|Destination without a direct railway station/i.test(note)) {
+      return (t.routeNotes.ruralNoStation || 'Miejscowość bez bezpośredniej stacji kolejowej. Najwygodniejszy dojazd własnym samochodem (~{{distance}} km).').replace('{{distance}}', distance);
+    }
+    if (/Pociąg \+ dojazd lokalny|Train \+ local/i.test(note)) {
+      const stationMatch = note.match(/(?:Najbliższa stacja|Nearest station):\s*([^(\n]+?)(?:\s*\(|$)/i);
+      const stationName = stationMatch ? stationMatch[1].trim() : '';
+      const distMatch = note.match(/~([0-9.]+)\s*km/i);
+      const dist = distMatch ? distMatch[1] : '';
+      return (t.routeNotes.trainWithLocalTransfer || 'Pociąg + dojazd lokalny. Najbliższa stacja: {{station}} (~{{dist}} km od celu).')
+        .replace('{{station}}', stationName)
+        .replace('{{dist}}', dist);
+    }
+    if (/Brak czynnej stacji|No active railway station/i.test(note)) {
+      return (t.routeNotes.remoteNoRail || 'Brak czynnej stacji kolejowej w pobliżu. Rekomendowana podróż własnym samochodem (~{{distance}} km).').replace('{{distance}}', distance);
     }
     if (/Alternatywne połączenie autokarowe|Alternative coach connection/i.test(note)) {
       return t.routeNotes.alternativeBus;
@@ -246,6 +265,9 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
     const normalizedType = type?.toLowerCase();
     const lowerProvider = provider?.toLowerCase() ?? '';
 
+    if (lowerProvider.includes('dojazd lokalny') || lowerProvider.includes('local connection') || lowerProvider.includes('local transfer')) {
+      return t.providers.trainLocal || 'Pociąg + dojazd lokalny';
+    }
     if (normalizedType === 'flight' || lowerProvider.includes('skyscanner') || lowerProvider.includes('lotnicze')) {
       return t.providers.flight;
     }

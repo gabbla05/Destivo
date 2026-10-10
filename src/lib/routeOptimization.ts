@@ -2019,8 +2019,11 @@ export const findIntelligentInsertionSlot = <
       const lodgingEvt = upcomingEvents.find((e) => isLodgingEvent(e) || e.type === 'RETURN');
       if (lodgingEvt) {
         if (isToday(dStr)) {
+          const hadSightseeingFinished = dayEvts.some(
+            (e) => e.type === 'ATTRACTION' && (e.isPast || (e.timeStr && timeStrToMinutes(e.timeStr) <= nowMinutes))
+          );
           const lodgingM = lodgingEvt.timeStr ? timeStrToMinutes(lodgingEvt.timeStr) : 20 * 60;
-          if (nowMinutes >= 16 * 60 + 30 || (lodgingM - nowMinutes) < 120) {
+          if (hadSightseeingFinished || nowMinutes >= 16 * 60 + 30 || (lodgingM - nowMinutes) < 120) {
             return true;
           }
         } else {

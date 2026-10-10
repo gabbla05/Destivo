@@ -176,7 +176,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           .replace('{{destination}}', destData.city),
         subtitle: destData.isDayTrip
           ? (language === 'pl' ? 'Wyprawa samochodem (1 dzień bez noclegu)' : 'Car road trip (1 day without overnight stay)')
-          : `Podróż (${(destData.recommendedTransport || 'flight').toUpperCase()})`,
+          : (language === 'pl' ? `Podróż (${(destData.recommendedTransport || 'flight').toUpperCase()})` : `Trip (${(destData.recommendedTransport || 'flight').toUpperCase()})`),
         dateStr: startDate,
         timeStr: '08:00',
         parsedDate: depDate.toISOString(),
@@ -253,7 +253,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           .replace('{{origin}}', origin || timelineT.home || 'Koniec'),
         subtitle: destData.isDayTrip
           ? (language === 'pl' ? 'Powrót tego samego dnia' : 'Same-day return')
-          : timelineT.returnTrip || 'Podróż powrotna',
+          : timelineT.returnTrip || (language === 'pl' ? 'Podróż powrotna' : 'Return trip'),
         dateStr: endDate,
         timeStr: '18:00',
         parsedDate: retDate.toISOString(),

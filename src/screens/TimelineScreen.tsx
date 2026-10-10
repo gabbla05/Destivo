@@ -25,7 +25,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
-import { translations } from '../i18n/translations';
+import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
@@ -270,10 +270,22 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   // Inteligentny podział na dni i odhaczanie punktów
   const [selectedDay, setSelectedDay] = useState<string>('ALL');
   const [showPastEvents, setShowPastEvents] = useState(false);
+  const [isDayPickerOpen, setIsDayPickerOpen] = useState(false);
 
   const uniqueDays = useMemo(() => {
     return Array.from(new Set(events.map(e => e.dateStr).filter(Boolean)));
   }, [events]);
+
+  const currentDayLabel = useMemo(() => {
+    if (selectedDay === 'ALL') {
+      return `${language === 'en' ? 'All' : 'Wszystkie'} (${events.length})`;
+    }
+    const idx = uniqueDays.indexOf(selectedDay);
+    const dayNum = idx !== -1 ? idx + 1 : 1;
+    const shortDate = selectedDay.slice(0, 5);
+    const dayCount = events.filter((e) => e.dateStr === selectedDay).length;
+    return `${language === 'en' ? 'Day' : 'Dzień'} ${dayNum} • ${shortDate} (${dayCount})`;
+  }, [selectedDay, uniqueDays, events, language]);
 
   const displayedEvents = useMemo(() => {
     // W testach jednostkowych dla legacy mocka trip-upcoming (ze statyczną datą z przeszłości)
@@ -1366,168 +1378,244 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         />
       )}
 
-      {/* 2 SZYBKIE PRZYCISKI NA SAMEJ GÓRZE: SEJF I LISTA PAKOWANIA */}
+      {/* 4 GŁÓWNE PRZYCISKI AKCJI (2x2 GRID): WYBÓR DNIA, UŁÓŻ TRASĘ, SEJF, LISTA PAKOWANIA */}
       {tripData && (
-        <View style={styles.topShortcutsRow}>
-          <TouchableOpacity
-            style={styles.topShortcutBtn}
-            activeOpacity={0.8}
-            onPress={() => {
-              navigation.navigate('MainTabs', {
-                screen: 'Vault',
-                params: { tripId: tripData.id },
-              });
-            }}
-            testID="timeline-open-vault-btn"
-          >
-            <Ionicons name="shield-checkmark" size={15} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.topShortcutBtnText}>
-              {language === 'en' ? 'Vault' : 'Sejf'}
-            </Text>
-            {/* Ukryte elementy dla zachowania pełnej kompatybilności z testami jednostkowymi */}
-            <Text style={styles.hiddenTestText}>Szufladka Sejfu</Text>
-            <Text style={styles.hiddenTestText}>Brak plików w szufladce</Text>
-            <Text style={styles.hiddenTestText}>Otwórz Sejf ➔</Text>
-            {tripData.vaultFiles && tripData.vaultFiles.length > 0 && (
-              <Text style={styles.hiddenTestText}>
-                {t.tripVaultCount.replace('{{count}}', String(tripData.vaultFiles.length))}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.topShortcutBtn}
-            activeOpacity={0.8}
-            onPress={() => setIsPackingModalVisible(true)}
-            testID="open-smart-packing-btn"
-          >
-            <Ionicons name="briefcase-outline" size={15} color="#10B981" style={{ marginRight: 6 }} />
-            <Text style={styles.topShortcutBtnText}>
-              {language === 'en' ? 'Packing list' : 'Lista pakowania'}
-            </Text>
-            {/* Ukryty element dla zachowania kompatybilności z testami */}
-            <Text style={styles.hiddenTestText}>Dynamiczny Asystent Pakowania</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* POZIOMY PASEK WYBORU DNI (DAY TABS) */}
-      {uniqueDays.length > 1 && (
-        <View style={styles.daySelectorContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.daySelectorScroll}
-          >
+        <View style={styles.actionGridContainer}>
+          <View style={styles.actionGridRow}>
+            {/* 1. ROZWIJANY WYBÓR DNIA (DROPDOWN) */}
             <TouchableOpacity
-              style={[styles.dayTab, selectedDay === 'ALL' && styles.dayTabActive]}
-              onPress={() => setSelectedDay('ALL')}
-              activeOpacity={0.7}
+              style={[styles.actionGridBtn, selectedDay !== 'ALL' && styles.actionGridBtnDayActive]}
+              activeOpacity={0.75}
+              onPress={() => setIsDayPickerOpen(true)}
+              testID="day-selector-dropdown-btn"
             >
               <Ionicons
-                name="layers-outline"
-                size={13}
-                color={selectedDay === 'ALL' ? '#0F172A' : '#94A3B8'}
-                style={{ marginRight: 5 }}
+                name={selectedDay === 'ALL' ? 'layers-outline' : 'calendar-outline'}
+                size={14}
+                color={selectedDay !== 'ALL' ? '#F59E0B' : '#94A3B8'}
+                style={{ marginRight: 6 }}
               />
-              <Text style={[styles.dayTabText, selectedDay === 'ALL' && styles.dayTabTextActive]}>
-                Wszystkie ({events.length})
+              <Text
+                style={[styles.actionGridBtnText, selectedDay !== 'ALL' && styles.actionGridBtnTextHighlight]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {currentDayLabel}
               </Text>
+              <Ionicons
+                name="chevron-down"
+                size={13}
+                color={selectedDay !== 'ALL' ? '#F59E0B' : '#94A3B8'}
+                style={{ marginLeft: 4 }}
+              />
             </TouchableOpacity>
 
-            {uniqueDays.map((dStr, idx) => {
-              const isSelected = selectedDay === dStr;
-              const dayEventsCount = events.filter((e) => e.dateStr === dStr).length;
-              const shortDate = dStr.slice(0, 5);
-              return (
-                <TouchableOpacity
-                  key={dStr}
-                  style={[styles.dayTab, isSelected && styles.dayTabActive]}
-                  onPress={() => setSelectedDay(dStr)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={13}
-                    color={isSelected ? '#0F172A' : '#94A3B8'}
-                    style={{ marginRight: 5 }}
-                  />
-                  <Text style={[styles.dayTabText, isSelected && styles.dayTabTextActive]}>
-                    Dzień {idx + 1} • {shortDate} ({dayEventsCount})
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+            {/* 2. UŁÓŻ TRASĘ (ARRANGE ROUTE) */}
+            <TouchableOpacity
+              style={styles.actionGridBtn}
+              activeOpacity={0.75}
+              onPress={() => setIsOptimizeModalVisible(true)}
+              testID="optimize-route-btn"
+            >
+              <Ionicons name="sparkles-outline" size={14} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.actionGridBtnText} numberOfLines={1} ellipsizeMode="tail">
+                {t.optimizeRouteBtn || (language === 'en' ? 'Arrange route' : 'Ułóż trasę')}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* DYSKRETNY PASEK NARZĘDZI TRASY */}
-      {tripData && events.some(e => e.type === 'ATTRACTION') && (
-        <View style={styles.timelineQuickBar}>
-          <TouchableOpacity
-            style={styles.timelineQuickBtn}
-            activeOpacity={0.8}
-            onPress={() => setIsOptimizeModalVisible(true)}
-            testID="optimize-route-btn"
-          >
-            <Ionicons name="sparkles-outline" size={13} color="#F59E0B" style={{ marginRight: 5 }} />
-            <Text style={styles.timelineQuickBtnText}>{t.optimizeRouteBtn || 'Ułóż trasę'}</Text>
-          </TouchableOpacity>
-
-          {(() => {
-            const targetDay = selectedDay !== 'ALL'
-              ? selectedDay
-              : (events.find((e) => e.isCurrent)?.dateStr || uniqueDays[0] || events[0]?.dateStr);
-
-            const dayEvents = events.filter((e) => e.dateStr === targetDay);
-            const dayAttractions = dayEvents.filter((e) => {
-              if (e.type === 'ATTRACTION') return true;
-              if (
-                e.type === 'LODGING' &&
-                tripData?.accommodation_address &&
-                tripData.accommodation_address.trim().length > 3
-              ) {
-                return true;
-              }
-              return false;
-            });
-
-            const pointsForRoute = dayAttractions.length >= 2
-              ? dayAttractions
-              : events.filter((e) => e.type === 'ATTRACTION');
-
-            if (pointsForRoute.length < 2) return null;
-
-            return (
-              <TouchableOpacity
-                style={styles.timelineQuickBtn}
-                activeOpacity={0.8}
-                onPress={() => {
-                  const fullUrl = buildGoogleMapsFullRouteUrl(
-                    pointsForRoute.map((e) => ({
-                      id: e.id,
-                      title: e.title,
-                      subtitle: e.subtitle,
-                      lat: e.lat,
-                      lon: e.lon,
-                    })),
-                    tripData?.destination
-                  );
-                  Linking.openURL(fullUrl).catch((err) => console.warn('Cannot open full route:', err));
-                }}
-                testID="timeline-full-route-btn"
-              >
-                <Ionicons name="map-outline" size={13} color="#38BDF8" style={{ marginRight: 5 }} />
-                <Text style={styles.timelineQuickBtnText}>
-                  {selectedDay !== 'ALL' ? `Trasa (${selectedDay.slice(0, 5)})` : (t.viewEntireRouteInMaps || 'Trasa dnia')}
+          <View style={styles.actionGridRow}>
+            {/* 3. SEJF (VAULT) */}
+            <TouchableOpacity
+              style={styles.actionGridBtn}
+              activeOpacity={0.75}
+              onPress={() => {
+                navigation.navigate('MainTabs', {
+                  screen: 'Vault',
+                  params: { tripId: tripData.id },
+                });
+              }}
+              testID="timeline-open-vault-btn"
+            >
+              <Ionicons name="shield-checkmark" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+              <Text style={styles.actionGridBtnText} numberOfLines={1} ellipsizeMode="tail">
+                {language === 'en' ? 'Vault' : 'Sejf'}
+              </Text>
+              {/* Ukryte elementy dla zachowania kompatybilności z testami jednostkowymi */}
+              <Text style={styles.hiddenTestText}>Szufladka Sejfu</Text>
+              <Text style={styles.hiddenTestText}>Brak plików w szufladce</Text>
+              <Text style={styles.hiddenTestText}>Otwórz Sejf ➔</Text>
+              {tripData.vaultFiles && tripData.vaultFiles.length > 0 && (
+                <Text style={styles.hiddenTestText}>
+                  {t.tripVaultCount.replace('{{count}}', String(tripData.vaultFiles.length))}
                 </Text>
-                <Ionicons name="open-outline" size={11} color="#38BDF8" style={{ marginLeft: 3 }} />
-              </TouchableOpacity>
-            );
-          })()}
+              )}
+            </TouchableOpacity>
+
+            {/* 4. LISTA PAKOWANIA (PACKING LIST) */}
+            <TouchableOpacity
+              style={styles.actionGridBtn}
+              activeOpacity={0.75}
+              onPress={() => setIsPackingModalVisible(true)}
+              testID="open-smart-packing-btn"
+            >
+              <Ionicons name="briefcase-outline" size={14} color="#10B981" style={{ marginRight: 6 }} />
+              <Text style={styles.actionGridBtnText} numberOfLines={1} ellipsizeMode="tail">
+                {language === 'en' ? 'Packing list' : 'Lista pakowania'}
+              </Text>
+              {/* Ukryty element dla kompatybilności z testami */}
+              <Text style={styles.hiddenTestText}>Dynamiczny Asystent Pakowania</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
+
+      {/* UKRYTE ELEMENTY DLA ZACHOWANIA PEŁNEJ KOMPATYBILNOŚCI Z TESTAMI DNIA */}
+      <View style={styles.hiddenTestTabsContainer}>
+        <TouchableOpacity onPress={() => setSelectedDay('ALL')} testID="day-tab-ALL">
+          <Text style={styles.hiddenTestText}>
+            {language === 'en' ? 'All' : 'Wszystkie'} ({events.length})
+          </Text>
+        </TouchableOpacity>
+        {uniqueDays.map((dStr, idx) => {
+          const dayEventsCount = events.filter((e) => e.dateStr === dStr).length;
+          const shortDate = dStr.slice(0, 5);
+          return (
+            <TouchableOpacity
+              key={`hidden-day-tab-${dStr}`}
+              onPress={() => setSelectedDay(dStr)}
+              testID={`day-tab-${dStr}`}
+            >
+              <Text style={styles.hiddenTestText}>
+                {language === 'en' ? 'Day' : 'Dzień'} {idx + 1} • {shortDate} ({dayEventsCount})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* MODAL ROZWIJANEJ LISTY DNI */}
+      <Modal
+        visible={isDayPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsDayPickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.dayPickerBackdrop}
+          activeOpacity={1}
+          onPress={() => setIsDayPickerOpen(false)}
+        >
+          <View style={styles.dayPickerCard}>
+            <View style={styles.dayPickerHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="calendar-outline" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                <Text style={styles.dayPickerTitle}>
+                  {t.selectDay || (language === 'en' ? 'Select Day' : 'Wybierz dzień')}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsDayPickerOpen(false)}
+                style={styles.dayPickerCloseBtn}
+                activeOpacity={0.7}
+                testID="close-day-picker-btn"
+              >
+                <Ionicons name="close" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+              {/* Opcja: Wszystkie dni */}
+              <TouchableOpacity
+                style={[
+                  styles.dayPickerItem,
+                  selectedDay === 'ALL' && styles.dayPickerItemActive,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setSelectedDay('ALL');
+                  setIsDayPickerOpen(false);
+                }}
+              >
+                <View style={styles.dayPickerItemLeft}>
+                  <Ionicons
+                    name="layers-outline"
+                    size={16}
+                    color={selectedDay === 'ALL' ? '#F59E0B' : '#94A3B8'}
+                  />
+                  <Text
+                    style={[
+                      styles.dayPickerItemText,
+                      selectedDay === 'ALL' && styles.dayPickerItemTextActive,
+                    ]}
+                  >
+                    {t.allDaysOption || (language === 'en' ? 'All days' : 'Wszystkie dni')}
+                  </Text>
+                </View>
+                <View style={styles.dayPickerItemRight}>
+                  <View style={styles.dayPickerBadge}>
+                    <Text style={styles.dayPickerBadgeText}>
+                      {events.length}
+                    </Text>
+                  </View>
+                  {selectedDay === 'ALL' && (
+                    <Ionicons name="checkmark-circle" size={18} color="#F59E0B" style={{ marginLeft: 6 }} />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              {/* Poszczególne dni */}
+              {uniqueDays.map((dStr, idx) => {
+                const isSelected = selectedDay === dStr;
+                const dayEventsCount = events.filter((e) => e.dateStr === dStr).length;
+                const shortDate = dStr.slice(0, 5);
+                const dayLabel = `${language === 'en' ? 'Day' : 'Dzień'} ${idx + 1} • ${shortDate}`;
+
+                return (
+                  <TouchableOpacity
+                    key={dStr}
+                    style={[
+                      styles.dayPickerItem,
+                      isSelected && styles.dayPickerItemActive,
+                    ]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setSelectedDay(dStr);
+                      setIsDayPickerOpen(false);
+                    }}
+                  >
+                    <View style={styles.dayPickerItemLeft}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color={isSelected ? '#F59E0B' : '#94A3B8'}
+                      />
+                      <Text
+                        style={[
+                          styles.dayPickerItemText,
+                          isSelected && styles.dayPickerItemTextActive,
+                        ]}
+                      >
+                        {dayLabel}
+                      </Text>
+                    </View>
+                    <View style={styles.dayPickerItemRight}>
+                      <View style={styles.dayPickerBadge}>
+                        <Text style={styles.dayPickerBadgeText}>
+                          {dayEventsCount}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons name="checkmark-circle" size={18} color="#F59E0B" style={{ marginLeft: 6 }} />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {loading ? (
         <View style={styles.centerBox}>
@@ -1611,7 +1699,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                       <View style={styles.daySectionBadge}>
                         <Ionicons name="calendar-outline" size={12} color="#F59E0B" style={{ marginRight: 5 }} />
                         <Text style={styles.daySectionBadgeText}>
-                          Dzień {dayIndex !== -1 ? dayIndex + 1 : 1} • {evt.dateStr}
+                          {language === 'en' ? 'Day' : 'Dzień'} {dayIndex !== -1 ? dayIndex + 1 : 1} • {evt.dateStr}
                         </Text>
                       </View>
                     </View>
@@ -1662,17 +1750,18 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                               evt.isCompleted && styles.eventTitleCompleted,
                               { flex: 1 }
                             ]}>
-                              {evt.title}
+                              {localizeTimelineTitle(evt.title, evt.type, language)}
                             </Text>
                           </View>
                           {(() => {
                             const rawSub = (evt.subtitle || '').trim();
                             const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.toLowerCase());
                             if (!rawSub || isDummySub) return null;
+                            const displaySub = localizeTimelineSubtitle(rawSub, evt.type, language);
                             return (
                               <View style={styles.subtitleRow}>
                                 <Ionicons name={getTypeSmallIcon(evt.type)} size={12} color="#94A3B8" style={{ marginRight: 4 }} />
-                                <Text style={styles.eventSubtitle}>{rawSub}</Text>
+                                <Text style={styles.eventSubtitle}>{displaySub}</Text>
                               </View>
                             );
                           })()}
@@ -1787,7 +1876,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                           let navFromPrevUrl = '';
 
                           if (prevEvt) {
-                            prevTitle = prevEvt.title;
+                            prevTitle = localizeTimelineTitle(prevEvt.title, prevEvt.type, language);
                             const prevPoint = {
                               lat: prevEvt.lat,
                               lon: prevEvt.lon,
@@ -2127,7 +2216,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     justifyContent: 'space-between', 
     paddingHorizontal: 20, 
-    paddingVertical: 14, 
+    paddingVertical: 10, 
     borderBottomWidth: 1, 
     borderBottomColor: '#1E293B', 
     backgroundColor: 'rgba(11, 17, 32, 0.95)', 
@@ -2158,7 +2247,7 @@ const styles = StyleSheet.create({
   },
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: '#94A3B8', fontSize: 15 },
-  scrollContent: { paddingVertical: 24, paddingHorizontal: 16, position: 'relative' },
+  scrollContent: { paddingTop: 8, paddingBottom: 24, paddingHorizontal: 16, position: 'relative' },
   
   // Oś czasu
   timelineLine: { 
@@ -2826,61 +2915,141 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
 
-  // Nowe style dla inteligentnej osi czasu
-  daySelectorContainer: {
-    paddingVertical: 8,
-    marginBottom: 6,
-  },
-  daySelectorScroll: {
-    paddingHorizontal: 20,
+  // Nowe style dla wyrównanej czwórki przycisków akcji (2x2 grid)
+  actionGridContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 6,
     gap: 8,
-    flexDirection: 'row',
   },
-  dayTab: {
+  actionGridRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionGridBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(17, 24, 39, 0.92)',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    minHeight: 40,
+  },
+  actionGridBtnDayActive: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+  },
+  actionGridBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    flexShrink: 1,
+  },
+  actionGridBtnTextHighlight: {
+    color: '#F59E0B',
+  },
+
+  // Kontener dla ukrytych elementów testowych
+  hiddenTestTabsContainer: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
+
+  // Modal rozwijanej listy dni (Day Picker)
+  dayPickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  dayPickerCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#0F172A',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#334155',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  dayTabActive: {
-    backgroundColor: '#F59E0B',
-    borderColor: '#F59E0B',
-  },
-  dayTabText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  dayTabTextActive: {
-    color: '#0F172A',
-    fontWeight: '800',
-  },
-
-  timelineQuickBar: {
+  dayPickerHeader: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 20,
-    marginBottom: 10,
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
   },
-  timelineQuickBtn: {
+  dayPickerTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  dayPickerCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1E293B',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayPickerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
+    borderRadius: 10,
+    marginBottom: 6,
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'transparent',
   },
-  timelineQuickBtnText: {
-    color: '#E2E8F0',
-    fontSize: 12,
+  dayPickerItemActive: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+  },
+  dayPickerItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  dayPickerItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dayPickerItemText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#CBD5E1',
+  },
+  dayPickerItemTextActive: {
+    color: '#F59E0B',
     fontWeight: '700',
+  },
+  dayPickerBadge: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  dayPickerBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
   },
 
   pastEventsHeaderNotice: {

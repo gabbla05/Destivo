@@ -65,8 +65,19 @@ export function buildCarRouteFromRoutingData(data: {
 export function calculateSmartMetrics(raw: RawRouteInput): TransportOption {
   const id = `${raw.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   
+  let extractedDist = 0;
+  if (raw.notes && raw.notes.length > 0) {
+    for (const note of raw.notes) {
+      const match = note.match(/~([0-9]+)\s*km/i);
+      if (match) {
+        extractedDist = parseInt(match[1], 10);
+        break;
+      }
+    }
+  }
+
   routeMetadata.set(id, {
-    distanceKm: 0,
+    distanceKm: extractedDist,
     notes: raw.notes,
     actionLinks: raw.actionLinks,
   });
@@ -90,7 +101,7 @@ export function calculateSmartMetrics(raw: RawRouteInput): TransportOption {
       purchasable: false,
     },
     dataConfidence: 'MEDIUM',
-    distanceKm: 0,
+    distanceKm: extractedDist,
     stressScore: 3,
     bookingUrl: raw.bookingUrl,
     actionLinks: raw.actionLinks,

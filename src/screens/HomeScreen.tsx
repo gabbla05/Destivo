@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { translations } from '../i18n/translations';
+import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
 import { generateLiveRecommendations, LiveDestination } from '../lib/liveExplore';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
@@ -1352,9 +1352,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     const eventTime = sanitizeTimeStr(item.timeStr || item.time || '12:00');
                     const rawSub = item.subtitle || item.description || '';
                     const isDummySub = ['ok', 'brak', 'none', '-'].includes(rawSub.trim().toLowerCase());
+                    const localizedRawSub = localizeTimelineSubtitle(rawSub, item.type, language);
                     const eventSubtitle = isDummySub
                       ? (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle)
-                      : (rawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
+                      : (localizedRawSub || (item.type === 'LODGING' ? '' : t.defaultAttractionSubtitle));
 
                     const prevItem = relIndex > 0 ? activeAndUpcomingEvents[relIndex - 1] : null;
                     const isNewDay = Boolean(item.dateStr && prevItem && prevItem.dateStr && item.dateStr !== prevItem.dateStr);
@@ -1458,7 +1459,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                                   isFuture && styles.cardTitleFuture
                                 ]}
                               >
-                                {item.title}
+                                {localizeTimelineTitle(item.title, item.type, language)}
                               </Text>
                             </View>
                             <Ionicons name="pencil-outline" size={15} color="#64748B" />

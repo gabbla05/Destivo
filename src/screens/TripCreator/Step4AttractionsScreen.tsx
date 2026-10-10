@@ -9,14 +9,14 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
-  ImageBackground,
+  Image,
   Dimensions,
   Platform,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -76,6 +76,7 @@ export const Step4AttractionsScreen = () => {
   const { language, isGuest } = useAuthStore();
   const t = translations[language].tripCreatorStep4;
   const commonT = translations[language].common;
+  const insets = useSafeAreaInsets();
   
   const {
     tripName,
@@ -125,6 +126,20 @@ export const Step4AttractionsScreen = () => {
       ? googleConfigKey
       : (process.env.EXPO_PUBLIC_GOOGLE_API_KEY || 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ');
 
+  // Dopasowanie powiększenia mapy do promienia szukania, aby widoczne były wszystkie punkty
+  const updateMapRegionForRadius = (centerLat: number, centerLon: number, radiusKm: number) => {
+    if (!mapRef.current || typeof (mapRef.current as any).animateToRegion !== 'function') return;
+    const latDelta = Math.max(0.015, (radiusKm * 2.5) / 111);
+    const lonDelta = Math.max(0.015, latDelta / Math.max(0.2, Math.cos((centerLat * Math.PI) / 180)));
+
+    (mapRef.current as any).animateToRegion({
+      latitude: centerLat,
+      longitude: centerLon,
+      latitudeDelta: latDelta,
+      longitudeDelta: lonDelta,
+    }, 400);
+  };
+
   // 1. Inicjalizacja lokalizacji noclegu
   useEffect(() => {
     const initLocation = async () => {
@@ -147,9 +162,10 @@ export const Step4AttractionsScreen = () => {
     initLocation();
   }, [lodgingAddress, destination]);
 
-  // 2. Pobieranie danych z Google Places
+  // 2. Pobieranie danych z Google Places i automatyczne dopasowanie widoku mapy
   useEffect(() => {
     if (lodgingCoords) {
+      updateMapRegionForRadius(lodgingCoords.lat, lodgingCoords.lon, radius);
       fetchGooglePlacesAttractions();
     }
   }, [lodgingCoords, radius]);
@@ -281,8 +297,8 @@ export const Step4AttractionsScreen = () => {
 
   // Centrowanie mapy na wybranej atrakcji
   const centerMapOn = (lat: number, lon: number) => {
-    if (mapRef.current && lat && lon) {
-      mapRef.current.animateToRegion({
+    if (mapRef.current && typeof (mapRef.current as any).animateToRegion === 'function' && lat && lon) {
+      (mapRef.current as any).animateToRegion({
         latitude: lat,
         longitude: lon,
         latitudeDelta: 0.02,
@@ -503,7 +519,7 @@ export const Step4AttractionsScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        {/* 1. SEKCJA MAPY (Zwarta wysokość ~34%) */}
+        {/* 1. SEKCJA MAPY (Zwarta wysokość ~34%, zaczyna się zaraz pod paskiem postępu) */}
         <View style={styles.mapHeader}>
           {lodgingCoords ? (
             <MapView
@@ -514,8 +530,8 @@ export const Step4AttractionsScreen = () => {
               initialRegion={{
                 latitude: lodgingCoords.lat,
                 longitude: lodgingCoords.lon,
-                latitudeDelta: 0.04,
-                longitudeDelta: 0.04,
+                latitudeDelta: Math.max(0.015, (radius * 2.5) / 111),
+                longitudeDelta: Math.max(0.015, ((radius * 2.5) / 111) / Math.max(0.2, Math.cos((lodgingCoords.lat * Math.PI) / 180))),
               }}
             >
               <Marker
@@ -552,11 +568,17 @@ export const Step4AttractionsScreen = () => {
             </View>
           )}
 
-          <SafeAreaView edges={['top']} style={styles.topNav} pointerEvents="box-none">
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-          </SafeAreaView>
+          {/* PRZYCISK WSTECZ NAKŁADANY BEZPOŚREDNIO NA MAPĘ (OVERLAY) */}
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()} 
+            style={styles.backButton}
+            activeOpacity={0.7}
+            testID="back-button"
+            accessibilityLabel="Wróć"
+          >
+            <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
+            <Text style={styles.srOnly}>Wróć</Text>
+          </TouchableOpacity>
         </View>
 
         {/* 2. SEKCJA INTERFEJSU */}
@@ -578,7 +600,12 @@ export const Step4AttractionsScreen = () => {
               maximumValue={20}
               step={0.5}
               value={radius}
-              onValueChange={setRadius}
+              onValueChange={(val) => {
+                setRadius(val);
+                if (lodgingCoords) {
+                  updateMapRegionForRadius(lodgingCoords.lat, lodgingCoords.lon, val);
+                }
+              }}
               minimumTrackTintColor="#F59E0B"
               maximumTrackTintColor="#1E293B"
               thumbTintColor="#F59E0B"
@@ -609,21 +636,6 @@ export const Step4AttractionsScreen = () => {
             </View>
 
             <View style={styles.navControlsRow}>
-              {/* INTERAKTYWNY PRZYCISK SORTOWANIA WG ODLEGŁOŚCI */}
-              <TouchableOpacity
-                onPress={toggleSortOrder}
-                style={styles.sortBtn}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={sortOrder === 'asc' ? "arrow-up" : "arrow-down"}
-                  size={12}
-                  color="#F59E0B"
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={styles.sortText}>{t.sort_by_distance}</Text>
-              </TouchableOpacity>
-
               {displayList.length > 0 && (
                 <View style={styles.arrowsBox}>
                   <TouchableOpacity
@@ -706,14 +718,14 @@ export const Step4AttractionsScreen = () => {
                   return (
                     <View key={item.id} style={styles.cardWrapper}>
                       <View style={styles.card}>
-                        {/* ZDJĘCIE DOPASOWANE W 100% DO KAFELKA (bez luk) */}
-                        <ImageBackground
-                          source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
-                          style={styles.cardImage}
-                          imageStyle={styles.cardImageInner}
-                          resizeMode="cover"
-                          onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
-                        >
+                        {/* ZDJĘCIE DOPASOWANE W 100% DO SZEROKOŚCI KAFELKA */}
+                        <View style={styles.cardImageContainer}>
+                          <Image
+                            source={{ uri: imageErrors[item.id] ? fallbackImage : item.imageUrl }}
+                            style={styles.cardImage}
+                            resizeMode="cover"
+                            onError={() => setImageErrors((prev) => ({ ...prev, [item.id]: true }))}
+                          />
                           <View style={styles.imageOverlayTop}>
                             <View style={styles.ratingBadge}>
                               <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -726,7 +738,7 @@ export const Step4AttractionsScreen = () => {
                               </Text>
                             </View>
                           </View>
-                        </ImageBackground>
+                        </View>
 
                         {/* CIAŁO KAFELKA */}
                         <View style={styles.cardBody}>
@@ -766,7 +778,7 @@ export const Step4AttractionsScreen = () => {
         </View>
 
         {/* DOLNY PASEK ZAPISU / POMINIĘCIA */}
-        <View style={styles.floatingFooter}>
+        <View style={[styles.floatingFooter, { paddingBottom: Math.max(insets.bottom, 28) + 16 }]}>
           <TouchableOpacity style={styles.finishButton} onPress={handleFinishPlanning} activeOpacity={0.9}>
             <Text style={styles.finishButtonText}>{t.button_saveTrip}</Text>
           </TouchableOpacity>
@@ -782,20 +794,42 @@ export const Step4AttractionsScreen = () => {
 const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#0B1120' },
 
-  progressSafeArea: { backgroundColor: '#0B1120', paddingHorizontal: 20 },
+  progressSafeArea: { backgroundColor: '#0B1120', paddingHorizontal: 20, paddingBottom: 6 },
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   progressText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   progressStepName: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 8 },
+  progressBarBg: { height: 4, backgroundColor: '#1E293B', borderRadius: 2, marginBottom: 0 },
   progressBarFill: { height: 4, backgroundColor: '#F59E0B', borderRadius: 2 },
   
-  // Zbalansowana wysokość mapy (34%), by zostawić komfortową przestrzeń na karty atrakcji
-  mapHeader: { width: '100%', height: '34%', zIndex: 1 },
+  // Zbalansowana wysokość mapy (34%), zaczyna się bezpośrednio pod paskiem postępu
+  mapHeader: { width: '100%', height: '34%', zIndex: 1, position: 'relative' },
   mapFallback: { backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   
-  topNav: { position: 'absolute', top: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, zIndex: 10 },
-  backButton: { width: 44, height: 44, backgroundColor: 'rgba(11, 17, 32, 0.7)', borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-  backIcon: { color: '#FFFFFF', fontSize: 24, fontWeight: '300', lineHeight: 24 },
+  backButton: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    zIndex: 20,
+    elevation: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+  },
+  srOnly: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
 
   bottomSheet: { 
     flex: 1, 
@@ -805,7 +839,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24, 
     zIndex: 10, 
     elevation: 10,
-    paddingBottom: 110,
+    paddingBottom: 140,
   },
 
   // Zwarty, kompaktowy suwak promienia
@@ -846,21 +880,38 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#F59E0B', fontWeight: '700' },
 
   navControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sortBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
-  sortText: { color: '#F59E0B', fontSize: 11, fontWeight: '700' },
   arrowsBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', borderRadius: 8, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 4 },
   arrowBtn: { padding: 4 },
   counterText: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', marginHorizontal: 4 },
 
-  // Karuzela i kafelki - IDEALNIE DOPASOWANE BEZ LUK
+  // Karuzela i kafelki - ZDJĘCIE DOPASOWANE W 100% DO SZEROKOŚCI KAFELKA
   carouselContainer: { flex: 1, justifyContent: 'center' },
   carouselContent: { paddingHorizontal: HORIZONTAL_PADDING, alignItems: 'center' },
-  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 255 },
+  cardWrapper: { width: CARD_WIDTH, marginRight: CARD_GAP, height: 260 },
   card: { flex: 1, width: '100%', backgroundColor: '#111827', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B', justifyContent: 'space-between' },
   
-  cardImage: { width: '100%', height: 145, justifyContent: 'space-between', padding: 10 },
-  cardImageInner: { width: '100%', height: '100%', resizeMode: 'cover', borderTopLeftRadius: 15, borderTopRightRadius: 15 },
-  imageOverlayTop: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
+  cardImageContainer: { 
+    width: '100%', 
+    height: 145, 
+    position: 'relative', 
+    overflow: 'hidden', 
+    borderTopLeftRadius: 15, 
+    borderTopRightRadius: 15, 
+    backgroundColor: '#1E293B',
+  },
+  cardImage: { 
+    width: '100%', 
+    height: '100%',
+  },
+  imageOverlayTop: { 
+    position: 'absolute', 
+    top: 10, 
+    left: 10, 
+    right: 10, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    zIndex: 2,
+  },
   ratingBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   ratingText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   distanceBadge: { backgroundColor: 'rgba(11, 17, 32, 0.85)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
@@ -887,9 +938,20 @@ const styles = StyleSheet.create({
   switchTabLinkBtn: { backgroundColor: 'rgba(56, 189, 248, 0.1)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.3)' },
   switchTabLinkText: { color: '#38BDF8', fontSize: 12, fontWeight: '700' },
 
-  floatingFooter: { position: 'absolute', bottom: 0, width: '100%', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, backgroundColor: 'rgba(11, 17, 32, 0.96)', borderTopWidth: 1, borderTopColor: '#1E293B', zIndex: 20, elevation: 20 },
+  floatingFooter: { 
+    position: 'absolute', 
+    bottom: 0, 
+    width: '100%', 
+    paddingHorizontal: 20, 
+    paddingTop: 10, 
+    backgroundColor: 'rgba(11, 17, 32, 0.96)', 
+    borderTopWidth: 1, 
+    borderTopColor: '#1E293B', 
+    zIndex: 20, 
+    elevation: 20,
+  },
   finishButton: { backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   finishButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '800' },
-  skipButton: { alignItems: 'center', paddingVertical: 8 },
-  skipButtonText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' }
+  skipButton: { alignItems: 'center', paddingVertical: 10, marginTop: 4 },
+  skipButtonText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' }
 });

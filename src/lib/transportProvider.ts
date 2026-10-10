@@ -2,107 +2,109 @@ import { supabase } from './supabase';
 import {
   TransportDataProvider,
   UserTravelContext,
-  buildCarRouteFromRoutingData,
 } from './transportCalculator';
+import {
+  resolveCoordinates,
+  calculateDistanceKm,
+  determineTransportRecommendations,
+  checkDestinationStation,
+  StationInfo,
+} from './geoDatabase';
 
 export interface TransportSearchRequest {
   origin: string;
   destination: string;
+  originCoords?: { lat: number; lon: number };
+  destinationCoords?: { lat: number; lon: number };
   departureDate?: string;
   passengers?: number;
   context?: UserTravelContext;
 }
 
-// Pomocniczy kalkulator dystansu (Haversine) na wypadek awarii chmury
-function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
 export const supabaseTransportProvider: TransportDataProvider = {
   async getRoutes({ origin, destination, departureAt, context }) {
+    if (!origin?.trim() || !destination?.trim()) {
+      return [];
+    }
+
+    // 1. Rozwiązujemy współrzędne na poziomie aplikacji (offline słownik miast + geokoder Nominatim)
+    const [origCoords, destCoords] = await Promise.all([
+      resolveCoordinates(origin),
+      resolveCoordinates(destination),
+    ]);
+
+    const realDistance =
+      origCoords && destCoords
+        ? calculateDistanceKm(origCoords.lat, origCoords.lon, destCoords.lat, destCoords.lon)
+        : 0;
+
+    // 2. Weryfikujemy obecność stacji kolejowej w miejscu docelowym (czy wieś, czy miasto ze stacją)
+    let stationInfo: StationInfo = { hasStation: true };
+    if (destCoords) {
+      try {
+        stationInfo = await checkDestinationStation(destination, destCoords);
+      } catch {
+        stationInfo = { hasStation: false };
+      }
+    }
+
+    // 3. Próba wywołania Supabase Edge Function 'transport-search' z przekazaniem współrzędnych
     try {
-      // 1. Próba wywołania Supabase Edge Function 'transport-search'
       const { data, error } = await supabase.functions.invoke('transport-search', {
         body: {
-          origin,
-          destination,
+          origin: origin.trim(),
+          destination: destination.trim(),
+          originCoords: origCoords ? { lat: origCoords.lat, lon: origCoords.lon } : undefined,
+          destinationCoords: destCoords ? { lat: destCoords.lat, lon: destCoords.lon } : undefined,
           departureDate: departureAt,
           passengers: 1,
           context,
         } as TransportSearchRequest,
       });
 
-      if (error) {
-        throw error;
-      }
+      if (!error && data && Array.isArray(data.routes) && data.routes.length > 0) {
+        // Zabezpieczenie przed błędem starej wersji Edge Function:
+        // A) Jeśli funkcja zwraca sztywne ~500 km, a rzeczywisty dystans różni się lub jest nieznany
+        const isStale500km =
+          data.routes.some((r: any) =>
+            r.notes?.some((n: string) => /~500\s*km/i.test(n))
+          ) && (realDistance === 0 || Math.abs(realDistance - 500) > 40);
 
-      if (data && Array.isArray(data.routes)) {
-        return data.routes;
-      }
-
-      return [];
-    } catch (err) {
-      console.warn('Awaria Edge Function, liczymy realny dystans awaryjnie w aplikacji...', err);
-
-      try {
-        // 2. Realny Fallback: Geokodowanie bezpośrednio z aplikacji (OpenStreetMap)
-        const geocode = async (query: string) => {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-              query
-            )}&limit=1`,
-            {
-              headers: {
-                'User-Agent': 'DestivoAppFallback/1.0',
-              },
-            }
+        // B) Jeśli miejscowość to wieś bez stacji, a funkcja proponuje bezpośredni pociąg do tej wsi
+        const isInvalidVillageTrain =
+          !stationInfo.hasStation &&
+          data.routes.some(
+            (r: any) =>
+              r.type === 'train' &&
+              !r.notes?.some((n: string) => /przesiadk|lokaln/i.test(n))
           );
-          const data = await res.json();
-          return Array.isArray(data) && data.length > 0
-            ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
-            : null;
-        };
 
-        const [originCoords, destCoords] = await Promise.all([
-          geocode(origin),
-          geocode(destination),
-        ]);
-
-        // Dystans w linii prostej * 1.25 (przelicznik na krętość dróg)
-        const airDistance =
-          originCoords && destCoords
-            ? calculateDistanceKm(
-                originCoords.lat,
-                originCoords.lon,
-                destCoords.lat,
-                destCoords.lon
-              )
-            : 0;
-
-        const roadDistance = airDistance > 0 ? Math.round(airDistance * 1.25) : 300;
-        // Średnia prędkość przelotowa w trasie ~85 km/h
-        const durationMinutes = Math.round((roadDistance / 85) * 60);
-
-        return [
-          buildCarRouteFromRoutingData({
-            distanceKm: roadDistance,
-            durationMinutes: durationMinutes,
-            provider: 'Kalkulator offline (Szacunek GPS)',
-            context,
-          }),
-        ];
-      } catch (fallbackErr) {
-        console.error('Błąd całkowity fallbacku:', fallbackErr);
-        return [];
+        if (!isStale500km && !isInvalidVillageTrain && realDistance > 0) {
+          // Upewniamy się, że notatki i dystans odzwierciedlają rzeczywistą odległość
+          return data.routes.map((r: any) => ({
+            ...r,
+            notes:
+              r.notes?.map((n: string) =>
+                n.replace(/~[0-9]+\s*km/i, `~${realDistance} km`)
+              ) || [],
+          }));
+        }
       }
+    } catch (err) {
+      console.warn('Edge Function niedostępna lub zwróciła błąd, wyznaczamy trasy lokalnie...', err);
     }
+
+    // 4. Niezawodny fallback klienta: generowanie tras na podstawie rzeczywistych współrzędnych i stacji
+    if (realDistance > 0) {
+      return determineTransportRecommendations(
+        origin.trim(),
+        destination.trim(),
+        realDistance,
+        stationInfo
+      );
+    }
+
+    // 5. Jeśli lokalizacji nie udało się ustalić (np. losowy ciąg znaków), nie generujemy fałszywych tras
+    return [];
   },
 };

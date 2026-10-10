@@ -40,7 +40,7 @@ export const translations = {
       deleteConfirm: 'Usuń konto', deleteError: 'Wystąpił problem podczas usuwania konta.', errorTitle: 'Błąd', successTitle: 'Sukces',
     },
     trips: {
-      title: 'Twoje podróże', addTrip: '+ Dodaj podróż', upcoming: 'Nadchodzące', archived: 'Archiwalne', empty: 'Nie masz jeszcze żadnych podróży.',
+      title: 'Twoje podróże', addTrip: 'Dodaj podróż', upcoming: 'Nadchodzące', archived: 'Archiwalne', empty: 'Nie masz jeszcze żadnych podróży.',
       plan: 'Zaplanuj coś!', noUpcoming: 'Brak zaplanowanych wyjazdów.', memories: 'Archiwalne Wspomnienia', memoriesDesc: 'Przeżyj ponownie podróże, które ukształtowały Twój świat.',
       visited: 'ODWIEDZONYCH MIEJSC', days: 'DNI W PODRÓŻY', noArchived: 'Brak archiwalnych podróży.', viewMemories: 'Zobacz wspomnienia ➔', loadError: 'Nie udało się wczytać listy podróży.', home: 'Dom',
       untitled: 'Bez nazwy', searchPlaceholder: 'Szukaj podróży po nazwie...', noSearchResults: 'Brak podróży pasujących do wyszukiwania.',
@@ -61,6 +61,13 @@ export const translations = {
       dateLabelWithFormat: 'Data (DD-MM-YYYY)', timeLabelWithFormat: 'Czas (HH:MM)', eventTitleLabel: 'Tytuł wydarzenia', eventSubtitleLabel: 'Opis',
       departurePrefix: 'Wyjazd: {{origin}} ➔ {{destination}}', returnPrefix: 'Powrót: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
       home: 'Dom', newEvent: 'Nowe wydarzenie', recommendedPlace: 'Rekomendowane miejsce', addedManually: 'Dodano ręcznie', noDate: 'Brak daty',
+      allDays: 'Wszystkie',
+      allDaysOption: 'Wszystkie dni',
+      dayLabel: 'Dzień',
+      selectDay: 'Wybierz dzień',
+      filterDays: 'Filtruj oś czasu według dni',
+      packingListBtn: 'Lista pakowania',
+      vaultBtn: 'Sejf',
       tripVaultTitle: 'Szufladka Sejfu',
       tripVaultCount: '{{count}} zabezpieczonych plików',
       tripVaultEmpty: 'Brak plików w szufladce',
@@ -911,6 +918,7 @@ export const translations = {
           stationIn: "Pokaż stację w: {{city}}",
           busStationIn: "Dworzec autobusowy: {{city}}",
           airportNear: "Lotnisko w okolicach: {{city}}",
+          transferStation: "Stacja przesiadkowa: {{station}}",
         },
         routeNotes: {
           localRoute: "Trasa lokalna (~{{distance}} km). Najwygodniej udać się bezpośrednio własnym samochodem.",
@@ -919,10 +927,14 @@ export const translations = {
           ownCar: "Podróż własnym samochodem.",
           longDistanceFlight: "Trasa daleka/międzynarodowa (~{{distance}} km). Sprawdź loty na Skyscanner.",
           longRoadTrip: "Dla fanów długich tras samochodowych.",
+          ruralNoStation: "Miejscowość bez bezpośredniej stacji kolejowej. Najwygodniejszy dojazd własnym samochodem (~{{distance}} km).",
+          trainWithLocalTransfer: "Pociąg + dojazd lokalny. Najbliższa stacja: {{station}} (~{{dist}} km od celu).",
+          remoteNoRail: "Brak czynnej stacji kolejowej w pobliżu. Rekomendowana podróż własnym samochodem (~{{distance}} km).",
         },
         providers: {
           flight: "Połączenie lotnicze",
           train: "Połączenie kolejowe",
+          trainLocal: "Pociąg + dojazd lokalny",
           bus: "Połączenie autokarowe",
           car: "Własny samochód",
           roadtrip: "Własny samochód",
@@ -1018,7 +1030,7 @@ export const translations = {
       privacyData: 'PRIVACY AND DATA', privacyPolicy: 'Privacy policy', privacyText: 'Data is encrypted end-to-end in the Vault module. Trips are synchronized with the Supabase cloud.', danger: 'DANGER ZONE', deleteAccount: 'Delete account permanently', deleteTitle: 'Delete account', deleteMessage: 'Are you sure you want to permanently delete your account and all saved trips from the cloud? This cannot be undone.', deleteConfirm: 'Delete account', deleteError: 'There was a problem deleting the account.', errorTitle: 'Error', successTitle: 'Success',
     },
     trips: {
-      title: 'Your trips', addTrip: '+ Add trip', upcoming: 'Upcoming', archived: 'Archived', empty: 'You have no trips yet.', plan: 'Plan something!', noUpcoming: 'No planned trips.', memories: 'Archived Memories', memoriesDesc: 'Relive the trips that shaped your world.', visited: 'PLACES VISITED', days: 'DAYS TRAVELLED', noArchived: 'No archived trips.', viewMemories: 'View memories ➔', loadError: 'Could not load your trips.', home: 'Home',
+      title: 'Your trips', addTrip: 'Add trip', upcoming: 'Upcoming', archived: 'Archived', empty: 'You have no trips yet.', plan: 'Plan something!', noUpcoming: 'No planned trips.', memories: 'Archived Memories', memoriesDesc: 'Relive the trips that shaped your world.', visited: 'PLACES VISITED', days: 'DAYS TRAVELLED', noArchived: 'No archived trips.', viewMemories: 'View memories ➔', loadError: 'Could not load your trips.', home: 'Home',
       untitled: 'Untitled', searchPlaceholder: 'Search trips by name...', noSearchResults: 'No trips matching your search.',
       hasArchivedNotice: 'You have {{count}} archived trips in your profile.',
       deleteTripTitle: 'Delete trip',
@@ -1031,6 +1043,13 @@ export const translations = {
       dateLabelWithFormat: 'Date (DD-MM-YYYY)', timeLabelWithFormat: 'Time (HH:MM)', eventTitleLabel: 'Event title', eventSubtitleLabel: 'Description',
       departurePrefix: 'Departure: {{origin}} ➔ {{destination}}', returnPrefix: 'Return: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
       home: 'Home', newEvent: 'New event', recommendedPlace: 'Recommended place', addedManually: 'Added manually', noDate: 'No date',
+      allDays: 'All',
+      allDaysOption: 'All days',
+      dayLabel: 'Day',
+      selectDay: 'Select Day',
+      filterDays: 'Filter timeline by day',
+      packingListBtn: 'Packing list',
+      vaultBtn: 'Vault',
       tripVaultTitle: 'Trip Vault Drawer',
       tripVaultCount: '{{count}} secured files',
       tripVaultEmpty: 'No files in this drawer',
@@ -1878,6 +1897,7 @@ export const translations = {
           stationIn: "Show station in: {{city}}",
           busStationIn: "Bus station: {{city}}",
           airportNear: "Airport nearby: {{city}}",
+          transferStation: "Transfer station: {{station}}",
         },
         routeNotes: {
           localRoute: "Local route (~{{distance}} km). It is most convenient to go directly by car.",
@@ -1886,10 +1906,14 @@ export const translations = {
           ownCar: "Driving from point A to point B.",
           longDistanceFlight: "Long-distance/international route (~{{distance}} km). Check flights on Skyscanner.",
           longRoadTrip: "For fans of long road trips.",
+          ruralNoStation: "Destination without a direct railway station. Most convenient by car (~{{distance}} km).",
+          trainWithLocalTransfer: "Train + local connection. Nearest station: {{station}} (~{{dist}} km from destination).",
+          remoteNoRail: "No active railway station nearby. Recommended travel by car (~{{distance}} km).",
         },
         providers: {
           flight: "Flight connection",
           train: "Rail connection",
+          trainLocal: "Train + local connection",
           bus: "Coach connection",
           car: "Own car",
           roadtrip: "Own car",
@@ -1951,7 +1975,119 @@ export const translations = {
       seePlanned: 'View planned ({{count}})',
       noPlannedTitle: 'No attractions in plan yet',
       noPlannedDesc: 'Select places from the "Discover" tab to add them to your trip.',
-      goToDiscover: 'Go to attractions selection',
     },
   },
 };
+
+export function localizeTimelineTitle(title: string, type?: string, language: string = 'pl'): string {
+  if (!title) return '';
+  const isEn = language === 'en';
+  const trimmed = title.trim();
+
+  // 1. Wyjazd / Departure
+  if (type === 'DEPARTURE' || /^(wyjazd:|departure:)/i.test(trimmed)) {
+    if (/^(wyjazd:|departure:)/i.test(trimmed)) {
+      const rest = trimmed.replace(/^(wyjazd:|departure:)\s*/i, '');
+      return isEn ? `Departure: ${rest}` : `Wyjazd: ${rest}`;
+    }
+    if (/^(rozpoczęcie podróży|trip start)$/i.test(trimmed)) {
+      return isEn ? 'Trip start' : 'Rozpoczęcie podróży';
+    }
+    if (/^(wyjazd|departure)$/i.test(trimmed)) {
+      return isEn ? 'Departure' : 'Wyjazd';
+    }
+  }
+
+  // 2. Zakwaterowanie / Nocleg / Accommodation
+  if (type === 'LODGING' || /^(zakwaterowanie|accommodation|nocleg|overnight stay|hotel check-in|zakwaterowanie w hotelu)$/i.test(trimmed)) {
+    if (/^(zakwaterowanie|accommodation)$/i.test(trimmed)) {
+      return isEn ? 'Accommodation' : 'Zakwaterowanie';
+    }
+    if (/^(nocleg|overnight stay)$/i.test(trimmed)) {
+      return isEn ? 'Overnight stay' : 'Nocleg';
+    }
+    if (/^(hotel check-in|zakwaterowanie w hotelu)$/i.test(trimmed)) {
+      return isEn ? 'Hotel Check-in' : 'Zakwaterowanie w hotelu';
+    }
+  }
+
+  // 3. Powrót / Return / Zakończenie podróży
+  if (type === 'RETURN' || /^(powr[oó]t:|return:)/i.test(trimmed)) {
+    if (/^(powr[oó]t:|return:)/i.test(trimmed)) {
+      const rest = trimmed.replace(/^(powr[oó]t:|return:)\s*/i, '');
+      return isEn ? `Return: ${rest}` : `Powrót: ${rest}`;
+    }
+    if (/^(zakończenie podróży|trip end)$/i.test(trimmed)) {
+      return isEn ? 'Trip end' : 'Zakończenie podróży';
+    }
+    if (/^(powr[oó]t|return)$/i.test(trimmed)) {
+      return isEn ? 'Return' : 'Powrót';
+    }
+    if (/^(powr[oó]t do domu|return home)$/i.test(trimmed)) {
+      return isEn ? 'Return home' : 'Powrót do domu';
+    }
+  }
+
+  // 4. Zwiedzanie / Sightseeing as title
+  if (/^(zwiedzanie|sightseeing)$/i.test(trimmed)) {
+    return isEn ? 'Sightseeing' : 'Zwiedzanie';
+  }
+
+  return title;
+}
+
+export function localizeTimelineSubtitle(sub: string, type?: string, language: string = 'pl'): string {
+  if (!sub) return '';
+  const trimmed = sub.trim();
+  const lower = trimmed.toLowerCase();
+  const isEn = language === 'en';
+
+  if (lower === 'zwiedzanie' || lower === 'sightseeing') {
+    return isEn ? 'Sightseeing' : 'Zwiedzanie';
+  }
+
+  if (lower === 'rozpoczęcie podróży' || lower === 'trip start') {
+    return isEn ? 'Trip start' : 'Rozpoczęcie podróży';
+  }
+
+  if (lower === 'zakończenie podróży' || lower === 'trip end') {
+    return isEn ? 'Trip end' : 'Zakończenie podróży';
+  }
+
+  if (lower === 'wyjazd' || lower === 'departure') {
+    return isEn ? 'Departure' : 'Wyjazd';
+  }
+
+  if (lower === 'powrót' || lower === 'return') {
+    return isEn ? 'Return' : 'Powrót';
+  }
+
+  if (lower === 'powrót do domu' || lower === 'return home') {
+    return isEn ? 'Return home' : 'Powrót do domu';
+  }
+
+  if (lower === 'powrót tego samego dnia' || lower === 'same-day return') {
+    return isEn ? 'Same-day return' : 'Powrót tego samego dnia';
+  }
+
+  if (lower === 'zakwaterowanie' || lower === 'accommodation') {
+    return isEn ? 'Accommodation' : 'Zakwaterowanie';
+  }
+
+  if (lower === 'nocleg' || lower === 'overnight stay') {
+    return isEn ? 'Overnight stay' : 'Nocleg';
+  }
+
+  if (lower.startsWith('podróż (') || lower.startsWith('trip (') || lower.startsWith('travel (')) {
+    const match = trimmed.match(/^(?:podróż|trip|travel)\s*\(([^)]+)\)/i);
+    if (match) {
+      return isEn ? `Trip (${match[1]})` : `Podróż (${match[1]})`;
+    }
+  }
+
+  if (lower === 'wyprawa samochodem (1 dzień bez noclegu)' || lower === 'car road trip (1 day without overnight stay)') {
+    return isEn ? 'Car road trip (1 day without overnight stay)' : 'Wyprawa samochodem (1 dzień bez noclegu)';
+  }
+
+  return trimmed;
+}
