@@ -22,7 +22,7 @@ export const translations = {
     profile: {
       title: 'Twój Profil', userFallback: 'Zalogowany Odkrywca', synced: 'Zsynchronizowano',
       appSettings: 'Ustawienia aplikacji', language: 'Język (Language)', vault: 'Zarządzaj Sejfem Offline',
-      security: 'Konto i bezpieczeństwo', logout: 'Wyloguj się', version: 'Destivo v1.0.0 (Offline-First Build)',
+      security: 'Konto i bezpieczeństwo', logout: 'Wyloguj się', version: 'Destivo v1.0.2 (Offline-First Build)',
       logoutTitle: 'Wylogowanie', logoutMessage: 'Czy na pewno chcesz się wylogować?', cancel: 'Anuluj', logoutConfirm: 'Wyloguj',
       logoutError: 'Nie udało się poprawnie wylogować.',
     },
@@ -1049,7 +1049,7 @@ export const translations = {
       cancel: 'Cancel',
     },
     profile: {
-      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.0 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutError: 'Could not log out correctly.',
+      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.2 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutError: 'Could not log out correctly.',
     },
     accountSecurity: {
       title: 'Account and privacy', accountManagement: 'ACCOUNT MANAGEMENT', resetPassword: 'Reset password', resetSuccess: 'A password reset link was sent to your email address.', resetError: 'Could not send the link.',
