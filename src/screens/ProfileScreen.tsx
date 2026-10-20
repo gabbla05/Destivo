@@ -41,6 +41,45 @@ export const ProfileScreen = ({ navigation }: any) => {
             try {
               setIsLoggingOut(true);
               
+              // Przed wyczyszczeniem bazy wykonujemy bezpieczną synchronizację do Supabase,
+              // aby żadna podróż użytkownika nie przepadła przy wylogowaniu
+              if (user && !user.isGuest && user.id) {
+                try {
+                  const result = await db.execute('SELECT * FROM trips WHERE user_id = ?', [user.id]);
+                  const localRows = (((result as any)?.array?.length > 0 ? (result as any).array : (result as any)?.rows?._array || (result as any)?.rows || [])) as any[];
+                  for (const lt of localRows) {
+                    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lt.id);
+                    if (isValidUUID) {
+                      let transportType = 'flight';
+                      try {
+                        const raw = typeof lt.transport_data === 'string' ? JSON.parse(lt.transport_data || '{}') : (lt.transport_data || {});
+                        transportType = raw?.selectedOption?.type || lt.transport_type || 'flight';
+                      } catch {}
+                      let accommodationAddress = '';
+                      try {
+                        const raw = typeof lt.lodging_data === 'string' ? JSON.parse(lt.lodging_data || '{}') : (lt.lodging_data || {});
+                        accommodationAddress = raw?.lodgingAddress || lt.accommodation_address || '';
+                      } catch {}
+
+                      await supabase.from('trips').upsert([{
+                        id: lt.id,
+                        user_id: user.id,
+                        title: lt.trip_name || lt.title || 'Podróż',
+                        origin: lt.origin || '',
+                        destination: lt.destination || '',
+                        start_date: lt.start_date || null,
+                        end_date: lt.end_date || null,
+                        transport_type: transportType,
+                        accommodation_address: accommodationAddress,
+                        attractions_data: lt.attractions_data || '{}',
+                      }]);
+                    }
+                  }
+                } catch (syncErr) {
+                  console.warn('Profile logout sync warning:', syncErr);
+                }
+              }
+
               // Odłączamy PowerSync, by przerwać synchronizację w tle
               await db.disconnectAndClear(); 
               

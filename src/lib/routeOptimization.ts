@@ -624,14 +624,6 @@ export const CITY_COORDINATES: { [key: string]: { lat: number; lon: number } } =
   'ojcow': { lat: 50.2150, lon: 19.8310 },
   'malbork': { lat: 54.0359, lon: 19.0266 },
   'podzamcze': { lat: 50.4530, lon: 19.5530 },
-  'alghero': { lat: 40.5579, lon: 8.3193 },
-  'colmar': { lat: 48.0794, lon: 7.3585 },
-  'san sebastián': { lat: 43.3183, lon: -1.9812 },
-  'san sebastian': { lat: 43.3183, lon: -1.9812 },
-  'matera': { lat: 40.6664, lon: 16.6043 },
-  'bari': { lat: 41.1171, lon: 16.8719 },
-  'bolonia': { lat: 44.4949, lon: 11.3426 },
-  'bologna': { lat: 44.4949, lon: 11.3426 },
 
   // Europa Środkowa i Północna
   praga: { lat: 50.0755, lon: 14.4378 },

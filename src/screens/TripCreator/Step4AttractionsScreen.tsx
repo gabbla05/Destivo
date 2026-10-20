@@ -410,15 +410,15 @@ export const Step4AttractionsScreen = () => {
 
       const attractionsJson = JSON.stringify(extendedAttractions);
 
-      const formatToDBDate = (dateStr: string) => {
-        if (!dateStr) return '';
-        const normalized = dateStr.replace(/\./g, '-');
+      const formatToDBDate = (dateStr?: string | null): string | null => {
+        if (!dateStr || !dateStr.trim()) return null;
+        const normalized = dateStr.trim().replace(/[./]/g, '-');
         const parts = normalized.split('-');
         if (parts.length === 3) {
           if (parts[0].length === 4) return normalized;
           return `${parts[2]}-${parts[1]}-${parts[0]}`; 
         }
-        return normalized;
+        return null;
       };
 
       const vaultFiles = transportDetails?.ticketFile ? [transportDetails.ticketFile] : [];
@@ -444,6 +444,9 @@ export const Step4AttractionsScreen = () => {
         }
       }
 
+      const dbStartDate = formatToDBDate(startDate);
+      const dbEndDate = formatToDBDate(endDate);
+
       await db.execute(
         `INSERT INTO trips
         (id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at)
@@ -454,8 +457,8 @@ export const Step4AttractionsScreen = () => {
           tripName || t.defaultTripName.replace('{{destination}}', destination),
           origin,
           destination,
-          formatToDBDate(startDate),
-          formatToDBDate(endDate),
+          dbStartDate || '',
+          dbEndDate || '',
           transportJson,
           lodgingJson,
           attractionsJson,
@@ -463,18 +466,26 @@ export const Step4AttractionsScreen = () => {
       );
 
       if (user && !isGuest && !user.isGuest) {
+        let targetUserId = user.id;
+        try {
+          const sessionRes = await supabase.auth.getSession();
+          if (sessionRes?.data?.session?.user?.id) {
+            targetUserId = sessionRes.data.session.user.id;
+          }
+        } catch {}
+
         const { error: supabaseError } = await supabase
           .from('trips')
           .insert([{
             id: tripId,
-            user_id: userId,
-            trip_name: tripName || t.defaultTripName.replace('{{destination}}', destination),
+            user_id: targetUserId,
+            title: tripName || t.defaultTripName.replace('{{destination}}', destination),
             origin: origin || '',
             destination,
-            start_date: formatToDBDate(startDate),
-            end_date: formatToDBDate(endDate),
-            transport_data: transportJson,
-            lodging_data: lodgingJson,
+            start_date: dbStartDate,
+            end_date: dbEndDate,
+            transport_type: transport?.selectedOption?.type || 'flight',
+            accommodation_address: lodgingAddress || '',
             attractions_data: attractionsJson,
           }]);
 

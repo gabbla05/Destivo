@@ -129,9 +129,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     // Zapis lokalny PowerSync
     await db.execute('UPDATE trips SET lodging_data = ? WHERE id = ?', [newLodgingData, selectedTrip.id]);
 
-    // Zapis do chmury Supabase
+    // Zapis do chmury Supabase (opcjonalny, odporny na brak kolumny w schemacie)
     if (!isUserGuest) {
-      await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
+      try {
+        await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
+      } catch {}
     }
 
     setSelectedTrip({ ...selectedTrip, lodging_data: newLodgingData });
@@ -155,9 +157,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       // Zapis lokalny PowerSync
       await db.execute('UPDATE trips SET lodging_data = ? WHERE id = ?', [newLodgingData, selectedTrip.id]);
 
-      // Zapis do chmury Supabase
+      // Zapis do chmury Supabase (opcjonalny, odporny na brak kolumny w schemacie)
       if (!isUserGuest) {
-        await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
+        try {
+          await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
+        } catch {}
       }
 
       // Aktualizacja widoku

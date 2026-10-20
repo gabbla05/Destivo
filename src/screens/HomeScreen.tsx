@@ -543,11 +543,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 poolAttractions: attractionsData.pool || [],
                 isDayTrip: currentFound.start_date === currentFound.end_date,
                 translations: {
-                  departurePrefix: t.defaultDepartureTitle,
-                  returnPrefix: t.defaultReturnTitle,
-                  lodging: t.defaultLodgingTitle,
-                  sightseeing: t.defaultAttractionSubtitle,
-                  home: t.home,
+                  departurePrefix: timelineT.departurePrefix || t.defaultDepartureTitle,
+                  returnPrefix: timelineT.returnPrefix || 'Powrót: {{destination}} ➔ {{origin}}',
+                  lodging: timelineT.lodging || t.defaultLodgingTitle,
+                  sightseeing: timelineT.sightseeing || t.defaultAttractionSubtitle,
+                  home: timelineT.home || 'Dom',
                 },
               });
             }

@@ -270,10 +270,9 @@ describe('Zarządzanie stanem aplikacji (Stores)', () => {
 
       setLodging({
         type: 'hotel',
-        name: 'Hotel Colosseo',
         cost: 600,
       });
-      expect(useTripCreatorStore.getState().lodging?.name).toBe('Hotel Colosseo');
+      expect(useTripCreatorStore.getState().lodging?.type).toBe('hotel');
 
       setLodgingAddress('Via dei Fori Imperiali 1, Rzym');
       expect(useTripCreatorStore.getState().lodgingAddress).toBe('Via dei Fori Imperiali 1, Rzym');

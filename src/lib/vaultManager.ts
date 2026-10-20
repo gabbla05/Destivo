@@ -6,27 +6,37 @@ import * as Crypto from 'expo-crypto';
 export const VaultManager = {
   // 1. Wybieranie plików (PDF/Obrazy)
   async pickFile() {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['application/pdf', 'image/*'],
-      copyToCacheDirectory: true,
-    });
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+      });
 
-    if (result.canceled) return null;
-    const asset = result.assets[0];
-    return await this.saveToVault(asset.uri, asset.name);
+      if (result.canceled || !result.assets || result.assets.length === 0) return null;
+      const asset = result.assets[0];
+      return await this.saveToVault(asset.uri, asset.name);
+    } catch (error) {
+      console.warn('VaultManager pickFile warning:', error);
+      return null;
+    }
   },
 
   // 2. Robienie zdjęcia aparatem / Wybór z galerii
   async pickImage() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+      });
 
-    if (result.canceled) return null;
-    const asset = result.assets[0];
-    const filename = `Skan_${new Date().toISOString().split('T')[0]}.jpg`;
-    return await this.saveToVault(asset.uri, filename);
+      if (result.canceled || !result.assets || result.assets.length === 0) return null;
+      const asset = result.assets[0];
+      const filename = `Skan_${new Date().toISOString().split('T')[0]}.jpg`;
+      return await this.saveToVault(asset.uri, filename);
+    } catch (error) {
+      console.warn('VaultManager pickImage warning:', error);
+      return null;
+    }
   },
 
   // 3. Bezpieczny zapis w pamięci lokalnej (Offline-first)

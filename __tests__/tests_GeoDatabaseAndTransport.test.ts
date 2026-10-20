@@ -235,7 +235,7 @@ describe('GeoDatabase & Transport Recommendations', () => {
 
       // Powinno odrzucić fałszywe 500 km i wygenerować trasę z rzeczywistym dystansem ~252 km
       expect(routes.length).toBeGreaterThan(0);
-      const note = routes[0].notes[0];
+      const note = routes[0].notes![0];
       expect(note).toMatch(/~25\d km/);
       expect(note).not.toContain('~500 km');
     });

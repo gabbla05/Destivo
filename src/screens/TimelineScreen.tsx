@@ -2072,10 +2072,10 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
                               title: prevEvt.type === 'LODGING' ? (tripData?.accommodation_address || prevEvt.title) : prevEvt.title,
                               subtitle: prevEvt.subtitle,
                             };
-                            navFromPrevUrl = buildGoogleMapsDirectionsUrl(prevPoint, targetPoint, city);
+                            navFromPrevUrl = buildGoogleMapsDirectionsUrl(prevPoint, targetPoint, 'transit', city);
                           } else if (tripData?.origin) {
                             prevTitle = tripData.origin;
-                            navFromPrevUrl = buildGoogleMapsDirectionsUrl({ title: tripData.origin }, targetPoint, city);
+                            navFromPrevUrl = buildGoogleMapsDirectionsUrl({ title: tripData.origin }, targetPoint, 'transit', city);
                           }
 
                           return (

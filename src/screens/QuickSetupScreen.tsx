@@ -108,15 +108,15 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
     }
   };
 
-  const formatToDBDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const normalized = dateStr.replace(/\./g, '-');
+  const formatToDBDate = (dateStr?: string | null): string | null => {
+    if (!dateStr || !dateStr.trim()) return null;
+    const normalized = dateStr.trim().replace(/[./]/g, '-');
     const parts = normalized.split('-');
     if (parts.length === 3) {
       if (parts[0].length === 4) return normalized;
       return `${parts[2]}-${parts[1]}-${parts[0]}`;
     }
-    return normalized;
+    return null;
   };
 
   const handleSaveTrip = async () => {
@@ -279,8 +279,8 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           tripTitle,
           origin || '',
           destData.city,
-          dbStartDate,
-          dbEndDate,
+          dbStartDate || '',
+          dbEndDate || '',
           transportJson,
           lodgingJson,
           attractionsJson,
@@ -288,23 +288,31 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
       );
 
       if (user && !isGuest && !user.isGuest) {
+        let targetUserId = user.id;
+        try {
+          const sessionRes = await supabase.auth.getSession();
+          if (sessionRes?.data?.session?.user?.id) {
+            targetUserId = sessionRes.data.session.user.id;
+          }
+        } catch {}
+
         const { error: supabaseError } = await supabase
           .from('trips')
           .insert([{
             id: tripId,
-            user_id: userId,
+            user_id: targetUserId,
             title: tripTitle,
             origin: origin || '',
             destination: destData.city,
-            start_date: dbStartDate,
-            end_date: dbEndDate,
+            start_date: dbStartDate || null,
+            end_date: dbEndDate || null,
             transport_type: destData.recommendedTransport || 'flight',
-            accommodation_address: cleanLodging,
+            accommodation_address: cleanLodging || '',
             attractions_data: attractionsJson,
           }]);
 
         if (supabaseError) {
-          console.warn('Błąd bezpośredniego zapisu do Supabase:', supabaseError);
+          console.warn('QuickSetupScreen: Błąd zapisu do Supabase:', supabaseError);
         }
       }
       

@@ -102,9 +102,10 @@ export const TripsListScreen = ({ navigation }: any) => {
       const tripsById = new Map<string, TripRecord>();
 
       // 1. Najpierw pobieramy z lokalnej bazy PowerSync SQLite (dostępne natychmiast offline)
+      let localFullTrips: any[] = [];
       try {
         const result = await db.execute(
-          `SELECT id, trip_name, origin, destination, start_date, end_date, transport_data
+          `SELECT id, user_id, trip_name, origin, destination, start_date, end_date, transport_data, lodging_data, attractions_data, created_at
            FROM trips WHERE user_id = ? OR (user_id IN ('guest', 'guest-session') AND ?)
            ORDER BY start_date ASC`,
           [userId, user && !user.isGuest ? 1 : 0]
@@ -112,6 +113,7 @@ export const TripsListScreen = ({ navigation }: any) => {
         const localRows = ((result as any).array?.length > 0
           ? (result as any).array
           : (result.rows as any)?._array || (result.rows as any) || []) as any[];
+        localFullTrips = localRows;
         localRows.forEach((trip: any) => {
           let transportType = 'flight';
           try {
@@ -273,6 +275,60 @@ export const TripsListScreen = ({ navigation }: any) => {
                   ]
                 );
               } catch {}
+            }
+
+            // 3b. Dwukierunkowa synchronizacja: dosłanie do Supabase podróży z lokalnej bazy SQLite,
+            // które nie zostały jeszcze wysłane do chmury (np. po wcześniejszym błędzie lub utworzone offline)
+            const remoteIds = new Set(data.map((t: any) => t.id));
+            for (const localTrip of localFullTrips) {
+              const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(localTrip.id);
+              if (isValidUUID && !remoteIds.has(localTrip.id)) {
+                let transportType = 'flight';
+                try {
+                  const raw = typeof localTrip.transport_data === 'string' ? JSON.parse(localTrip.transport_data || '{}') : (localTrip.transport_data || {});
+                  transportType = raw?.selectedOption?.type || localTrip.transport_type || 'flight';
+                } catch {}
+
+                let accommodationAddress = '';
+                try {
+                  const raw = typeof localTrip.lodging_data === 'string' ? JSON.parse(localTrip.lodging_data || '{}') : (localTrip.lodging_data || {});
+                  accommodationAddress = raw?.lodgingAddress || localTrip.accommodation_address || '';
+                } catch {}
+
+                const formatToDBDate = (dateStr?: string | null): string | null => {
+                  if (!dateStr || !dateStr.trim()) return null;
+                  const normalized = dateStr.trim().replace(/[./]/g, '-');
+                  const parts = normalized.split('-');
+                  if (parts.length === 3) {
+                    if (parts[0].length === 4) return normalized;
+                    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                  }
+                  return null;
+                };
+
+                const syncPayload = {
+                  id: localTrip.id,
+                  user_id: queryUserId,
+                  title: localTrip.trip_name || localTrip.title || t.untitled,
+                  origin: localTrip.origin || '',
+                  destination: localTrip.destination || '',
+                  start_date: formatToDBDate(localTrip.start_date),
+                  end_date: formatToDBDate(localTrip.end_date),
+                  transport_type: transportType,
+                  accommodation_address: accommodationAddress,
+                  attractions_data: localTrip.attractions_data || '{}',
+                };
+
+                const { error: syncError } = await supabase.from('trips').insert([syncPayload]);
+                if (!syncError) {
+                  remoteIds.add(localTrip.id);
+                  try {
+                    await db.execute('UPDATE trips SET user_id = ? WHERE id = ?', [queryUserId, localTrip.id]);
+                  } catch {}
+                } else {
+                  console.warn('TripsList: błąd synchronizacji lokalnej podróży do Supabase:', syncError);
+                }
+              }
             }
           }
         } catch (supErr) {

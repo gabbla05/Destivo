@@ -712,15 +712,15 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
   // ŚCIEŻKA 6: Wykrywanie i blokowanie kolizji terminów wycieczek (Trip Collision Detection)
   // =========================================================================
   test('E2E Ścieżka 6: Wykrywanie i blokowanie kolizji terminów wycieczek (Trip Collision Detection)', async () => {
-    // 1. Użytkownik ma już w kalendarzu zapisaną wycieczkę do Grecji (10-10-2026 do 18-10-2026)
+    // 1. Użytkownik ma już w kalendarzu zapisaną wycieczkę do Grecji (10-11-2026 do 18-11-2026)
     inMemoryDbTrips.push({
       id: 'existing_trip_greece',
       user_id: 'user-e2e-1',
       trip_name: 'Wakacje w Grecji',
       origin: 'Warszawa',
       destination: 'Ateny',
-      start_date: '10-10-2026',
-      end_date: '18-10-2026',
+      start_date: '10-11-2026',
+      end_date: '18-11-2026',
       transport_data: '{}',
       lodging_data: '{}',
       attractions_data: '{}',
@@ -731,13 +731,13 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     // 2. Otwarcie Kroku 1 Kreatora Podróży
     const { unmount } = render(<Step1DestinationScreen navigation={mockNavigation} />);
 
-    // 3. Wpisanie nowej podróży z terminem kolidującym (12-10-2026 do 15-10-2026)
+    // 3. Wpisanie nowej podróży z terminem kolidującym (12-11-2026 do 15-11-2026)
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Warszawa/i), 'Kraków');
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Rzym/i), 'Madryt');
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Wakacje we Włoszech/i), 'Wyjazd do Madrytu');
     const dateInputs = screen.getAllByPlaceholderText(/DD-MM-YYYY/i);
-    fireEvent.changeText(dateInputs[0], '12-10-2026');
-    fireEvent.changeText(dateInputs[1], '15-10-2026');
+    fireEvent.changeText(dateInputs[0], '12-11-2026');
+    fireEvent.changeText(dateInputs[1], '15-11-2026');
 
     // 4. Kliknięcie "Dalej"
     fireEvent.press(screen.getByText('Dalej'));
