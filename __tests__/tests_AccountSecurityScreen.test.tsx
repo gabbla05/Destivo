@@ -21,6 +21,7 @@ jest.mock('@powersync/react-native', () => ({
 }));
 
 const mockResetPasswordForEmail = jest.fn();
+const mockSignInWithPassword = jest.fn();
 const mockSignOut = jest.fn();
 const mockEq = jest.fn();
 const mockDelete = jest.fn(() => ({ eq: mockEq }));
@@ -29,6 +30,7 @@ jest.mock('../src/lib/supabase', () => ({
   supabase: {
     auth: {
       resetPasswordForEmail: (...args: any[]) => mockResetPasswordForEmail(...args),
+      signInWithPassword: (...args: any[]) => mockSignInWithPassword(...args),
       signOut: (...args: any[]) => mockSignOut(...args),
     },
     from: jest.fn(() => ({
@@ -79,7 +81,9 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     fireEvent.press(screen.getByText(t.resetPassword));
 
     await waitFor(() => {
-      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io');
+      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io', {
+        redirectTo: 'destivo://reset-password',
+      });
       expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.resetSuccess);
     });
   });
@@ -95,7 +99,9 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     fireEvent.press(screen.getByText(t.resetPassword));
 
     await waitFor(() => {
-      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io');
+      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io', {
+        redirectTo: 'destivo://reset-password',
+      });
       expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, 'Błąd sieci Supabase');
     });
   });
@@ -111,7 +117,9 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     fireEvent.press(screen.getByText(t.resetPassword));
 
     await waitFor(() => {
-      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io');
+      expect(mockResetPasswordForEmail).toHaveBeenCalledWith('jan@destivo.io', {
+        redirectTo: 'destivo://reset-password',
+      });
       expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.resetError);
     });
   });
@@ -128,7 +136,65 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
   });
 
-  test('resetowanie PIN-u sejfu pyta o potwierdzenie i czyści stan PIN-u', () => {
+  test('dla zalogowanego użytkownika resetowanie PIN-u sejfu wymaga podania hasła i sprawdza je w Supabase', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    mockSignInWithPassword.mockResolvedValueOnce({ error: null });
+
+    render(<AccountSecurityScreen navigation={mockNavigation} />);
+
+    // Kliknięcie w reset PIN-u
+    fireEvent.press(screen.getByText(t.resetVaultPin));
+
+    // Otwiera modal z polem hasła
+    const input = screen.getByTestId('vault-reset-password-input');
+    expect(input).toBeTruthy();
+
+    fireEvent.changeText(input, 'mojeSekretneHaslo123');
+
+    const confirmBtn = screen.getByTestId('vault-confirm-reset-btn');
+    fireEvent.press(confirmBtn);
+
+    await waitFor(() => {
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({
+        email: 'jan@destivo.io',
+        password: 'mojeSekretneHaslo123',
+      });
+      expect(useVaultStore.getState().pin).toBeNull();
+      expect(useVaultStore.getState().isUnlocked).toBe(false);
+      expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.vaultPinResetDone);
+    });
+  });
+
+  test('nieprawidłowe hasło blokuje reset PIN-u i wyświetla błąd', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    mockSignInWithPassword.mockResolvedValueOnce({ error: { message: 'Invalid login credentials' } });
+
+    render(<AccountSecurityScreen navigation={mockNavigation} />);
+
+    fireEvent.press(screen.getByText(t.resetVaultPin));
+
+    const input = screen.getByTestId('vault-reset-password-input');
+    fireEvent.changeText(input, 'zleHaslo');
+
+    const confirmBtn = screen.getByTestId('vault-confirm-reset-btn');
+    fireEvent.press(confirmBtn);
+
+    await waitFor(() => {
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({
+        email: 'jan@destivo.io',
+        password: 'zleHaslo',
+      });
+      // PIN nie może zostać skasowany!
+      expect(useVaultStore.getState().pin).toBe('1234');
+      expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.wrongPassword || expect.any(String));
+    });
+  });
+
+  test('dla gościa resetowanie PIN-u sejfu wyświetla ostrzeżenie i pozwala zresetować', () => {
+    useAuthStore.setState({
+      user: { id: 'guest-1', isGuest: true } as any,
+      isGuest: true,
+    });
     const alertSpy = jest.spyOn(Alert, 'alert');
 
     render(<AccountSecurityScreen navigation={mockNavigation} />);
@@ -137,7 +203,7 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
 
     expect(alertSpy).toHaveBeenCalledWith(
       t.resetVaultPinTitle,
-      t.resetVaultPinConfirm,
+      expect.stringContaining('gość'),
       expect.any(Array)
     );
 

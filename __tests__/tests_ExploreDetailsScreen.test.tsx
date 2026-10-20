@@ -454,4 +454,18 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
       );
     });
   });
+
+  test('16. [Język EN - Tłumaczenie atrakcji] renderuje przetłumaczone na angielski nazwy atrakcji gdy language === "en"', () => {
+    mockCurrentLanguage = 'en';
+    render(
+      <ExploreDetailsScreen
+        route={{ params: { destData: mockPredefinedDestination } }}
+        navigation={mockNavigation}
+      />
+    );
+
+    expect(screen.getByText('Colosseum')).toBeTruthy();
+    expect(screen.getByText('Roman Forum')).toBeTruthy();
+    expect(screen.getByText('Pantheon')).toBeTruthy();
+  });
 });

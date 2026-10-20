@@ -21,10 +21,14 @@ export default function App() {
   const { user, isGuest } = useAuthStore();
   const [currentScreen, setCurrentScreen] = useState<'welcome' | 'auth'>('welcome');
   const [authScreenMode, setAuthScreenMode] = useState<'login' | 'register'>('register');
+  const [recoveryUrl, setRecoveryUrl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const handleUrl = (url: string | null) => {
       if (url && url.includes('destivo://')) {
+        if (url.includes('recovery') || url.includes('reset-password') || url.includes('access_token')) {
+          setRecoveryUrl(url);
+        }
         setCurrentScreen('auth');
         setAuthScreenMode('login');
       }
@@ -36,6 +40,23 @@ export default function App() {
   }, []);
 
   const renderContent = () => {
+    // 0. Obsługa deep linku resetowania hasła (ma pierwszeństwo nawet dla zalogowanego użytkownika)
+    if (recoveryUrl) {
+      return (
+        <LoginRegisterScreen
+          initialMode="login"
+          initialRecoveryUrl={recoveryUrl}
+          onBack={() => {
+            setRecoveryUrl(undefined);
+            setCurrentScreen('welcome');
+          }}
+          onSuccess={() => {
+            setRecoveryUrl(undefined);
+          }}
+        />
+      );
+    }
+
     // 1. Jeśli użytkownik jest zalogowany LUB wszedł jako gość -> uruchamiamy Root Stack (Dolne menu + Kreator)
     if (user || isGuest) {
       return (
@@ -60,9 +81,13 @@ export default function App() {
       return (
         <LoginRegisterScreen
           initialMode={authScreenMode}
-          onBack={() => setCurrentScreen('welcome')}
+          initialRecoveryUrl={recoveryUrl}
+          onBack={() => {
+            setRecoveryUrl(undefined);
+            setCurrentScreen('welcome');
+          }}
           onSuccess={() => {
-            // Po udanym zalogowaniu/rejestracji stan w authStore się zmieni i otworzy RootStack
+            setRecoveryUrl(undefined);
           }}
         />
       );

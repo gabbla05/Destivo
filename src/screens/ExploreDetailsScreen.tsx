@@ -6,6 +6,7 @@ import { LiveDestination, resolveAirportIataCode } from '../lib/liveExplore';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import { useTripCreatorStore } from '../store/tripCreatorStore';
+import { translateAttraction, translateDayTheme } from '../lib/attractionTranslations';
 
 export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
@@ -230,34 +231,44 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
             </View>
 
             <Text style={styles.sectionTitle}>{t.readyPlanTitle}</Text>
-            {trip?.itinerary?.map((dayPlan) => (
-              <View key={dayPlan.day} style={styles.dayContainer}>
-                <View style={styles.dayHeader}>
-                  <Text style={styles.dayNumber}>{t.dayTitle.replace('{{day}}', String(dayPlan.day))}</Text>
+            {trip?.itinerary?.map((dayPlan) => {
+              const dayThemeRaw = dayPlan.title ? dayPlan.title.replace(/^Dzień\s+\d+:\s*/i, '') : '';
+              const localizedTheme = dayThemeRaw ? translateDayTheme(dayThemeRaw, language) : '';
+              return (
+                <View key={dayPlan.day} style={styles.dayContainer}>
+                  <View style={styles.dayHeader}>
+                    <Text style={styles.dayNumber}>{t.dayTitle.replace('{{day}}', String(dayPlan.day))}</Text>
+                    {localizedTheme ? (
+                      <Text style={styles.dayThemeText}> • {localizedTheme}</Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.tagsContainer}>
+                    {dayPlan.attractions.map((attr, idx) => {
+                      const displayAttr = translateAttraction(attr, language);
+                      return (
+                        <TouchableOpacity
+                          key={idx}
+                          style={styles.tag}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            const query = encodeURIComponent(`${attr}, ${destData.city}`);
+                            const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${query}`;
+                            Linking.openURL(mapsUrl).catch((err) => console.warn('Cannot open maps:', err));
+                          }}
+                          testID={`explore-attraction-tag-${dayPlan.day}-${idx}`}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="location-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                            <Text style={styles.tagText}>{displayAttr}</Text>
+                            <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 5 }} />
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
-                <View style={styles.tagsContainer}>
-                  {dayPlan.attractions.map((attr, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={styles.tag}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        const query = encodeURIComponent(`${attr}, ${destData.city}`);
-                        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${query}`;
-                        Linking.openURL(mapsUrl).catch((err) => console.warn('Cannot open maps:', err));
-                      }}
-                      testID={`explore-attraction-tag-${dayPlan.day}-${idx}`}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="location-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                        <Text style={styles.tagText}>{attr}</Text>
-                        <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 5 }} />
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         ) : (
           /* BRAK PREDEFINIOWANEGO SZABLONU - ZBUDUJ WŁASNY PLAN W KREATORZE */
@@ -447,8 +458,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   dayContainer: { marginBottom: 20 },
-  dayHeader: { borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 8, marginBottom: 12 },
+  dayHeader: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 8, marginBottom: 12, flexWrap: 'wrap' },
   dayNumber: { color: '#F59E0B', fontSize: 15, fontWeight: '700', textTransform: 'uppercase' },
+  dayThemeText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
   tagsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tag: { backgroundColor: '#1E293B', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
   tagText: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
