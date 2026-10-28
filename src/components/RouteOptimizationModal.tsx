@@ -16,6 +16,7 @@ import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import {
   optimizeSightseeingRoute,
+  optimizeDayRouteWithHotel,
   fetchOsrmRoadMatrix,
   recalculateItineraryTimes,
   resolvePointCoordinates,
@@ -30,6 +31,7 @@ import {
   parseTimelineDate,
   type GeoPoint,
   type OptimizationResult,
+  type AlgorithmBenchmark,
   type StreetRouteInfo,
 } from '../lib/routeOptimization';
 
@@ -79,6 +81,17 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   const t = translations[language].timeline;
   const commonT = translations[language].common;
 
+  // Aktywny profil transportu: domyślnie 'driving', z możliwością przełączenia na 'walking'
+  const [selectedTransportProfile, setSelectedTransportProfile] = useState<'driving' | 'walking'>(
+    transportProfile || 'driving'
+  );
+
+  useEffect(() => {
+    if (transportProfile) {
+      setSelectedTransportProfile(transportProfile);
+    }
+  }, [transportProfile]);
+
   // Aktywny zakres: 'ALL' (cały wyjazd) lub konkretna data (np. '10-09-2026')
   const [activeDayScope, setActiveDayScope] = useState<string>(targetDay || 'ALL');
 
@@ -119,6 +132,43 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   const [isApproximateMode, setIsApproximateMode] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
   const activeRequestIdRef = useRef<number>(0);
+  const osrmAbortRef = useRef<AbortController | null>(null);
+
+  // Wyznaczenie punktu zakwaterowania / hotelu (jeśli jest zdefiniowany)
+  const hotelPoint: GeoPoint | null = useMemo(() => {
+    const lodgingEvt = events.find((e) => e.type === 'LODGING');
+    if (lodgingEvt) {
+      const coords = resolvePointCoordinates(
+        lodgingEvt.title,
+        poolAttractions,
+        destinationCity,
+        lodgingCoords,
+        { lat: lodgingEvt.lat, lon: lodgingEvt.lon }
+      );
+      if (typeof coords.lat === 'number' && Number.isFinite(coords.lat)) {
+        return {
+          id: lodgingEvt.id,
+          title: lodgingEvt.title || (language === 'en' ? 'Hotel / Lodging' : 'Hotel / Zakwaterowanie'),
+          subtitle: lodgingEvt.subtitle,
+          lat: coords.lat,
+          lon: coords.lon,
+          type: 'LODGING',
+          originalIndex: -1,
+        };
+      }
+    }
+    if (lodgingCoords && typeof lodgingCoords.lat === 'number' && Number.isFinite(lodgingCoords.lat)) {
+      return {
+        id: 'lodging_hotel_coords',
+        title: language === 'en' ? 'Hotel / Accommodation' : 'Hotel / Zakwaterowanie',
+        lat: lodgingCoords.lat,
+        lon: lodgingCoords.lon,
+        type: 'LODGING',
+        originalIndex: -1,
+      };
+    }
+    return null;
+  }, [events, poolAttractions, destinationCity, lodgingCoords, language]);
 
   // Filtrujemy punkty do optymalizacji (w zależności od wybranego zakresu)
   const candidateEvents = useMemo(() => {
@@ -151,17 +201,30 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     });
   }, [candidateEvents, liveCoordsMap, poolAttractions, destinationCity, lodgingCoords]);
 
+  // W trybie pojedynczego dnia z hotelem, hotel dołączamy jako punkt startowy i powrotny do macierzy OSRM
+  const isSingleDayMode = Boolean(activeDayScope && activeDayScope !== 'ALL');
+  const pointsForMatrix: GeoPoint[] = useMemo(() => {
+    if (isSingleDayMode && hotelPoint) {
+      return [hotelPoint, ...geoPoints];
+    }
+    return geoPoints;
+  }, [isSingleDayMode, hotelPoint, geoPoints]);
+
   // Stabilny identyfikator punktów zapobiegający niepotrzebnym zapytaniom sieciowym
-  const geoPointsKey = useMemo(() => {
-    return geoPoints.map((p) => `${p.id}_${p.lat}_${p.lon}`).join('|');
-  }, [geoPoints]);
+  const pointsForMatrixKey = useMemo(() => {
+    return pointsForMatrix.map((p) => `${p.id}_${p.lat}_${p.lon}`).join('|');
+  }, [pointsForMatrix]);
 
   // Pobieranie macierzy drogowej OSRM Table API (czas przejazdu w sekundach)
   useEffect(() => {
-    if (!visible || geoPoints.length < 2) {
+    if (!visible || pointsForMatrix.length < 2) {
       setOsrmStatus('idle');
       setRoadMatrix(null);
       setOsrmError(null);
+      if (osrmAbortRef.current) {
+        osrmAbortRef.current.abort();
+        osrmAbortRef.current = null;
+      }
       return;
     }
 
@@ -169,21 +232,31 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       return;
     }
 
+    if (osrmAbortRef.current) {
+      osrmAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    osrmAbortRef.current = abortController;
+
     const currentReqId = ++activeRequestIdRef.current;
     // Zapewniamy natychmiastowe wyczyszczenie starej macierzy, aby nie mogła być użyta dla nowej listy punktów
     setRoadMatrix(null);
     setOsrmStatus('loading');
     setOsrmError(null);
 
-    fetchOsrmRoadMatrix(geoPoints, { criterion: 'duration', profile: transportProfile })
+    fetchOsrmRoadMatrix(pointsForMatrix, {
+      criterion: 'duration',
+      profile: selectedTransportProfile,
+      signal: abortController.signal,
+    })
       .then((res) => {
-        if (currentReqId === activeRequestIdRef.current) {
+        if (currentReqId === activeRequestIdRef.current && !abortController.signal.aborted) {
           setRoadMatrix(res.matrix);
           setOsrmStatus('success');
         }
       })
       .catch((err: any) => {
-        if (currentReqId === activeRequestIdRef.current) {
+        if (currentReqId === activeRequestIdRef.current && !abortController.signal.aborted) {
           if (
             process.env.NODE_ENV === 'test' &&
             !err?.message?.includes('OSRM_TEST_ERROR') &&
@@ -204,9 +277,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       });
 
     return () => {
+      abortController.abort();
       activeRequestIdRef.current++;
     };
-  }, [visible, geoPointsKey, transportProfile, isApproximateMode, retryTrigger, language]);
+  }, [visible, pointsForMatrixKey, selectedTransportProfile, isApproximateMode, retryTrigger, language]);
 
   // Źródło trasy: 'osrm' (pełna siatka drogowa) lub 'approximate' (w linii prostej)
   const activeSource: 'osrm' | 'approximate' = useMemo(() => {
@@ -214,16 +288,99 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       !isApproximateMode &&
       osrmStatus === 'success' &&
       roadMatrix &&
-      roadMatrix.length === geoPoints.length
+      roadMatrix.length === pointsForMatrix.length
     ) {
       return 'osrm';
     }
     return 'approximate';
-  }, [isApproximateMode, osrmStatus, roadMatrix, geoPoints.length]);
+  }, [isApproximateMode, osrmStatus, roadMatrix, pointsForMatrix.length]);
 
   // Uruchamiamy silnik algorytmów TSP z macierzą drogową OSRM (lub Haversine przy jawnym trybie przybliżonym)
   const optimizationResult: OptimizationResult | null = useMemo(() => {
     if (geoPoints.length < 2) return null;
+
+    // Przypadek 1: Dzień z hotelem jako startem i punktem powrotnym
+    if (isSingleDayMode && hotelPoint) {
+      if (
+        activeSource === 'osrm' &&
+        roadMatrix &&
+        roadMatrix.length === geoPoints.length + 1
+      ) {
+        try {
+          const dayRes = optimizeDayRouteWithHotel(hotelPoint, geoPoints, {
+            matrix: roadMatrix,
+            matrixSource: 'osrm-table',
+            matrixCostUnit: 's',
+            criterion: 'duration',
+            isApproximate: false,
+          });
+          const benchmark: AlgorithmBenchmark = {
+            algorithmId: '2opt',
+            name: 'Optymalizacja ATSP z hotelem',
+            distanceKm: 0,
+            timeMs: 1,
+            iterations: 1,
+            routeIndices: dayRes.orderedAttractions.map((_, i) => i),
+            cost: dayRes.totalCost,
+            costUnit: 'seconds',
+          };
+          return {
+            orderedPoints: dayRes.orderedAttractions,
+            originalDistanceKm: 0,
+            optimizedDistanceKm: 0,
+            savingsKm: 0,
+            savingsPercent: 0,
+            timeSavedMinutes: 0,
+            bestAlgorithm: benchmark,
+            benchmarks: [benchmark],
+            hasCollapsedCoordinates: false,
+            isApproximate: false,
+            criterion: 'duration',
+            originalCost: dayRes.totalCost,
+            optimizedCost: dayRes.totalCost,
+            costUnit: 's',
+            routeStatus: 'road_confirmed',
+            timeEstimateCategory: 'osrm_road_duration',
+          };
+        } catch {
+          // fallback
+        }
+      }
+
+      const approxRes = optimizeDayRouteWithHotel(hotelPoint, geoPoints, {
+        isApproximate: true,
+      });
+      const benchmark: AlgorithmBenchmark = {
+        algorithmId: '2opt',
+        name: 'Szacunek przybliżony z hotelem',
+        distanceKm: approxRes.totalCost,
+        timeMs: 1,
+        iterations: 1,
+        routeIndices: approxRes.orderedAttractions.map((_, i) => i),
+        cost: approxRes.totalCost,
+        costUnit: 'km',
+      };
+      return {
+        orderedPoints: approxRes.orderedAttractions,
+        originalDistanceKm: approxRes.totalCost,
+        optimizedDistanceKm: approxRes.totalCost,
+        savingsKm: 0,
+        savingsPercent: 0,
+        timeSavedMinutes: 0,
+        bestAlgorithm: benchmark,
+        benchmarks: [benchmark],
+        hasCollapsedCoordinates: false,
+        isApproximate: true,
+        criterion: 'distance',
+        originalCost: approxRes.totalCost,
+        optimizedCost: approxRes.totalCost,
+        costUnit: 'km',
+        routeStatus: 'straight_line_estimate',
+        timeEstimateCategory: 'none_in_approximate_mode',
+      };
+    }
+
+    // Przypadek 2: Bez hotelu lub cały wyjazd
     if (
       activeSource === 'osrm' &&
       roadMatrix &&
@@ -235,9 +392,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         isApproximate: false,
       });
     }
+
     // Wstępny fallback (np. podczas ładowania) lub jawny tryb przybliżony
     return optimizeSightseeingRoute(geoPoints, false, undefined, 'distance', true);
-  }, [geoPoints, activeSource, roadMatrix]);
+  }, [geoPoints, isSingleDayMode, hotelPoint, activeSource, roadMatrix]);
 
   // Mapowanie przypisania punktów do poszczególnych dni w podglądzie całego wyjazdu
   const dayAssignmentMap = useMemo(() => {
@@ -302,18 +460,39 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   }, [optimizationResult, uniqueDays, activeDayScope, events]);
 
   // Asynchroniczne dociąganie precyzyjnych danych z Google Places i siatki ulic OSRM
-  useEffect(() => {
-    if (!visible || candidateEvents.length < 2) return;
-    if (process.env.NODE_ENV === 'test') return;
-    if (isApproximateMode) return;
+  // Zabezpieczone przed nieskończonym wiszeniem stanu isLiveLoading przez AbortController i gwarantowane finally
+  const loadLiveAbortRef = useRef<AbortController | null>(null);
+  const loadLiveReqIdRef = useRef<number>(0);
 
-    let isMounted = true;
+  useEffect(() => {
+    if (!visible || candidateEvents.length < 2 || isApproximateMode) {
+      setIsLiveLoading(false);
+      if (loadLiveAbortRef.current) {
+        loadLiveAbortRef.current.abort();
+        loadLiveAbortRef.current = null;
+      }
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'test') {
+      setIsLiveLoading(false);
+      return;
+    }
+
+    if (loadLiveAbortRef.current) {
+      loadLiveAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    loadLiveAbortRef.current = abortController;
+    const reqId = ++loadLiveReqIdRef.current;
+
     setIsLiveLoading(true);
 
     const loadLiveGoogleData = async () => {
       try {
         const fetchedCoords: Record<string, { lat: number; lon: number }> = {};
         for (const evt of candidateEvents) {
+          if (abortController.signal.aborted) break;
           const hasCoords =
             typeof evt.lat === 'number' &&
             Number.isFinite(evt.lat) &&
@@ -332,22 +511,40 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             }
           }
         }
-        if (Object.keys(fetchedCoords).length > 0 && isMounted) {
+
+        if (Object.keys(fetchedCoords).length > 0 && !abortController.signal.aborted && reqId === loadLiveReqIdRef.current) {
           setLiveCoordsMap((prev) => ({ ...prev, ...fetchedCoords }));
         }
 
-        if (optimizationResult && optimizationResult.orderedPoints.length >= 2) {
-          const newDistances: Record<string, number> = {};
-          const newInfos: Record<string, StreetRouteInfo> = {};
-          for (let i = 0; i < optimizationResult.orderedPoints.length - 1; i++) {
-            const p1 = optimizationResult.orderedPoints[i];
-            const p2 = optimizationResult.orderedPoints[i + 1];
+        if (
+          optimizationResult &&
+          optimizationResult.orderedPoints.length >= 2 &&
+          !abortController.signal.aborted &&
+          reqId === loadLiveReqIdRef.current
+        ) {
+          const points = optimizationResult.orderedPoints;
+          const legPromises = [];
+          for (let i = 0; i < points.length - 1; i++) {
+            const p1 = points[i];
+            const p2 = points[i + 1];
             const key = `${p1.id}_${p2.id}`;
-            const info = await fetchRealRouteInfo(p1, p2);
-            newDistances[key] = info.walkDistanceKm;
-            newInfos[key] = info;
+            legPromises.push(
+              fetchRealRouteInfo(p1, p2, { signal: abortController.signal })
+                .then((info) => ({ key, info }))
+                .catch(() => null)
+            );
           }
-          if (isMounted) {
+
+          const results = await Promise.all(legPromises);
+          if (!abortController.signal.aborted && reqId === loadLiveReqIdRef.current) {
+            const newDistances: Record<string, number> = {};
+            const newInfos: Record<string, StreetRouteInfo> = {};
+            for (const item of results) {
+              if (item) {
+                newDistances[item.key] = item.info.walkDistanceKm;
+                newInfos[item.key] = item.info;
+              }
+            }
             setStreetDistances((prev) => ({ ...prev, ...newDistances }));
             setLiveRouteInfos((prev) => ({ ...prev, ...newInfos }));
           }
@@ -355,7 +552,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       } catch (err) {
         console.warn('Błąd podczas pobierania tras Google Maps:', err);
       } finally {
-        if (isMounted) {
+        if (reqId === loadLiveReqIdRef.current) {
           setIsLiveLoading(false);
         }
       }
@@ -364,7 +561,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     loadLiveGoogleData();
 
     return () => {
-      isMounted = false;
+      abortController.abort();
+      if (reqId === loadLiveReqIdRef.current) {
+        setIsLiveLoading(false);
+      }
     };
   }, [visible, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
 
@@ -439,6 +639,53 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={22} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+
+          {/* PRZEŁĄCZNIK PROFILU TRANSPORTU: SAMOCHÓD / PIESZO */}
+          <View style={styles.profileSelectorRow} testID="profile-selector-container">
+            <TouchableOpacity
+              style={[styles.profileOptionBtn, selectedTransportProfile === 'driving' && styles.profileOptionBtnActive]}
+              onPress={() => {
+                if (selectedTransportProfile !== 'driving') {
+                  setSelectedTransportProfile('driving');
+                  setIsApproximateMode(false);
+                }
+              }}
+              activeOpacity={0.8}
+              testID="profile-btn-driving"
+            >
+              <Ionicons
+                name="car-outline"
+                size={13}
+                color={selectedTransportProfile === 'driving' ? '#0F172A' : '#94A3B8'}
+                style={{ marginRight: 5 }}
+              />
+              <Text style={[styles.profileOptionText, selectedTransportProfile === 'driving' && styles.profileOptionTextActive]}>
+                {language === 'en' ? 'Driving' : 'Samochód'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.profileOptionBtn, selectedTransportProfile === 'walking' && styles.profileOptionBtnActive]}
+              onPress={() => {
+                if (selectedTransportProfile !== 'walking') {
+                  setSelectedTransportProfile('walking');
+                  setIsApproximateMode(false);
+                }
+              }}
+              activeOpacity={0.8}
+              testID="profile-btn-walking"
+            >
+              <Ionicons
+                name="walk-outline"
+                size={13}
+                color={selectedTransportProfile === 'walking' ? '#0F172A' : '#94A3B8'}
+                style={{ marginRight: 5 }}
+              />
+              <Text style={[styles.profileOptionText, selectedTransportProfile === 'walking' && styles.profileOptionTextActive]}>
+                {language === 'en' ? 'Walking' : 'Pieszo'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -586,13 +833,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               {activeSource === 'osrm' ? (
                 <View style={styles.roadNetworkBadge} testID="road-network-badge">
                   <Ionicons
-                    name={transportProfile === 'walking' ? 'walk-outline' : 'car-outline'}
+                    name={selectedTransportProfile === 'walking' ? 'walk-outline' : 'car-outline'}
                     size={14}
                     color="#10B981"
                     style={{ marginRight: 6 }}
                   />
                   <Text style={styles.roadNetworkBadgeText}>
-                    {transportProfile === 'walking'
+                    {selectedTransportProfile === 'walking'
                       ? language === 'en'
                         ? 'OSRM Pedestrian Network • Walking time optimized'
                         : 'Sieć piesza OSRM • Zoptymalizowano czas przejścia'
@@ -668,6 +915,26 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               {optimizationResult && (
                 <View style={styles.routePreviewSection}>
                   <Text style={styles.routePreviewTitle}>{t.previewRoute}</Text>
+                  {isSingleDayMode && hotelPoint && (
+                    <View style={styles.previewStepRow}>
+                      <View style={styles.previewStepLeft}>
+                        <View style={[styles.previewStepNumberBadge, { backgroundColor: '#38BDF8' }]}>
+                          <Ionicons name="business" size={13} color="#0F172A" />
+                        </View>
+                        <View style={styles.previewStepLine} />
+                      </View>
+                      <View style={styles.previewStepRight}>
+                        <View style={[styles.previewPointCard, { borderColor: '#38BDF8' }]}>
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={styles.previewPointTitle}>{hotelPoint.title}</Text>
+                            <Text style={styles.previewPointSubtitle} numberOfLines={1}>
+                              {hotelPoint.subtitle || (language === 'en' ? 'Start: Lodging' : 'Start dnia: Nocleg')}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  )}
                   {optimizationResult.orderedPoints.map((pt, idx) => {
                     const nextPt = optimizationResult.orderedPoints[idx + 1];
                     const legKey = nextPt ? `${pt.id}_${nextPt.id}` : '';
@@ -738,11 +1005,22 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                                     : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
                                 </Text>
                               </View>
-                              <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2, marginBottom: 6, fontStyle: 'italic' }}>
-                                {language === 'en'
-                                  ? 'Estimated tourist transit time (separate from driving optimization)'
-                                  : 'Orientacyjny szacunek przemieszczania się (niezależny od czasu przejazdu OSRM)'}
-                              </Text>
+                              {transit.recommendedMode === 'transit' ? (
+                                <View style={styles.transitNoticeBox}>
+                                  <Ionicons name="information-circle-outline" size={13} color="#38BDF8" style={{ marginRight: 6, marginTop: 1 }} />
+                                  <Text style={styles.transitNoticeText}>
+                                    {language === 'en'
+                                      ? `Distance is ~${transit.walkDistanceKm} km (walking would take ~${transit.walkMinutes} min). Public transit or taxi advised. Timetables are not fetched from OSRM — check real-time departures in Google Maps.`
+                                      : `Dystans to ~${transit.walkDistanceKm} km (spacer zająłby ~${transit.walkMinutes} min). Zalecana komunikacja miejska lub taxi. Aplikacja nie pobiera rozkładów z OSRM — połączenia weryfikuj w Mapach Google.`}
+                                  </Text>
+                                </View>
+                              ) : (
+                                <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2, marginBottom: 6, fontStyle: 'italic' }}>
+                                  {language === 'en'
+                                    ? 'Short walking segment between nearby sights.'
+                                    : 'Krótki spacer turystyczny między pobliskimi punktami.'}
+                                </Text>
+                              )}
 
                               {/* PRZYCISK GŁÓWNY GOOGLE MAPS Z AKTUALNEJ POZYCJI DO NASTĘPNEGO PUNKTU */}
                               <TouchableOpacity
@@ -768,6 +1046,25 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     </React.Fragment>
                   );
                 })}
+                {isSingleDayMode && hotelPoint && (
+                  <View style={styles.previewStepRow}>
+                    <View style={styles.previewStepLeft}>
+                      <View style={[styles.previewStepNumberBadge, { backgroundColor: '#38BDF8' }]}>
+                        <Ionicons name="business" size={13} color="#0F172A" />
+                      </View>
+                    </View>
+                    <View style={styles.previewStepRight}>
+                      <View style={[styles.previewPointCard, { borderColor: '#38BDF8' }]}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={styles.previewPointTitle}>{hotelPoint.title}</Text>
+                          <Text style={styles.previewPointSubtitle} numberOfLines={1}>
+                            {hotelPoint.subtitle || (language === 'en' ? 'Return: Lodging' : 'Powrót: Nocleg')}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
               )}
 
@@ -1295,6 +1592,54 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
     fontSize: 11,
     lineHeight: 15,
+  },
+  profileSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
+    gap: 8,
+  },
+  profileOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  profileOptionBtnActive: {
+    backgroundColor: '#38BDF8',
+    borderColor: '#38BDF8',
+  },
+  profileOptionText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  profileOptionTextActive: {
+    color: '#0F172A',
+  },
+  transitNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 4,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+  },
+  transitNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#94A3B8',
+    lineHeight: 16,
   },
 });
 

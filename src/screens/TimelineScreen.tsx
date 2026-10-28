@@ -2350,6 +2350,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         targetDay={selectedDay}
         tripStartDate={tripData?.start_date}
         tripEndDate={tripData?.end_date}
+        transportProfile={tripData?.transport_type === 'car' ? 'driving' : 'walking'}
       />
 
       {/* MODAL DYNAMICZNEGO ASYSTENTA PAKOWANIA */}

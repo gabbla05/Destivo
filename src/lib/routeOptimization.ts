@@ -371,6 +371,8 @@ export interface FetchOsrmMatrixOptions {
   profile?: OptimizationProfile;
   timeoutMs?: number;
   baseUrl?: string;
+  signal?: AbortSignal;
+  maxRetries?: number;
 }
 
 export interface OsrmCacheEntry {
@@ -532,10 +534,18 @@ export class OsrmMatrixCache {
 
 export const OSRM_MATRIX_CACHE = new OsrmMatrixCache(100, 15 * 60 * 1000);
 
+// Deduplikacja równoległych zapytań OSRM Table API w toku (in-flight cache)
+export const IN_FLIGHT_OSRM_REQUESTS = new Map<string, Promise<OsrmMatrixResult>>();
+
+export const clearInFlightOsrmRequests = (): void => {
+  IN_FLIGHT_OSRM_REQUESTS.clear();
+};
+
 /**
  * Pobiera macierz czasów przejazdu lub odległości z OSRM Table API.
  * Gwarantuje porządek współrzędnych longitude,latitude oraz ścisłą walidację wymiarów.
  * Wartości null (brak przejezdnego połączenia) są jawnie wykrywane i rzucają wyjątek.
+ * Posiada wbudowaną deduplikację równoległych żądań, obsługę anulowania (AbortSignal) i retry.
  */
 export const fetchOsrmRoadMatrix = async (
   points: GeoPoint[],
@@ -584,120 +594,185 @@ export const fetchOsrmRoadMatrix = async (
     return OSRM_MATRIX_CACHE.get(cacheKey)!;
   }
 
-  // 3. Budowa zapytania OSRM Table Service (kolejność lon,lat)
-  const coordsParam = points.map((p) => `${p.lon},${p.lat}`).join(';');
-  const url = `${baseUrl}/table/v1/${profile}/${coordsParam}?annotations=duration,distance`;
+  // 2b. Deduplikacja równoległych żądań: jeśli identyczne zapytanie jest w trakcie, współdzielimy Promise
+  if (IN_FLIGHT_OSRM_REQUESTS.has(cacheKey)) {
+    return IN_FLIGHT_OSRM_REQUESTS.get(cacheKey)!;
+  }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const runFetch = async (): Promise<OsrmMatrixResult> => {
+    const coordsParam = points.map((p) => `${p.lon},${p.lat}`).join(';');
+    const url = `${baseUrl}/table/v1/${profile}/${coordsParam}?annotations=duration,distance`;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'DestivoApp/1.0',
-      },
-    });
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      throw new Error(`Przekroczono limit czasu (${timeoutMs} ms) podczas odpytywania serwera OSRM Table API.`);
+    const externalSignal = options.signal;
+    if (externalSignal?.aborted) {
+      throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');
     }
-    throw new Error(`Błąd połączenia z serwerem OSRM: ${err?.message || 'Brak połączenia sieciowego'}`);
-  } finally {
-    clearTimeout(timeoutId);
-  }
 
-  if (!response.ok) {
-    throw new Error(`Serwer OSRM zwrócił błąd HTTP ${response.status} (${response.statusText}).`);
-  }
+    const maxRetries = options.maxRetries ?? (process.env.NODE_ENV === 'test' ? 0 : 1);
+    let attempt = 0;
+    let lastError: any = null;
 
-  let data: OsrmTableResponse;
-  try {
-    data = await response.json();
-  } catch (parseErr: any) {
-    throw new Error(`Błąd parsowania odpowiedzi serwera OSRM: ${parseErr?.message || 'Niepoprawny JSON'}`);
-  }
+    while (attempt <= maxRetries) {
+      attempt++;
+      if (externalSignal?.aborted) {
+        throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');
+      }
 
-  if (!data || typeof data !== 'object') {
-    throw new Error('Odpowiedź serwera OSRM ma nieprawidłowy format.');
-  }
+      const controller = new AbortController();
+      const onExternalAbort = () => controller.abort();
+      if (externalSignal) {
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      }
 
-  if (data.code !== 'Ok') {
-    throw new Error(`Serwer OSRM zwrócił kod błędu "${data.code}": ${data.message || 'Brak szczegółów'}`);
-  }
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
 
-  const rawDurations = data.durations;
-  const rawDistances = data.distances;
-  const rawSelected = criterion === 'distance' ? rawDistances : rawDurations;
-
-  if (!rawSelected || !Array.isArray(rawSelected) || rawSelected.length !== n) {
-    throw new Error(
-      `Odpowiedź OSRM nie zawiera prawidłowej macierzy ${criterion}. Oczekiwano ${n} wierszy, otrzymano ${rawSelected ? rawSelected.length : 0}.`
-    );
-  }
-
-  // 4. Weryfikacja wymiarów i wartości null (brak przejazdu)
-  const unreachablePairs: Array<{ from: string; to: string }> = [];
-  const validatedMatrix: number[][] = [];
-
-  for (let i = 0; i < n; i++) {
-    const row = rawSelected[i];
-    if (!row || !Array.isArray(row) || row.length !== n) {
-      throw new Error(
-        `Wiersz ${i} macierzy OSRM ma nieprawidłowy wymiar (${row ? row.length : 0} zamiast ${n}).`
-      );
-    }
-    const validatedRow: number[] = [];
-    for (let j = 0; j < n; j++) {
-      const val = row[j];
-      if (i === j) {
-        validatedRow.push(0);
-      } else if (val === null || val === undefined || typeof val !== 'number' || !isFinite(val)) {
-        unreachablePairs.push({
-          from: points[i]?.title || `Punkt ${i}`,
-          to: points[j]?.title || `Punkt ${j}`,
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'DestivoApp/1.0',
+          },
         });
-        validatedRow.push(Infinity);
-      } else if (val < 0) {
-        throw new Error(
-          `Niepoprawny ujemny koszt trasy (${val}) między punktami "${points[i].title}" a "${points[j].title}".`
-        );
-      } else {
-        validatedRow.push(val);
+
+        clearTimeout(timeoutId);
+        if (externalSignal) {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
+
+        if (!response.ok) {
+          if (profile === 'walking' && (response.status === 400 || response.status === 404)) {
+            throw new Error(`Serwer OSRM (${baseUrl}) nie obsługuje profilu pieszego "walking".`);
+          }
+          throw new Error(`Serwer OSRM zwrócił błąd HTTP ${response.status} (${response.statusText}).`);
+        }
+
+        let data: OsrmTableResponse;
+        try {
+          data = await response.json();
+        } catch (parseErr: any) {
+          throw new Error(`Błąd parsowania odpowiedzi serwera OSRM: ${parseErr?.message || 'Niepoprawny JSON'}`);
+        }
+
+        if (!data || typeof data !== 'object') {
+          throw new Error('Odpowiedź serwera OSRM ma nieprawidłowy format.');
+        }
+
+        if (data.code !== 'Ok') {
+          throw new Error(`Serwer OSRM zwrócił kod błędu "${data.code}": ${data.message || 'Brak szczegółów'}`);
+        }
+
+        const rawDurations = data.durations;
+        const rawDistances = data.distances;
+        const rawSelected = criterion === 'distance' ? rawDistances : rawDurations;
+
+        if (!rawSelected || !Array.isArray(rawSelected) || rawSelected.length !== n) {
+          throw new Error(
+            `Odpowiedź OSRM nie zawiera prawidłowej macierzy ${criterion}. Oczekiwano ${n} wierszy, otrzymano ${rawSelected ? rawSelected.length : 0}.`
+          );
+        }
+
+        // 4. Weryfikacja wymiarów i wartości null (brak przejazdu)
+        const unreachablePairs: Array<{ from: string; to: string }> = [];
+        const validatedMatrix: number[][] = [];
+
+        for (let i = 0; i < n; i++) {
+          const row = rawSelected[i];
+          if (!row || !Array.isArray(row) || row.length !== n) {
+            throw new Error(
+              `Wiersz ${i} macierzy OSRM ma nieprawidłowy wymiar (${row ? row.length : 0} zamiast ${n}).`
+            );
+          }
+          const validatedRow: number[] = [];
+          for (let j = 0; j < n; j++) {
+            const val = row[j];
+            if (i === j) {
+              validatedRow.push(0);
+            } else if (val === null || val === undefined || typeof val !== 'number' || !isFinite(val)) {
+              unreachablePairs.push({
+                from: points[i]?.title || `Punkt ${i}`,
+                to: points[j]?.title || `Punkt ${j}`,
+              });
+              validatedRow.push(Infinity);
+            } else if (val < 0) {
+              throw new Error(
+                `Niepoprawny ujemny koszt trasy (${val}) między punktami "${points[i].title}" a "${points[j].title}".`
+              );
+            } else {
+              validatedRow.push(val);
+            }
+          }
+          validatedMatrix.push(validatedRow);
+        }
+
+        if (unreachablePairs.length > 0) {
+          const pairsDesc = unreachablePairs.map((p) => `"${p.from}" -> "${p.to}"`).join(', ');
+          throw new Error(
+            `OSRM_UNREACHABLE_POINTS: Brak połączenia drogowego między wybranymi punktami: ${pairsDesc} (odcinki nieprzejezdne).`
+          );
+        }
+
+        const matrixValidation = validateCostMatrix(validatedMatrix, n);
+        if (!matrixValidation.valid) {
+          throw new Error(`Niepoprawna macierz OSRM: ${matrixValidation.error}`);
+        }
+
+        const result: OsrmMatrixResult = {
+          matrix: validatedMatrix,
+          durations: rawDurations,
+          distances: rawDistances,
+          criterion,
+          profile,
+          isApproximate: false,
+        };
+
+        OSRM_MATRIX_CACHE.set(cacheKey, result);
+        return result;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (externalSignal) {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
+
+        if (externalSignal?.aborted || (err?.name === 'AbortError' && externalSignal?.aborted)) {
+          throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');
+        }
+
+        let formattedError = err;
+        if (err?.name === 'AbortError') {
+          formattedError = new Error(`Przekroczono limit czasu (${timeoutMs} ms) podczas odpytywania serwera OSRM Table API.`);
+        } else if (!err?.message?.includes('OSRM') && !err?.message?.includes('HTTP')) {
+          formattedError = new Error(`Błąd połączenia z serwerem OSRM: ${err?.message || 'Brak połączenia sieciowego'}`);
+        }
+
+        lastError = formattedError;
+
+        // Ponawiamy wyłącznie w przypadku błędu przejściowego (HTTP 5xx, timeout, brak połączenia)
+        const isTransient =
+          formattedError?.message?.includes('limit czasu') ||
+          formattedError?.message?.includes('Błąd połączenia') ||
+          formattedError?.message?.includes('HTTP 5');
+
+        if (isTransient && attempt <= maxRetries && !externalSignal?.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+
+        throw formattedError;
       }
     }
-    validatedMatrix.push(validatedRow);
-  }
 
-  // Jawna obsługa nieosiągalnych połączeń bez używania Infinity w algorytmach
-  if (unreachablePairs.length > 0) {
-    const pairsDesc = unreachablePairs.map((p) => `"${p.from}" -> "${p.to}"`).join(', ');
-    throw new Error(
-      `OSRM_UNREACHABLE_POINTS: Brak połączenia drogowego między wybranymi punktami: ${pairsDesc} (odcinki nieprzejezdne).`
-    );
-  }
-
-  // Ścisła walidacja przed zapisaniem do cache – nie zapisujemy macierzy niekompletnych lub wadliwych
-  const matrixValidation = validateCostMatrix(validatedMatrix, n);
-  if (!matrixValidation.valid) {
-    throw new Error(`Niepoprawna macierz OSRM: ${matrixValidation.error}`);
-  }
-
-  const result: OsrmMatrixResult = {
-    matrix: validatedMatrix,
-    durations: rawDurations,
-    distances: rawDistances,
-    criterion,
-    profile,
-    isApproximate: false,
+    throw lastError || new Error('Nieznany błąd serwera OSRM');
   };
 
-  OSRM_MATRIX_CACHE.set(cacheKey, result);
-  return result;
+  const reqPromise = runFetch().finally(() => {
+    IN_FLIGHT_OSRM_REQUESTS.delete(cacheKey);
+  });
+
+  IN_FLIGHT_OSRM_REQUESTS.set(cacheKey, reqPromise);
+  return reqPromise;
 };
 
 /**
@@ -2790,13 +2865,11 @@ export interface TransitLegEstimate {
   driveDistanceKm: number;
   straightDistanceKm: number;
   recommendedMode: 'walking' | 'transit' | 'driving';
+  transitNotice?: string;
+  isLongWalk?: boolean;
+  isTransitEstimated?: boolean;
 }
 
-/**
- * Precyzyjnie wyznacza czasy dotarcia między dwoma dokładnymi miejscami atrakcji
- * odzwierciedlając czasy rzeczywiste z Google Maps (uwzględnia siatkę ulic,
- * światła drogowe, przystanki, oczekiwanie na transport i ruch miejski).
- */
 /**
  * Precyzyjnie wyznacza czasy dotarcia między dwoma dokładnymi miejscami atrakcji
  * odzwierciedlając czasy rzeczywiste z Google Maps (uwzględnia siatkę ulic,
@@ -2819,6 +2892,8 @@ export const calculateTransitEstimates = (
       driveDistanceKm: 0.1,
       straightDistanceKm: 0,
       recommendedMode: 'walking',
+      isLongWalk: false,
+      isTransitEstimated: true,
     };
   }
 
@@ -2874,10 +2949,17 @@ export const calculateTransitEstimates = (
   }
 
   // Rekomendowany tryb dla turysty:
-  // Turysta nie ma auta: jeśli da się przejść na piechotę (<= 1.2 km / <= 17 min), sugerujemy spacer.
-  // Jeśli dystans jest większy (> 1.2 km), sugerujemy komunikację miejską.
+  // - Krótki dystans (<= 1.5 km i czas marszu <= 22 min): spacer jest racjonalny i rekomendowany.
+  // - Długi dystans (> 1.5 km lub czas marszu > 22 min, np. marsz 1.5 godziny przez miasto):
+  //   Aplikacja NIE REKOMENDUJE spaceru! Rekomenduje komunikację miejską / taxi,
+  //   z wyraźną informacją o konieczności sprawdzenia rozkładu na żywo w Mapach Google.
+  const isLongWalk = walkDistanceKm > 1.5 || walkMinutes > 22;
   const recommendedMode: 'walking' | 'transit' | 'driving' =
-    walkDistanceKm <= 1.2 ? 'walking' : 'transit';
+    isLongWalk ? 'transit' : 'walking';
+
+  const transitNotice = isLongWalk
+    ? 'Dłuższy odcinek — zalecana komunikacja miejska lub taxi. Sprawdź rozkład na żywo w Mapach Google.'
+    : undefined;
 
   return {
     walkMinutes,
@@ -2887,6 +2969,9 @@ export const calculateTransitEstimates = (
     driveDistanceKm,
     straightDistanceKm: Number(straightDist.toFixed(2)),
     recommendedMode,
+    transitNotice,
+    isLongWalk,
+    isTransitEstimated: true,
   };
 };
 
@@ -2894,13 +2979,26 @@ export interface StreetRouteInfo extends TransitLegEstimate {}
 
 export const ROUTE_INFO_CACHE = new Map<string, StreetRouteInfo>();
 
+export interface FetchRealRouteInfoOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export const IN_FLIGHT_ROUTE_INFO_REQUESTS = new Map<string, Promise<StreetRouteInfo>>();
+
+export const clearInFlightRouteInfoRequests = (): void => {
+  IN_FLIGHT_ROUTE_INFO_REQUESTS.clear();
+};
+
 /**
  * Pobiera rzeczywiste dane drogowe i piesze z serwerów OSRM z automatycznym
  * dopasowaniem do czasów z Google Maps (uwzględnia światła, ruch miejski i przystanki).
+ * Posiada wbudowany timeout, deduplikację żądań równoległych i obsługę AbortSignal.
  */
 export const fetchRealRouteInfo = async (
   p1: { lat: number; lon: number },
-  p2: { lat: number; lon: number }
+  p2: { lat: number; lon: number },
+  options?: FetchRealRouteInfoOptions
 ): Promise<StreetRouteInfo> => {
   const cacheKey = `${p1.lat.toFixed(4)},${p1.lon.toFixed(4)}_${p2.lat.toFixed(4)},${p2.lon.toFixed(4)}`;
   if (ROUTE_INFO_CACHE.has(cacheKey)) {
@@ -2914,52 +3012,88 @@ export const fetchRealRouteInfo = async (
     return baseEstimate;
   }
 
-  try {
-    let customWalkDistKm: number | undefined;
-    let customWalkDurationMins: number | undefined;
-    let customDriveDistKm: number | undefined;
-    let customDriveDurationMins: number | undefined;
-
-    // 1. Zapytanie piesze (OSRM foot)
-    try {
-      const footUrl = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p1.lon},${p1.lat};${p2.lon},${p2.lat}?overview=false`;
-      const footRes = await fetch(footUrl, { headers: { 'User-Agent': 'DestivoApp/1.0' } });
-      const footData = await footRes.json();
-      if (footData.routes && footData.routes.length > 0 && typeof footData.routes[0].distance === 'number') {
-        customWalkDistKm = Number((footData.routes[0].distance / 1000).toFixed(1));
-        customWalkDurationMins = footData.routes[0].duration / 60;
-      }
-    } catch {
-      // fallback
-    }
-
-    // 2. Zapytanie samochodowe (OSRM driving)
-    try {
-      const driveUrl = `https://router.project-osrm.org/route/v1/driving/${p1.lon},${p1.lat};${p2.lon},${p2.lat}?overview=false`;
-      const driveRes = await fetch(driveUrl, { headers: { 'User-Agent': 'DestivoApp/1.0' } });
-      const driveData = await driveRes.json();
-      if (driveData.routes && driveData.routes.length > 0 && typeof driveData.routes[0].distance === 'number') {
-        customDriveDistKm = Number((driveData.routes[0].distance / 1000).toFixed(1));
-        customDriveDurationMins = driveData.routes[0].duration / 60;
-      }
-    } catch {
-      // ignore
-    }
-
-    const liveResult = calculateTransitEstimates(
-      p1,
-      p2,
-      customWalkDistKm,
-      customWalkDurationMins,
-      customDriveDurationMins
-    );
-
-    ROUTE_INFO_CACHE.set(cacheKey, liveResult);
-    return liveResult;
-  } catch (err) {
-    ROUTE_INFO_CACHE.set(cacheKey, baseEstimate);
-    return baseEstimate;
+  if (IN_FLIGHT_ROUTE_INFO_REQUESTS.has(cacheKey)) {
+    return IN_FLIGHT_ROUTE_INFO_REQUESTS.get(cacheKey)!;
   }
+
+  const fetchPromise = (async () => {
+    const timeoutMs = options?.timeoutMs ?? 3500;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onAbort = () => controller.abort();
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        controller.abort();
+      } else {
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
+    try {
+      let customWalkDistKm: number | undefined;
+      let customWalkDurationMins: number | undefined;
+      let customDriveDistKm: number | undefined;
+      let customDriveDurationMins: number | undefined;
+
+      const footUrl = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p1.lon},${p1.lat};${p2.lon},${p2.lat}?overview=false`;
+      const driveUrl = `https://router.project-osrm.org/route/v1/driving/${p1.lon},${p1.lat};${p2.lon},${p2.lat}?overview=false`;
+
+      const [footRes, driveRes] = await Promise.allSettled([
+        fetch(footUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'DestivoApp/1.0' },
+        }).then((r) => (r.ok ? r.json() : null)),
+        fetch(driveUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'DestivoApp/1.0' },
+        }).then((r) => (r.ok ? r.json() : null)),
+      ]);
+
+      if (footRes.status === 'fulfilled' && footRes.value?.routes?.length > 0) {
+        const route = footRes.value.routes[0];
+        if (typeof route.distance === 'number') {
+          customWalkDistKm = Number((route.distance / 1000).toFixed(1));
+        }
+        if (typeof route.duration === 'number') {
+          customWalkDurationMins = route.duration / 60;
+        }
+      }
+
+      if (driveRes.status === 'fulfilled' && driveRes.value?.routes?.length > 0) {
+        const route = driveRes.value.routes[0];
+        if (typeof route.distance === 'number') {
+          customDriveDistKm = Number((route.distance / 1000).toFixed(1));
+        }
+        if (typeof route.duration === 'number') {
+          customDriveDurationMins = route.duration / 60;
+        }
+      }
+
+      const liveResult = calculateTransitEstimates(
+        p1,
+        p2,
+        customWalkDistKm,
+        customWalkDurationMins,
+        customDriveDurationMins
+      );
+
+      ROUTE_INFO_CACHE.set(cacheKey, liveResult);
+      return liveResult;
+    } catch {
+      ROUTE_INFO_CACHE.set(cacheKey, baseEstimate);
+      return baseEstimate;
+    } finally {
+      clearTimeout(timeoutId);
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', onAbort);
+      }
+      IN_FLIGHT_ROUTE_INFO_REQUESTS.delete(cacheKey);
+    }
+  })();
+
+  IN_FLIGHT_ROUTE_INFO_REQUESTS.set(cacheKey, fetchPromise);
+  return fetchPromise;
 };
 
 /**
@@ -4472,14 +4606,54 @@ export const optimizeMultiDayTimeline = (
     if (precomputedOrderedPoints && precomputedOrderedPoints.length === dayAttractions.length) {
       orderedPoints = precomputedOrderedPoints;
     } else {
-      const tsp = optimizeSightseeingRoute(
-        geoPoints,
-        false,
-        roadCostMatrix || undefined,
-        costCriterion,
-        isApproximateMode
-      );
-      orderedPoints = tsp.orderedPoints;
+      const lodgingEvt = events.find((e) => e.type === 'LODGING');
+      let hotelPoint: GeoPoint | null = null;
+      if (lodgingEvt) {
+        const hc = resolvePointCoordinates(
+          lodgingEvt.title,
+          poolAttractions,
+          destinationCity,
+          lodgingCoords,
+          { lat: lodgingEvt.lat, lon: lodgingEvt.lon }
+        );
+        if (typeof hc.lat === 'number' && Number.isFinite(hc.lat)) {
+          hotelPoint = {
+            id: lodgingEvt.id,
+            title: lodgingEvt.title,
+            lat: hc.lat,
+            lon: hc.lon,
+            type: 'LODGING',
+            originalIndex: -1,
+          };
+        }
+      } else if (lodgingCoords && typeof lodgingCoords.lat === 'number' && Number.isFinite(lodgingCoords.lat)) {
+        hotelPoint = {
+          id: 'lodging_hotel',
+          title: 'Hotel',
+          lat: lodgingCoords.lat,
+          lon: lodgingCoords.lon,
+          type: 'LODGING',
+          originalIndex: -1,
+        };
+      }
+
+      if (hotelPoint) {
+        const dayRes = optimizeDayRouteWithHotel(hotelPoint, geoPoints, {
+          matrix: roadCostMatrix && roadCostMatrix.length === geoPoints.length + 1 ? roadCostMatrix : undefined,
+          criterion: costCriterion,
+          isApproximate: isApproximateMode,
+        });
+        orderedPoints = dayRes.orderedAttractions;
+      } else {
+        const tsp = optimizeSightseeingRoute(
+          geoPoints,
+          false,
+          roadCostMatrix || undefined,
+          costCriterion,
+          isApproximateMode
+        );
+        orderedPoints = tsp.orderedPoints;
+      }
     }
 
     const isDayOne = uniqueDays.indexOf(targetDay) === 0;
