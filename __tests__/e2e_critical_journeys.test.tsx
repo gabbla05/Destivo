@@ -753,9 +753,9 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     // Przejście do Kroku 2 nie mogło nastąpić
     expect(mockNavigation.navigate).not.toHaveBeenCalledWith('Step2Transport');
 
-    // 6. Korekta terminu na niekolidujący (20-10-2026 do 25-10-2026)
-    fireEvent.changeText(dateInputs[0], '20-10-2026');
-    fireEvent.changeText(dateInputs[1], '25-10-2026');
+    // 6. Korekta terminu na niekolidujący w przyszłości (20-12-2026 do 25-12-2026)
+    fireEvent.changeText(dateInputs[0], '20-12-2026');
+    fireEvent.changeText(dateInputs[1], '25-12-2026');
 
     fireEvent.press(screen.getByText('Dalej'));
 
@@ -763,8 +763,8 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     await waitFor(() => {
       expect(mockNavigation.navigate).toHaveBeenCalledWith('Step2Transport');
       expect(useTripCreatorStore.getState().destination).toBe('Madryt');
-      expect(useTripCreatorStore.getState().startDate).toBe('20-10-2026');
-      expect(useTripCreatorStore.getState().endDate).toBe('25-10-2026');
+      expect(useTripCreatorStore.getState().startDate).toBe('20-12-2026');
+      expect(useTripCreatorStore.getState().endDate).toBe('25-12-2026');
     });
 
     unmount();

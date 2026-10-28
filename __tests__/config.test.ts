@@ -2,8 +2,10 @@ import {
   getGoogleApiKey,
   hasValidGoogleApiKey,
   getWeatherApiKey,
+  getOsrmBaseUrl,
   DEFAULT_FALLBACK_GOOGLE_API_KEY,
   DEFAULT_FALLBACK_WEATHER_API_KEY,
+  DEFAULT_OSRM_ROUTER_URL,
 } from '../src/lib/config';
 import Constants from 'expo-constants';
 
@@ -52,5 +54,20 @@ describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)'
   test('getWeatherApiKey zwraca DEFAULT_FALLBACK_WEATHER_API_KEY gdy brak zmiennej w środowisku', () => {
     delete process.env.EXPO_PUBLIC_WEATHER_API_KEY;
     expect(getWeatherApiKey()).toBe(DEFAULT_FALLBACK_WEATHER_API_KEY);
+  });
+
+  test('getOsrmBaseUrl zwraca DEFAULT_OSRM_ROUTER_URL domyślnie', () => {
+    delete process.env.EXPO_PUBLIC_OSRM_URL;
+    expect(getOsrmBaseUrl()).toBe(DEFAULT_OSRM_ROUTER_URL);
+  });
+
+  test('getOsrmBaseUrl zwraca i oczyszcza poprawny URL z process.env.EXPO_PUBLIC_OSRM_URL', () => {
+    process.env.EXPO_PUBLIC_OSRM_URL = 'https://osrm.mycompany.org/api///';
+    expect(getOsrmBaseUrl()).toBe('https://osrm.mycompany.org/api');
+  });
+
+  test('getOsrmBaseUrl ignoruje nieprawidłowy URL i stosuje fallback', () => {
+    process.env.EXPO_PUBLIC_OSRM_URL = 'ftp://invalid-server';
+    expect(getOsrmBaseUrl()).toBe(DEFAULT_OSRM_ROUTER_URL);
   });
 });

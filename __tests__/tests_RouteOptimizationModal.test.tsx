@@ -1,8 +1,9 @@
 // __tests__/tests_RouteOptimizationModal.test.tsx
 import React from 'react';
 import { Linking } from 'react-native';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { RouteOptimizationModal } from '../src/components/RouteOptimizationModal';
+import { OSRM_MATRIX_CACHE } from '../src/lib/routeOptimization';
 
 // Mock authStore
 jest.mock('../src/store/authStore', () => ({
@@ -47,6 +48,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
   beforeEach(() => {
     jest.clearAllMocks();
+    OSRM_MATRIX_CACHE.clear();
   });
 
   test('nie renderuje się, gdy visible={false}', () => {
@@ -315,6 +317,530 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
     // Banner ostrzegawczy z testID="collapsed-coordinates-warning" powinien być widoczny
     expect(screen.getByTestId('collapsed-coordinates-warning')).toBeTruthy();
+  });
+
+  test('wyświetla baner błędu OSRM z możliwością przełączenia na tryb przybliżony', async () => {
+    // Symulujemy celowy błąd pobrania macierzy OSRM
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        throw new Error('OSRM_TEST_ERROR: Brak połączenia z serwerem OSRM');
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // Czekamy na obsłużenie błędu
+    const errorBanner = await screen.findByTestId('osrm-error-banner');
+    expect(errorBanner).toBeTruthy();
+    expect(screen.getByText('Nie udało się pobrać danych drogowych')).toBeTruthy();
+
+    // Klikamy "Użyj trybu przybliżonego (linia prosta)"
+    const fallbackBtn = await screen.findByTestId('osrm-fallback-btn');
+    fireEvent.press(fallbackBtn);
+
+    // Powinien pojawić się banner trybu przybliżonego
+    const approxBanner = await screen.findByTestId('approximate-mode-banner');
+    expect(approxBanner).toBeTruthy();
+    expect(screen.getByText('Tryb przybliżony (linia prosta)')).toBeTruthy();
+  });
+
+  test('wyświetla badge sieci drogowej OSRM po pomyślnym pobraniu macierzy', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            code: 'Ok',
+            durations: [
+              [0, 500, 700],
+              [520, 0, 300],
+              [710, 310, 0],
+            ],
+            distances: [
+              [0, 2000, 3500],
+              [2100, 0, 1500],
+              [3600, 1550, 0],
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(screen.getByText('Sieć drogowa OSRM • Zoptymalizowano czas przejazdu')).toBeTruthy();
+    });
+  });
+
+  test('szybka zmiana zakresu odrzuca spóźnioną odpowiedź OSRM (ochrona przed race condition)', async () => {
+    let resolveFirstReq: (val: any) => void = () => {};
+    const firstReqPromise = new Promise((resolve) => {
+      resolveFirstReq = resolve;
+    });
+
+    let callCount = 0;
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        callCount++;
+        if (callCount === 1) {
+          // Pierwsze zapytanie zwleka
+          await firstReqPromise;
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({
+              code: 'Ok',
+              durations: [
+                [0, 9999, 9999],
+                [9999, 0, 9999],
+                [9999, 9999, 0],
+              ],
+            }),
+          } as Response;
+        } else {
+          // Drugie zapytanie odpowiada natychmiast
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({
+              code: 'Ok',
+              durations: [
+                [0, 150],
+                [150, 0],
+              ],
+            }),
+          } as Response;
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    const multiDayEvents = [
+      {
+        id: 'ev_d1_1',
+        type: 'ATTRACTION',
+        title: 'Koloseum',
+        dateStr: '10-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-10T10:00:00Z'),
+        lat: 41.8902,
+        lon: 12.4922,
+      },
+      {
+        id: 'ev_d1_2',
+        type: 'ATTRACTION',
+        title: 'Watykan',
+        dateStr: '10-09-2026',
+        timeStr: '14:00',
+        parsedDate: new Date('2026-09-10T14:00:00Z'),
+        lat: 41.9022,
+        lon: 12.4539,
+      },
+      {
+        id: 'ev_d2_1',
+        type: 'ATTRACTION',
+        title: 'Panteon',
+        dateStr: '11-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-11T10:00:00Z'),
+        lat: 41.8986,
+        lon: 12.4769,
+      },
+    ];
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={multiDayEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // Przełączamy zakres na Dzień 1 (generując drugie zapytanie)
+    fireEvent.press(screen.getByTestId('scope-tab-day-0'));
+
+    // Drugie zapytanie powinno się zakończyć sukcesem
+    await waitFor(() => {
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+    });
+
+    // Teraz spóźniona pierwsza odpowiedź powraca
+    resolveFirstReq(true);
+
+    // Badge nadal musi być widoczny i reprezentować aktywny zakres (nie może nastąpić błąd ani wyścig stanów)
+    expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+  });
+
+  test('w trybie przybliżonym badge sieci drogowej NIGDY się nie pojawia, a widoczny jest baner przybliżony', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        throw new Error('OSRM_TEST_ERROR: offline');
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    const fallbackBtn = await screen.findByTestId('osrm-fallback-btn');
+    fireEvent.press(fallbackBtn);
+
+    // W trybie przybliżonym:
+    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+    expect(screen.getByTestId('approximate-mode-banner')).toBeTruthy();
+  });
+
+  test('atrakcja z poprawnymi współrzędnymi lat: 0, lon: 0 (Null Island/równik) nie jest traktowana jako brak współrzędnych', async () => {
+    const zeroCoordsEvents = [
+      {
+        id: 'ev_zero_1',
+        type: 'ATTRACTION',
+        title: 'Punkt Zero',
+        dateStr: '10-10-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-10-10T10:00:00Z'),
+        lat: 0,
+        lon: 0,
+      },
+      {
+        id: 'ev_zero_2',
+        type: 'ATTRACTION',
+        title: 'Punkt Równikowy',
+        dateStr: '10-10-2026',
+        timeStr: '12:00',
+        parsedDate: new Date('2026-10-10T12:00:00Z'),
+        lat: 0,
+        lon: 1,
+      },
+    ];
+
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        expect(url).toContain('0,0;1,0');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            code: 'Ok',
+            durations: [
+              [0, 100],
+              [100, 0],
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={zeroCoordsEvents}
+        destinationCity="Atlantis"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+    });
+  });
+
+  test('zmiana transportProfile natychmiast wysyła zapytanie z nowym profilem i unieważnia starą macierz', async () => {
+    const urlsCalled: string[] = [];
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string') {
+        urlsCalled.push(url);
+      }
+      const data = {
+        code: 'Ok',
+        durations: [
+          [0, 100, 200],
+          [100, 0, 150],
+          [200, 150, 0],
+        ],
+      };
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => data,
+        text: async () => JSON.stringify(data),
+      } as Response;
+    });
+
+    const { rerender } = render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+        transportProfile="driving"
+      />
+    );
+
+    await waitFor(() => {
+      expect(urlsCalled.some((u) => u.includes('/table/v1/driving/'))).toBe(true);
+    });
+
+    // Zmiana profilu na 'walking'
+    rerender(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+        transportProfile="walking"
+      />
+    );
+
+    await waitFor(() => {
+      expect(urlsCalled.some((u) => u.includes('/table/v1/walking/'))).toBe(true);
+    });
+  });
+
+  test('zamknięcie modala natychmiast unieważnia oczekujące zapytanie asynchroniczne', async () => {
+    let resolveOsrm: any;
+    const pendingPromise = new Promise((resolve) => {
+      resolveOsrm = resolve;
+    });
+
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        await pendingPromise;
+        const data = {
+          code: 'Ok',
+          durations: [
+            [0, 100, 200],
+            [100, 0, 150],
+            [200, 150, 0],
+          ],
+        };
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => data,
+          text: async () => JSON.stringify(data),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ routes: [] }),
+      } as Response;
+    });
+
+    const { rerender } = render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // Modal otwarty, zapytanie w toku
+    expect(screen.getByTestId('osrm-loading-banner')).toBeTruthy();
+
+    // Zamykamy modal przed nadejściem odpowiedzi
+    rerender(
+      <RouteOptimizationModal
+        visible={false}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // Odpowiedź nadeszła po zamknięciu
+    resolveOsrm();
+
+    // Ponowne otwarcie modala nie może używać poprzedniego stanu sukcesu
+    rerender(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+  });
+
+  test('odpowiedź OSRM z wartością null (odcinek nieosiągalny) wyświetla błąd OSRM_UNREACHABLE_POINTS, brak badge drogowego i pozwala przejść na oznaczony tryb przybliżony', async () => {
+    // Symulacja odpowiedzi OSRM Table API zawierającej null (brak przejazdu między punktami 0 i 1)
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            code: 'Ok',
+            durations: [
+              [0, null, 500],
+              [450, 0, 300],
+              [500, 300, 0],
+            ],
+            distances: [
+              [0, null, 4000],
+              [3500, 0, 2000],
+              [4000, 2000, 0],
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    // 1. Wykrycie błędu odcinków nieprzejezdnych
+    const errorBanner = await screen.findByTestId('osrm-error-banner');
+    expect(errorBanner).toBeTruthy();
+    expect(screen.getByText(/OSRM_UNREACHABLE_POINTS/i)).toBeTruthy();
+    expect(screen.getByText(/Watykan.*Koloseum/i)).toBeTruthy();
+
+    // 2. Bezwzględny brak potwierdzonego badge sieci drogowej
+    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+
+    // 3. Użytkownik decyduje się na jawny fallback do trybu przybliżonego
+    const fallbackBtn = await screen.findByTestId('osrm-fallback-btn');
+    fireEvent.press(fallbackBtn);
+
+    // 4. Prezentacja jawnego banera trybu przybliżonego z zastrzeżeniem o braku gwarancji przejezdności
+    const approxBanner = await screen.findByTestId('approximate-mode-banner');
+    expect(approxBanner).toBeTruthy();
+    expect(screen.getByText(/Tryb przybliżony \(linia prosta\)/i)).toBeTruthy();
+    expect(screen.getByText(/przejezdność nie jest gwarantowana/i)).toBeTruthy();
+    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+  });
+
+  test('dla profilu "walking" badge prezentuje "Sieć piesza OSRM • Zoptymalizowano czas przejścia"', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      if (typeof url === 'string' && url.includes('/table/v1/walking/')) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            code: 'Ok',
+            durations: [
+              [0, 600, 1200],
+              [600, 0, 500],
+              [1200, 500, 0],
+            ],
+            distances: [
+              [0, 800, 1500],
+              [800, 0, 600],
+              [1500, 600, 0],
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ routes: [] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents}
+        destinationCity="Rzym"
+        transportProfile="walking"
+      />
+    );
+
+    const badge = await screen.findByTestId('road-network-badge');
+    expect(badge).toBeTruthy();
+    expect(screen.getByText('Sieć piesza OSRM • Zoptymalizowano czas przejścia')).toBeTruthy();
   });
 });
 

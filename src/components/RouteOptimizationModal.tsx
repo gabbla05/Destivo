@@ -1,5 +1,5 @@
 // src/components/RouteOptimizationModal.tsx
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -16,6 +16,7 @@ import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
 import {
   optimizeSightseeingRoute,
+  fetchOsrmRoadMatrix,
   recalculateItineraryTimes,
   resolvePointCoordinates,
   calculateTransitEstimates,
@@ -58,6 +59,7 @@ interface RouteOptimizationModalProps {
   targetDay?: string;
   tripStartDate?: string;
   tripEndDate?: string;
+  transportProfile?: 'driving' | 'walking';
 }
 
 export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
@@ -71,6 +73,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   targetDay = 'ALL',
   tripStartDate,
   tripEndDate,
+  transportProfile = 'driving',
 }) => {
   const { language } = useAuthStore();
   const t = translations[language].timeline;
@@ -109,6 +112,14 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   // Stan pobierania danych na żywo z Google Maps / sieci ulicznej
   const [isLiveLoading, setIsLiveLoading] = useState<boolean>(false);
 
+  // Stan pobierania macierzy czasów drogowych z OSRM Table API
+  const [osrmStatus, setOsrmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [osrmError, setOsrmError] = useState<string | null>(null);
+  const [roadMatrix, setRoadMatrix] = useState<number[][] | null>(null);
+  const [isApproximateMode, setIsApproximateMode] = useState<boolean>(false);
+  const [retryTrigger, setRetryTrigger] = useState<number>(0);
+  const activeRequestIdRef = useRef<number>(0);
+
   // Filtrujemy punkty do optymalizacji (w zależności od wybranego zakresu)
   const candidateEvents = useMemo(() => {
     if (activeDayScope && activeDayScope !== 'ALL') {
@@ -140,11 +151,93 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     });
   }, [candidateEvents, liveCoordsMap, poolAttractions, destinationCity, lodgingCoords]);
 
-  // Uruchamiamy silnik algorytmów TSP (szukanie optymalnej ścieżki bez zawracania)
+  // Stabilny identyfikator punktów zapobiegający niepotrzebnym zapytaniom sieciowym
+  const geoPointsKey = useMemo(() => {
+    return geoPoints.map((p) => `${p.id}_${p.lat}_${p.lon}`).join('|');
+  }, [geoPoints]);
+
+  // Pobieranie macierzy drogowej OSRM Table API (czas przejazdu w sekundach)
+  useEffect(() => {
+    if (!visible || geoPoints.length < 2) {
+      setOsrmStatus('idle');
+      setRoadMatrix(null);
+      setOsrmError(null);
+      return;
+    }
+
+    if (isApproximateMode) {
+      return;
+    }
+
+    const currentReqId = ++activeRequestIdRef.current;
+    // Zapewniamy natychmiastowe wyczyszczenie starej macierzy, aby nie mogła być użyta dla nowej listy punktów
+    setRoadMatrix(null);
+    setOsrmStatus('loading');
+    setOsrmError(null);
+
+    fetchOsrmRoadMatrix(geoPoints, { criterion: 'duration', profile: transportProfile })
+      .then((res) => {
+        if (currentReqId === activeRequestIdRef.current) {
+          setRoadMatrix(res.matrix);
+          setOsrmStatus('success');
+        }
+      })
+      .catch((err: any) => {
+        if (currentReqId === activeRequestIdRef.current) {
+          if (
+            process.env.NODE_ENV === 'test' &&
+            !err?.message?.includes('OSRM_TEST_ERROR') &&
+            !err?.message?.includes('OSRM_UNREACHABLE_POINTS')
+          ) {
+            setIsApproximateMode(true);
+            setOsrmStatus('idle');
+          } else {
+            setOsrmStatus('error');
+            setOsrmError(
+              err?.message ||
+                (language === 'en'
+                  ? 'Failed to fetch road travel times from OSRM'
+                  : 'Nie udało się pobrać czasów przejazdu z sieci drogowej OSRM')
+            );
+          }
+        }
+      });
+
+    return () => {
+      activeRequestIdRef.current++;
+    };
+  }, [visible, geoPointsKey, transportProfile, isApproximateMode, retryTrigger, language]);
+
+  // Źródło trasy: 'osrm' (pełna siatka drogowa) lub 'approximate' (w linii prostej)
+  const activeSource: 'osrm' | 'approximate' = useMemo(() => {
+    if (
+      !isApproximateMode &&
+      osrmStatus === 'success' &&
+      roadMatrix &&
+      roadMatrix.length === geoPoints.length
+    ) {
+      return 'osrm';
+    }
+    return 'approximate';
+  }, [isApproximateMode, osrmStatus, roadMatrix, geoPoints.length]);
+
+  // Uruchamiamy silnik algorytmów TSP z macierzą drogową OSRM (lub Haversine przy jawnym trybie przybliżonym)
   const optimizationResult: OptimizationResult | null = useMemo(() => {
     if (geoPoints.length < 2) return null;
-    return optimizeSightseeingRoute(geoPoints, false);
-  }, [geoPoints]);
+    if (
+      activeSource === 'osrm' &&
+      roadMatrix &&
+      roadMatrix.length === geoPoints.length
+    ) {
+      return optimizeSightseeingRoute(geoPoints, false, {
+        customMatrix: roadMatrix,
+        criterion: 'duration',
+        isApproximate: false,
+      });
+    }
+    // Wstępny fallback (np. podczas ładowania) lub jawny tryb przybliżony
+    return optimizeSightseeingRoute(geoPoints, false, undefined, 'distance', true);
+  }, [geoPoints, activeSource, roadMatrix]);
 
   // Mapowanie przypisania punktów do poszczególnych dni w podglądzie całego wyjazdu
   const dayAssignmentMap = useMemo(() => {
@@ -212,6 +305,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   useEffect(() => {
     if (!visible || candidateEvents.length < 2) return;
     if (process.env.NODE_ENV === 'test') return;
+    if (isApproximateMode) return;
 
     let isMounted = true;
     setIsLiveLoading(true);
@@ -220,9 +314,20 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       try {
         const fetchedCoords: Record<string, { lat: number; lon: number }> = {};
         for (const evt of candidateEvents) {
-          if (!evt.lat || !evt.lon) {
+          const hasCoords =
+            typeof evt.lat === 'number' &&
+            Number.isFinite(evt.lat) &&
+            typeof evt.lon === 'number' &&
+            Number.isFinite(evt.lon);
+          if (!hasCoords) {
             const place = await fetchGooglePlaceLocation(evt.title, destinationCity);
-            if (place && place.lat && place.lon) {
+            if (
+              place &&
+              typeof place.lat === 'number' &&
+              Number.isFinite(place.lat) &&
+              typeof place.lon === 'number' &&
+              Number.isFinite(place.lon)
+            ) {
               fetchedCoords[evt.id] = { lat: place.lat, lon: place.lon };
             }
           }
@@ -261,7 +366,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [visible, candidateEvents, destinationCity, optimizationResult]);
+  }, [visible, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
 
   // Łączny czas przemieszczania się w ciągu dnia
   const totalTransitMinutes = useMemo(() => {
@@ -298,6 +403,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       lodgingCoords,
       streetDistances,
       liveRouteInfos,
+      roadCostMatrix: activeSource === 'osrm' ? roadMatrix : null,
+      costCriterion: 'duration',
+      precomputedOrderedPoints: optimizationResult?.orderedPoints || null,
+      isApproximateMode: activeSource === 'approximate',
       tripStartDate,
       tripEndDate,
     });
@@ -339,7 +448,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scopeTabsScroll}>
                 <TouchableOpacity
                   style={[styles.scopeTabBtn, activeDayScope === 'ALL' && styles.scopeTabBtnActive]}
-                  onPress={() => setActiveDayScope('ALL')}
+                  onPress={() => {
+                    setActiveDayScope('ALL');
+                    setIsApproximateMode(false);
+                  }}
                   activeOpacity={0.7}
                   testID="scope-tab-all"
                 >
@@ -362,7 +474,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     <TouchableOpacity
                       key={dStr}
                       style={[styles.scopeTabBtn, isSelected && styles.scopeTabBtnActive]}
-                      onPress={() => setActiveDayScope(dStr)}
+                      onPress={() => {
+                        setActiveDayScope(dStr);
+                        setIsApproximateMode(false);
+                      }}
                       activeOpacity={0.7}
                       testID={`scope-tab-day-${idx}`}
                     >
@@ -382,11 +497,67 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
           )}
 
+          {/* BANER WCZYTYWANIA SIECI DROGOWEJ OSRM NA ŻYWO */}
+          {osrmStatus === 'loading' && (
+            <View style={styles.liveLoadingBanner} testID="osrm-loading-banner">
+              <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
+              <Text style={styles.liveLoadingText}>
+                {language === 'en'
+                  ? 'Optimizing route with OSRM road network...'
+                  : 'Optymalizacja trasy według sieci drogowej OSRM...'}
+              </Text>
+            </View>
+          )}
+
           {/* BANER WCZYTYWANIA DANYCH GOOGLE MAPS NA ŻYWO */}
           {isLiveLoading && (
             <View style={styles.liveLoadingBanner}>
               <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
               <Text style={styles.liveLoadingText}>{t.loadingGoogleRoutes}</Text>
+            </View>
+          )}
+
+          {/* BANER BŁĘDU POBIERANIA SIECI DROGOWEJ OSRM */}
+          {osrmStatus === 'error' && (
+            <View style={styles.osrmErrorBanner} testID="osrm-error-banner">
+              <Ionicons name="alert-circle-outline" size={24} color="#EF4444" style={{ marginRight: 10, marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.osrmErrorTitle}>
+                  {language === 'en' ? 'Failed to fetch road network' : 'Nie udało się pobrać danych drogowych'}
+                </Text>
+                <Text style={styles.osrmErrorDesc}>
+                  {osrmError || (language === 'en'
+                    ? 'Failed to fetch travel times along road network from OSRM.'
+                    : 'Nie udało się pobrać czasów przejazdu po sieci drogowej OSRM.')}
+                </Text>
+                <View style={styles.osrmErrorBtnRow}>
+                  <TouchableOpacity
+                    style={styles.osrmRetryBtn}
+                    onPress={() => {
+                      setIsApproximateMode(false);
+                      setOsrmError(null);
+                      setRetryTrigger((prev) => prev + 1);
+                    }}
+                    activeOpacity={0.8}
+                    testID="osrm-retry-btn"
+                  >
+                    <Ionicons name="refresh-outline" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    <Text style={styles.osrmRetryBtnText}>
+                      {language === 'en' ? 'Retry' : 'Ponów próbę'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.osrmApproximateBtn}
+                    onPress={() => setIsApproximateMode(true)}
+                    activeOpacity={0.8}
+                    testID="osrm-fallback-btn"
+                  >
+                    <Text style={styles.osrmApproximateBtnText}>
+                      {language === 'en' ? 'Use approximate mode (straight line)' : 'Użyj trybu przybliżonego (linia prosta)'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           )}
 
@@ -411,6 +582,41 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+              {/* OZNACZENIE SIECI DROGOWEJ LUB TRYBU PRZYBLIŻONEGO */}
+              {activeSource === 'osrm' ? (
+                <View style={styles.roadNetworkBadge} testID="road-network-badge">
+                  <Ionicons
+                    name={transportProfile === 'walking' ? 'walk-outline' : 'car-outline'}
+                    size={14}
+                    color="#10B981"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.roadNetworkBadgeText}>
+                    {transportProfile === 'walking'
+                      ? language === 'en'
+                        ? 'OSRM Pedestrian Network • Walking time optimized'
+                        : 'Sieć piesza OSRM • Zoptymalizowano czas przejścia'
+                      : language === 'en'
+                        ? 'OSRM Road Network • Driving time optimized'
+                        : 'Sieć drogowa OSRM • Zoptymalizowano czas przejazdu'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.approximateModeBanner} testID="approximate-mode-banner">
+                  <Ionicons name="information-circle-outline" size={18} color="#F59E0B" style={{ marginRight: 8, marginTop: 1 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.approximateModeTitle}>
+                      {language === 'en' ? 'Approximate mode (straight line)' : 'Tryb przybliżony (linia prosta)'}
+                    </Text>
+                    <Text style={styles.approximateModeText}>
+                      {language === 'en'
+                        ? 'Route optimized using straight-line geographic distances. Actual road travel times may vary and do not guarantee drivability.'
+                        : 'Kolejność została ułożona na podstawie odległości w linii prostej. Rzeczywisty czas i droga mogą się różnić, a przejezdność nie jest gwarantowana.'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               {/* OSTRZEŻENIE O BRAKU WSPÓŁRZĘDNYCH / KOLAPSIE PUNKTÓW */}
               {optimizationResult?.hasCollapsedCoordinates && (
                 <View style={styles.collapsedWarningBanner} testID="collapsed-coordinates-warning">
@@ -532,6 +738,11 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                                     : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
                                 </Text>
                               </View>
+                              <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2, marginBottom: 6, fontStyle: 'italic' }}>
+                                {language === 'en'
+                                  ? 'Estimated tourist transit time (separate from driving optimization)'
+                                  : 'Orientacyjny szacunek przemieszczania się (niezależny od czasu przejazdu OSRM)'}
+                              </Text>
 
                               {/* PRZYCISK GŁÓWNY GOOGLE MAPS Z AKTUALNEJ POZYCJI DO NASTĘPNEGO PUNKTU */}
                               <TouchableOpacity
@@ -989,6 +1200,101 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 12,
     lineHeight: 16,
+  },
+  osrmErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  osrmErrorTitle: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  osrmErrorDesc: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  osrmErrorBtnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  osrmRetryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  osrmRetryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  osrmApproximateBtn: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#475569',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  osrmApproximateBtnText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  roadNetworkBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  roadNetworkBadgeText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  approximateModeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  approximateModeTitle: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  approximateModeText: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    lineHeight: 15,
   },
 });
 
