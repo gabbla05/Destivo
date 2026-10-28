@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Dimensions,
   Linking,
   ActivityIndicator,
 } from 'react-native';
@@ -18,24 +17,20 @@ import {
   optimizeSightseeingRoute,
   optimizeDayRouteWithHotel,
   fetchOsrmRoadMatrix,
-  recalculateItineraryTimes,
   resolvePointCoordinates,
   calculateTransitEstimates,
   fetchRealRouteInfo,
-  buildGoogleMapsDirectionsUrl,
   buildGoogleMapsFullRouteUrl,
   buildGoogleMapsNavigationToDestinationUrl,
   fetchGooglePlaceLocation,
-  fetchRealStreetDistanceKm,
   optimizeMultiDayTimeline,
   parseTimelineDate,
+  isTestEnvironment,
   type GeoPoint,
   type OptimizationResult,
   type AlgorithmBenchmark,
   type StreetRouteInfo,
 } from '../lib/routeOptimization';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TimelineEventLike {
   id: string;
@@ -258,7 +253,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       .catch((err: any) => {
         if (currentReqId === activeRequestIdRef.current && !abortController.signal.aborted) {
           if (
-            process.env.NODE_ENV === 'test' &&
+            isTestEnvironment() &&
             !err?.message?.includes('OSRM_TEST_ERROR') &&
             !err?.message?.includes('OSRM_UNREACHABLE_POINTS')
           ) {
@@ -474,7 +469,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       return;
     }
 
-    if (process.env.NODE_ENV === 'test') {
+    if (isTestEnvironment()) {
       setIsLiveLoading(false);
       return;
     }
@@ -567,27 +562,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       }
     };
   }, [visible, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
-
-  // Łączny czas przemieszczania się w ciągu dnia
-  const totalTransitMinutes = useMemo(() => {
-    if (!optimizationResult || optimizationResult.orderedPoints.length < 2) return 0;
-    let total = 0;
-    for (let i = 0; i < optimizationResult.orderedPoints.length - 1; i++) {
-      const p1 = optimizationResult.orderedPoints[i];
-      const p2 = optimizationResult.orderedPoints[i + 1];
-      const legKey = `${p1.id}_${p2.id}`;
-      const legDist = streetDistances[legKey];
-      const routeInfo = liveRouteInfos[legKey];
-      const est = routeInfo || calculateTransitEstimates(p1, p2, legDist);
-      const mode = est.recommendedMode;
-      if (mode === 'walking') {
-        total += est.walkMinutes;
-      } else {
-        total += est.transitMinutes;
-      }
-    }
-    return total;
-  }, [optimizationResult, streetDistances, liveRouteInfos]);
 
   const handleConfirmApply = () => {
     if (!optimizationResult && candidateEvents.length < 2) {

@@ -1,6 +1,16 @@
 // src/lib/routeOptimization.ts
 import { getGoogleApiKey, getOsrmBaseUrl } from './config';
 
+declare const process: any;
+
+export const isTestEnvironment = (): boolean => {
+  try {
+    return typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Moduł Inteligentnej Optymalizacji Trasy Zwiedzania (Problem Komiwojażera / TSP)
  * Implementacja algorytmów optymalizacji kombinatorycznej dla pracy inżynierskiej:
@@ -516,11 +526,11 @@ export class OsrmMatrixCache {
 
   purgeExpired(): void {
     const now = Date.now();
-    for (const [key, entry] of this.cache.entries()) {
+    this.cache.forEach((entry, key) => {
       if (now > entry.expiresAt) {
         this.cache.delete(key);
       }
-    }
+    });
   }
 
   getMaxEntries(): number {
@@ -608,7 +618,7 @@ export const fetchOsrmRoadMatrix = async (
       throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');
     }
 
-    const maxRetries = options.maxRetries ?? (process.env.NODE_ENV === 'test' ? 0 : 1);
+    const maxRetries = options.maxRetries ?? (isTestEnvironment() ? 0 : 1);
     let attempt = 0;
     let lastError: any = null;
 
@@ -1827,13 +1837,13 @@ export const optimizeDayRouteWithHotel = (
     while (unvisited.size > 0) {
       let nearest = -1;
       let minDist = Infinity;
-      for (const cand of unvisited) {
+      unvisited.forEach((cand) => {
         const d = costMatrix[current][cand];
         if (d < minDist) {
           minDist = d;
           nearest = cand;
         }
-      }
+      });
       greedyPerm.push(nearest);
       unvisited.delete(nearest);
       current = nearest;
@@ -2675,7 +2685,7 @@ export const resolvePointCoordinatesAsync = async (
   }
 
   // 4. Pobieramy na żywo z Google Places API
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     try {
       const place = await fetchGooglePlaceLocation(title, destinationCity);
       if (place && place.lat && place.lon) {
@@ -2723,7 +2733,7 @@ export const fetchGooglePlaceLocation = async (
   }
 
   // W testach jednostkowych sprawdzamy słownik testowy
-  if (process.env.NODE_ENV === 'test') {
+  if (isTestEnvironment()) {
     for (const [key, coords] of Object.entries(KNOWN_ATTRACTIONS_COORDINATES)) {
       const cleanKey = normalizeAttractionTitle(key);
       if (cleanTitle.includes(cleanKey) || cleanKey.includes(cleanTitle)) {
@@ -2795,7 +2805,7 @@ export const fetchRealStreetDistanceKm = async (
     return STREET_DISTANCE_CACHE.get(cacheKey)!;
   }
 
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     try {
       const url = `https://router.project-osrm.org/route/v1/foot/${p1.lon},${p1.lat};${p2.lon},${p2.lat}?overview=false`;
       const res = await fetch(url);
@@ -2838,7 +2848,7 @@ export const geocodeAttractionCoords = async (
     return { lat: googleRes.lat, lon: googleRes.lon };
   }
 
-  if (process.env.NODE_ENV === 'test') return null;
+  if (isTestEnvironment()) return null;
 
   try {
     const query = `${title.trim()}, ${destinationCity.trim()}`;
@@ -2880,7 +2890,8 @@ export const calculateTransitEstimates = (
   to: { lat: number; lon: number },
   customStreetDistanceKm?: number,
   customWalkDurationMinutes?: number,
-  customDriveDurationMinutes?: number
+  customDriveDurationMinutes?: number,
+  customDriveDistanceKm?: number
 ): TransitLegEstimate => {
   const straightDist = haversineDistance(from.lat, from.lon, to.lat, to.lon);
   if (straightDist < 0.005) {
@@ -2902,7 +2913,10 @@ export const calculateTransitEstimates = (
     customStreetDistanceKm !== undefined && customStreetDistanceKm > 0
       ? Number(customStreetDistanceKm.toFixed(1))
       : Number(Math.max(0.1, straightDist * streetDistFactor).toFixed(1));
-  const driveDistanceKm = Number(Math.max(0.2, walkDistanceKm * 1.05).toFixed(1));
+  const driveDistanceKm =
+    customDriveDistanceKm !== undefined && customDriveDistanceKm > 0
+      ? Number(customDriveDistanceKm.toFixed(1))
+      : Number(Math.max(0.2, walkDistanceKm * 1.05).toFixed(1));
 
   // 1. PIESZO (Walking)
   // Prędkość marszu w Google Maps: ~4.5 - 4.8 km/h (~12.5 - 13.5 min/km)
@@ -3007,7 +3021,7 @@ export const fetchRealRouteInfo = async (
 
   const baseEstimate = calculateTransitEstimates(p1, p2);
 
-  if (process.env.NODE_ENV === 'test') {
+  if (isTestEnvironment()) {
     ROUTE_INFO_CACHE.set(cacheKey, baseEstimate);
     return baseEstimate;
   }
@@ -3075,7 +3089,8 @@ export const fetchRealRouteInfo = async (
         p2,
         customWalkDistKm,
         customWalkDurationMins,
-        customDriveDurationMins
+        customDriveDurationMins,
+        customDriveDistKm
       );
 
       ROUTE_INFO_CACHE.set(cacheKey, liveResult);
@@ -4361,8 +4376,8 @@ export const generateSmartMultiDayTimeline = (
       dayQuotas[1] = M - day1Q;
     } else {
       // 3 lub więcej dni:
-      // Dzień 1 (przylot): 0 lub 1 punkt (gdy dużo atrakcji)
-      const day1Q = M >= 5 ? 1 : (M >= 8 ? 2 : 0);
+      // Dzień 1 (przylot): 0, 1 lub 2 punkty (gdy dużo atrakcji)
+      const day1Q = M >= 8 ? 2 : (M >= 5 ? 1 : 0);
       dayQuotas[0] = day1Q;
 
       // Ostatni dzień: 0 lub 1 poranny punkt
@@ -4370,7 +4385,6 @@ export const generateSmartMultiDayTimeline = (
       dayQuotas[totalDays - 1] = lastQ;
 
       // Środkowe dni
-      const middleDaysCount = totalDays - 2;
       let remaining = M - day1Q - lastQ;
 
       for (let d = 1; d < totalDays - 1; d++) {
