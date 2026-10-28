@@ -116,7 +116,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   // Rzeczywiste pełne czasy przejść/przejazdów z serwera OSRM / Google Maps Live
   const [liveRouteInfos, setLiveRouteInfos] = useState<Record<string, StreetRouteInfo>>({});
   // Prawdziwe koordynaty z Google Places pobrane w tle na żywo
-  const [liveCoordsMap, setLiveCoordsMap] = useState<Record<string, { lat: number; lon: number }>>({});
+  const [liveCoordsMap, setLiveCoordsMap] = useState<Record<string, { lat: number; lon: number; isUnresolved?: boolean }>>({});
   // Stan pobierania danych na żywo z Google Maps / sieci ulicznej
   const [isLiveLoading, setIsLiveLoading] = useState<boolean>(false);
 
@@ -124,23 +124,49 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   const [osrmStatus, setOsrmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [osrmError, setOsrmError] = useState<string | null>(null);
   const [roadMatrix, setRoadMatrix] = useState<number[][] | null>(null);
+  const [dayRoadMatrices, setDayRoadMatrices] = useState<
+    Record<string, { matrix: number[][]; pointIds: string[] }>
+  >({});
   const [isApproximateMode, setIsApproximateMode] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
   const activeRequestIdRef = useRef<number>(0);
   const osrmAbortRef = useRef<AbortController | null>(null);
 
-  // Wyznaczenie punktu zakwaterowania / hotelu (jeśli jest zdefiniowany)
-  const hotelPoint: GeoPoint | null = useMemo(() => {
-    const lodgingEvt = events.find((e) => e.type === 'LODGING');
+  const getLodgingEventForDay = (day: string): TimelineEventLike | undefined => {
+    const lodgingEvents = events
+      .filter((event) => event.type === 'LODGING')
+      .sort((a, b) => parseTimelineDate(a.dateStr, a.timeStr || '00:00').getTime() -
+        parseTimelineDate(b.dateStr, b.timeStr || '00:00').getTime());
+    const dayTimestamp = parseTimelineDate(day, '23:59').getTime();
+    return lodgingEvents
+      .filter((event) => parseTimelineDate(event.dateStr, event.timeStr || '00:00').getTime() <= dayTimestamp)
+      .pop() || lodgingEvents[0];
+  };
+
+  const getHotelPointForDay = (day: string): GeoPoint | null => {
+    const lodgingEvt = getLodgingEventForDay(day);
     if (lodgingEvt) {
+      const liveCoords = liveCoordsMap[lodgingEvt.id];
+      if (liveCoords && !liveCoords.isUnresolved) {
+        return {
+          id: lodgingEvt.id,
+          title: lodgingEvt.title || (language === 'en' ? 'Hotel / Lodging' : 'Hotel / Zakwaterowanie'),
+          subtitle: lodgingEvt.subtitle,
+          lat: liveCoords.lat,
+          lon: liveCoords.lon,
+          type: 'LODGING',
+          originalIndex: -1,
+        };
+      }
+      const lodgingAddress = lodgingEvt.subtitle?.trim();
       const coords = resolvePointCoordinates(
-        lodgingEvt.title,
+        lodgingAddress || lodgingEvt.title,
         poolAttractions,
         destinationCity,
-        lodgingCoords,
+        lodgingAddress ? null : lodgingCoords,
         { lat: lodgingEvt.lat, lon: lodgingEvt.lon }
       );
-      if (typeof coords.lat === 'number' && Number.isFinite(coords.lat)) {
+      if (!coords.isUnresolved && typeof coords.lat === 'number' && Number.isFinite(coords.lat)) {
         return {
           id: lodgingEvt.id,
           title: lodgingEvt.title || (language === 'en' ? 'Hotel / Lodging' : 'Hotel / Zakwaterowanie'),
@@ -152,7 +178,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         };
       }
     }
-    if (lodgingCoords && typeof lodgingCoords.lat === 'number' && Number.isFinite(lodgingCoords.lat)) {
+    if (
+      !lodgingEvt?.subtitle?.trim() &&
+      lodgingCoords &&
+      typeof lodgingCoords.lat === 'number' &&
+      Number.isFinite(lodgingCoords.lat) &&
+      Number.isFinite(lodgingCoords.lon)
+    ) {
       return {
         id: 'lodging_hotel_coords',
         title: language === 'en' ? 'Hotel / Accommodation' : 'Hotel / Zakwaterowanie',
@@ -163,7 +195,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       };
     }
     return null;
-  }, [events, poolAttractions, destinationCity, lodgingCoords, language]);
+  };
+
+  // W widoku całego wyjazdu dobieramy nocleg niezależnie dla każdego dnia.
+  const hotelPoint: GeoPoint | null = useMemo(
+    () => (activeDayScope !== 'ALL' ? getHotelPointForDay(activeDayScope) : null),
+    [activeDayScope, events, poolAttractions, destinationCity, lodgingCoords, language, liveCoordsMap]
+  );
 
   // Filtrujemy punkty do optymalizacji (w zależności od wybranego zakresu)
   const candidateEvents = useMemo(() => {
@@ -192,9 +230,15 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         type: e.type,
         subtitle: e.subtitle,
         originalIndex: idx,
+        isUnresolved: Boolean((coords as { isUnresolved?: boolean }).isUnresolved),
       };
     });
   }, [candidateEvents, liveCoordsMap, poolAttractions, destinationCity, lodgingCoords]);
+
+  const hasUnresolvedPoints = useMemo(
+    () => geoPoints.some((p) => p.isUnresolved),
+    [geoPoints]
+  );
 
   // W trybie pojedynczego dnia z hotelem, hotel dołączamy jako punkt startowy i powrotny do macierzy OSRM
   const isSingleDayMode = Boolean(activeDayScope && activeDayScope !== 'ALL');
@@ -210,6 +254,46 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     return pointsForMatrix.map((p) => `${p.id}_${p.lat}_${p.lon}`).join('|');
   }, [pointsForMatrix]);
 
+  const isMultiDayAllMode = activeDayScope === 'ALL' && uniqueDays.length > 1;
+  const routeLocationEvents = useMemo(() => {
+    if (!isMultiDayAllMode) return candidateEvents;
+    const selectedLodgingEvents = uniqueDays
+      .map((day) => getLodgingEventForDay(day))
+      .filter((event): event is TimelineEventLike => Boolean(event));
+    return Array.from(new Map([...candidateEvents, ...selectedLodgingEvents].map((event) => [event.id, event])).values());
+  }, [isMultiDayAllMode, uniqueDays, candidateEvents, events]);
+
+  const dayRoutingInputs = useMemo(() => {
+    if (!isMultiDayAllMode) return {} as Record<string, GeoPoint[]>;
+
+    return uniqueDays.reduce((inputs, day) => {
+      const dayPoints = candidateEvents
+        .filter((event) => event.dateStr === day)
+        .map((event) => geoPoints.find((point) => point.id === event.id))
+        .filter((point): point is GeoPoint => Boolean(point));
+      const lodgingEvent = getLodgingEventForDay(day);
+      const hotel = getHotelPointForDay(day);
+      if (lodgingEvent && !hotel) return inputs;
+      const points = hotel ? [hotel, ...dayPoints] : dayPoints;
+      if (points.length > 1 && !points.some((point) => point.isUnresolved)) {
+        inputs[day] = points;
+      }
+      return inputs;
+    }, {} as Record<string, GeoPoint[]>);
+  }, [isMultiDayAllMode, uniqueDays, candidateEvents, geoPoints, events, poolAttractions, destinationCity, lodgingCoords, language, liveCoordsMap]);
+  const hasUnroutableDayLodging = isMultiDayAllMode && uniqueDays.some((day) =>
+    candidateEvents.some((event) => event.dateStr === day) &&
+    Boolean(getLodgingEventForDay(day)) &&
+    !getHotelPointForDay(day)
+  );
+
+  const dayRoutingInputsKey = useMemo(
+    () => Object.entries(dayRoutingInputs)
+      .map(([day, points]) => `${day}:${points.map((point) => `${point.id}_${point.lat}_${point.lon}`).join('|')}`)
+      .join(';'),
+    [dayRoutingInputs]
+  );
+
   // Pobieranie macierzy drogowej OSRM Table API (czas przejazdu w sekundach)
   useEffect(() => {
     if (!visible || pointsForMatrix.length < 2) {
@@ -223,7 +307,102 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       return;
     }
 
+    if (isMultiDayAllMode) {
+      if (isApproximateMode) {
+        setOsrmStatus('idle');
+        setDayRoadMatrices({});
+        return;
+      }
+
+      const abortController = new AbortController();
+      const currentReqId = ++activeRequestIdRef.current;
+      osrmAbortRef.current?.abort();
+      osrmAbortRef.current = abortController;
+      setRoadMatrix(null);
+      setDayRoadMatrices({});
+      setOsrmError(null);
+      setOsrmStatus('loading');
+
+      const dayEntries = Object.entries(dayRoutingInputs);
+      if (dayEntries.length === 0) {
+        setOsrmStatus('success');
+        return () => abortController.abort();
+      }
+
+      const results: Array<{
+        day: string;
+        matrix: number[][] | null;
+        pointIds: string[];
+        error: Error | null;
+      }> = new Array(dayEntries.length);
+      let nextDayIndex = 0;
+      const loadNextDayMatrix = async () => {
+        while (nextDayIndex < dayEntries.length && !abortController.signal.aborted) {
+          const index = nextDayIndex++;
+          const [day, points] = dayEntries[index];
+          try {
+            const result = await fetchOsrmRoadMatrix(points, {
+              criterion: 'duration',
+              profile: selectedTransportProfile,
+              signal: abortController.signal,
+            });
+            results[index] = {
+              day,
+              matrix: result.matrix,
+              pointIds: points.map((point) => point.id),
+              error: null,
+            };
+          } catch (error) {
+            results[index] = {
+              day,
+              matrix: null,
+              pointIds: [],
+              error: error instanceof Error ? error : new Error(String(error)),
+            };
+          }
+        }
+      };
+
+      Promise.all(
+        Array.from({ length: Math.min(3, dayEntries.length) }, () => loadNextDayMatrix())
+      ).then(() => {
+        if (abortController.signal.aborted || currentReqId !== activeRequestIdRef.current) return;
+        const successfulMatrices: Record<string, { matrix: number[][]; pointIds: string[] }> = {};
+        const failures: Error[] = [];
+        for (const result of results) {
+          if (!result) continue;
+          if (result.error || !result.matrix) {
+            failures.push(result.error || new Error(`Nie udało się pobrać trasy dla dnia ${result.day}.`));
+          } else {
+            successfulMatrices[result.day] = {
+              matrix: result.matrix,
+              pointIds: result.pointIds,
+            };
+          }
+        }
+        setDayRoadMatrices(successfulMatrices);
+        setOsrmStatus(failures.length > 0 ? 'error' : 'success');
+        setOsrmError(failures[0]?.message || null);
+      });
+
+      return () => {
+        abortController.abort();
+        if (currentReqId === activeRequestIdRef.current) activeRequestIdRef.current++;
+      };
+    }
+
     if (isApproximateMode) {
+      return;
+    }
+
+    if (pointsForMatrix.some((point) => point.isUnresolved)) {
+      setRoadMatrix(null);
+      setOsrmStatus('error');
+      setOsrmError(
+        language === 'en'
+          ? 'Some attractions do not have confirmed GPS coordinates. Resolve their locations before routing.'
+          : 'Niektóre atrakcje nie mają potwierdzonych współrzędnych GPS. Ustal ich lokalizację przed wyznaczeniem trasy.'
+      );
       return;
     }
 
@@ -275,10 +454,19 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       abortController.abort();
       activeRequestIdRef.current++;
     };
-  }, [visible, pointsForMatrixKey, selectedTransportProfile, isApproximateMode, retryTrigger, language]);
+  }, [visible, pointsForMatrixKey, selectedTransportProfile, isApproximateMode, retryTrigger, language, isMultiDayAllMode, dayRoutingInputsKey]);
 
   // Źródło trasy: 'osrm' (pełna siatka drogowa) lub 'approximate' (w linii prostej)
   const activeSource: 'osrm' | 'approximate' = useMemo(() => {
+    if (isMultiDayAllMode) {
+      const requiredDays = Object.keys(dayRoutingInputs);
+      return !isApproximateMode &&
+        !hasUnroutableDayLodging &&
+        requiredDays.length > 0 &&
+        requiredDays.every((day) => Boolean(dayRoadMatrices[day]))
+        ? 'osrm'
+        : 'approximate';
+    }
     if (
       !isApproximateMode &&
       osrmStatus === 'success' &&
@@ -288,11 +476,86 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       return 'osrm';
     }
     return 'approximate';
-  }, [isApproximateMode, osrmStatus, roadMatrix, pointsForMatrix.length]);
+  }, [isApproximateMode, osrmStatus, roadMatrix, pointsForMatrix.length, activeDayScope, uniqueDays.length, hotelPoint, isMultiDayAllMode, dayRoutingInputs, dayRoadMatrices, hasUnroutableDayLodging]);
 
   // Uruchamiamy silnik algorytmów TSP z macierzą drogową OSRM (lub Haversine przy jawnym trybie przybliżonym)
   const optimizationResult: OptimizationResult | null = useMemo(() => {
     if (geoPoints.length < 2) return null;
+
+    if (isMultiDayAllMode) {
+      const orderedByDay = uniqueDays.flatMap((day) => {
+        const dayEvents = candidateEvents.filter((event) => event.dateStr === day);
+        const dayPoints = dayEvents
+          .map((event) => geoPoints.find((point) => point.id === event.id))
+          .filter((point): point is GeoPoint => Boolean(point));
+        if (dayPoints.length < 2 || dayPoints.some((point) => point.isUnresolved)) return dayPoints;
+
+        const dayHotel = getHotelPointForDay(day);
+        const dayMatrixResult = dayRoadMatrices[day];
+        const expectedPoints = dayHotel ? [dayHotel, ...dayPoints] : dayPoints;
+        const hasDayRoadMatrix =
+          !isApproximateMode &&
+          dayMatrixResult?.pointIds.length === expectedPoints.length &&
+          dayMatrixResult.pointIds.every((id, index) => id === expectedPoints[index].id);
+
+        if (dayHotel) {
+          return optimizeDayRouteWithHotel(dayHotel, dayPoints, hasDayRoadMatrix
+            ? {
+                matrix: dayMatrixResult.matrix,
+                matrixSource: 'osrm-table',
+                matrixCostUnit: 's',
+                criterion: 'duration',
+                matrixPointIds: dayMatrixResult.pointIds,
+              }
+            : { isApproximate: true }).orderedAttractions;
+        }
+
+        const dayMatrix = hasDayRoadMatrix ? dayMatrixResult.matrix : undefined;
+        return optimizeSightseeingRoute(
+          dayPoints,
+          false,
+          dayMatrix
+            ? { customMatrix: dayMatrix, criterion: 'duration', isApproximate: false }
+            : undefined,
+          'duration',
+          !dayMatrix
+        ).orderedPoints;
+      });
+
+      const requiredDays = Object.keys(dayRoutingInputs);
+      const isApproximate = isApproximateMode ||
+        hasUnroutableDayLodging ||
+        (requiredDays.length > 0 && !requiredDays.every((day) => Boolean(dayRoadMatrices[day])));
+      const benchmark: AlgorithmBenchmark = {
+        algorithmId: '2opt',
+        name: isApproximate ? 'Optymalizacja dzienna (szacunek)' : 'Optymalizacja dzienna (OSRM)',
+        distanceKm: 0,
+        timeMs: 1,
+        iterations: 1,
+        routeIndices: orderedByDay.map((_, index) => index),
+        cost: 0,
+        costUnit: isApproximate ? 'km' : 'seconds',
+      };
+      return {
+        orderedPoints: orderedByDay,
+        originalDistanceKm: 0,
+        optimizedDistanceKm: 0,
+        savingsKm: 0,
+        savingsPercent: 0,
+        timeSavedMinutes: 0,
+        bestAlgorithm: benchmark,
+        benchmarks: [benchmark],
+        hasCollapsedCoordinates: false,
+        isApproximate,
+        criterion: isApproximate ? 'distance' : 'duration',
+        originalCost: 0,
+        optimizedCost: 0,
+        costUnit: isApproximate ? 'km' : 'seconds',
+        routeStatus: isApproximate ? 'straight_line_estimate' : 'road_confirmed',
+        timeEstimateCategory: isApproximate ? 'none_in_approximate_mode' : 'osrm_road_duration',
+        metricsAvailable: false,
+      };
+    }
 
     // Przypadek 1: Dzień z hotelem jako startem i punktem powrotnym
     if (isSingleDayMode && hotelPoint) {
@@ -333,7 +596,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             criterion: 'duration',
             originalCost: dayRes.totalCost,
             optimizedCost: dayRes.totalCost,
-            costUnit: 's',
+            costUnit: 'seconds',
             routeStatus: 'road_confirmed',
             timeEstimateCategory: 'osrm_road_duration',
           };
@@ -390,67 +653,51 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
 
     // Wstępny fallback (np. podczas ładowania) lub jawny tryb przybliżony
     return optimizeSightseeingRoute(geoPoints, false, undefined, 'distance', true);
-  }, [geoPoints, isSingleDayMode, hotelPoint, activeSource, roadMatrix]);
+  }, [
+    geoPoints,
+    isSingleDayMode,
+    hotelPoint,
+    activeSource,
+    roadMatrix,
+    activeDayScope,
+    uniqueDays,
+    candidateEvents,
+    isMultiDayAllMode,
+    dayRoutingInputs,
+    hasUnroutableDayLodging,
+    dayRoadMatrices,
+    isApproximateMode,
+    events,
+    poolAttractions,
+    destinationCity,
+    lodgingCoords,
+    language,
+  ]);
 
   // Mapowanie przypisania punktów do poszczególnych dni w podglądzie całego wyjazdu
+  // Każda atrakcja zachowuje swój przypisany dzień kalendarzowy (brak niepożądanego przenoszenia)
   const dayAssignmentMap = useMemo(() => {
     if (!optimizationResult || uniqueDays.length <= 1 || activeDayScope !== 'ALL') {
       return null;
     }
-    const N = uniqueDays.length;
-    const M = optimizationResult.orderedPoints.length;
-
-    const existingCounts = uniqueDays.map(
-      (d) => events.filter((e) => e.type === 'ATTRACTION' && e.dateStr === d).length
+    const map: Record<string, { dayIndex: number; dayDate: string; isFirstInDay: boolean; isLastInDay: boolean }> = {};
+    const pointDates = optimizationResult.orderedPoints.map((point) =>
+      events.find((event) => event.id === point.id)?.dateStr || uniqueDays[0]
     );
-    const isBalanced =
-      existingCounts.every((c) => c <= 4) &&
-      existingCounts.reduce((a, b) => a + b, 0) === M &&
-      (N <= 2 || existingCounts.slice(1, N - 1).every((c) => c >= 1));
-
-    let quotas: number[] = new Array(N).fill(0);
-    if (isBalanced) {
-      quotas = [...existingCounts];
-    } else {
-      if (N === 2) {
-        const d1 = M >= 3 ? Math.min(2, Math.floor(M / 2)) : Math.min(1, M);
-        quotas[0] = d1;
-        quotas[1] = M - d1;
-      } else {
-        const d1 = M >= 5 ? 1 : (M >= 8 ? 2 : 0);
-        quotas[0] = d1;
-        const lastQ = (M - d1 >= 4) ? 1 : 0;
-        quotas[N - 1] = lastQ;
-        let remaining = M - d1 - lastQ;
-        for (let d = 1; d < N - 1; d++) {
-          const daysLeft = N - 1 - d;
-          const take = Math.ceil(remaining / daysLeft);
-          quotas[d] = Math.min(take, remaining);
-          remaining -= quotas[d];
-        }
-        if (remaining > 0) {
-          for (let d = 1; d < N && remaining > 0; d++) {
-            quotas[d]++;
-            remaining--;
-          }
-        }
-      }
-    }
-
-    const map: Record<string, { dayIndex: number; dayDate: string; isFirstInDay: boolean }> = {};
-    let cursor = 0;
-    for (let d = 0; d < N; d++) {
-      const q = quotas[d] || 0;
-      for (let s = 0; s < q && cursor < M; s++) {
-        const pt = optimizationResult.orderedPoints[cursor];
-        map[pt.id] = {
-          dayIndex: d + 1,
-          dayDate: uniqueDays[d],
-          isFirstInDay: s === 0,
-        };
-        cursor++;
-      }
-    }
+    const seenDays = new Set<string>();
+    optimizationResult.orderedPoints.forEach((pt, index) => {
+      const originalEvt = events.find((e) => e.id === pt.id);
+      const dayDate = originalEvt?.dateStr || uniqueDays[0];
+      const dayIndex = uniqueDays.indexOf(dayDate) + 1;
+      const isFirstInDay = !seenDays.has(dayDate);
+      seenDays.add(dayDate);
+      map[pt.id] = {
+        dayIndex: dayIndex > 0 ? dayIndex : 1,
+        dayDate,
+        isFirstInDay,
+        isLastInDay: pointDates[index + 1] !== dayDate,
+      };
+    });
     return map;
   }, [optimizationResult, uniqueDays, activeDayScope, events]);
 
@@ -485,8 +732,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
 
     const loadLiveGoogleData = async () => {
       try {
-        const fetchedCoords: Record<string, { lat: number; lon: number }> = {};
-        for (const evt of candidateEvents) {
+        const fetchedCoords: Record<string, { lat: number; lon: number; isUnresolved?: boolean }> = {};
+        for (const evt of routeLocationEvents) {
           if (abortController.signal.aborted) break;
           const hasCoords =
             typeof evt.lat === 'number' &&
@@ -494,7 +741,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             typeof evt.lon === 'number' &&
             Number.isFinite(evt.lon);
           if (!hasCoords) {
-            const place = await fetchGooglePlaceLocation(evt.title, destinationCity);
+            const place = await fetchGooglePlaceLocation(
+              evt.type === 'LODGING' ? (evt.subtitle?.trim() || evt.title) : evt.title,
+              destinationCity,
+              {
+              signal: abortController.signal,
+              }
+            );
             if (
               place &&
               typeof place.lat === 'number' &&
@@ -502,7 +755,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               typeof place.lon === 'number' &&
               Number.isFinite(place.lon)
             ) {
-              fetchedCoords[evt.id] = { lat: place.lat, lon: place.lon };
+              fetchedCoords[evt.id] = { lat: place.lat, lon: place.lon, isUnresolved: false };
             }
           }
         }
@@ -519,9 +772,11 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         ) {
           const points = optimizationResult.orderedPoints;
           const legPromises = [];
+          const eventDatesById = new Map(candidateEvents.map((event) => [event.id, event.dateStr]));
           for (let i = 0; i < points.length - 1; i++) {
             const p1 = points[i];
             const p2 = points[i + 1];
+            if (eventDatesById.get(p1.id) !== eventDatesById.get(p2.id)) continue;
             const key = `${p1.id}_${p2.id}`;
             legPromises.push(
               fetchRealRouteInfo(p1, p2, { signal: abortController.signal })
@@ -561,9 +816,33 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         setIsLiveLoading(false);
       }
     };
-  }, [visible, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
+  }, [visible, routeLocationEvents, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
+
+  // Łączny czas przemieszczania się w ciągu dnia
+  const totalTransitMinutes = useMemo(() => {
+    if (!optimizationResult || optimizationResult.orderedPoints.length < 2) return 0;
+    let total = 0;
+    for (let i = 0; i < optimizationResult.orderedPoints.length - 1; i++) {
+      const p1 = optimizationResult.orderedPoints[i];
+      const p2 = optimizationResult.orderedPoints[i + 1];
+      const legKey = `${p1.id}_${p2.id}`;
+      const legDist = streetDistances[legKey];
+      const routeInfo = liveRouteInfos[legKey];
+      const est = routeInfo || calculateTransitEstimates(p1, p2, legDist);
+      const mode = est.recommendedMode;
+      if (mode === 'walking') {
+        total += est.walkMinutes;
+      } else {
+        total += est.transitMinutes;
+      }
+    }
+    return total;
+  }, [optimizationResult, streetDistances, liveRouteInfos]);
 
   const handleConfirmApply = () => {
+    if (osrmStatus === 'loading' || hasUnresolvedPoints) {
+      return;
+    }
     if (!optimizationResult && candidateEvents.length < 2) {
       onClose();
       return;
@@ -588,6 +867,58 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     onApply(finalTimeline);
     onClose();
   };
+
+  const dayRouteCards = isMultiDayAllMode && optimizationResult
+    ? uniqueDays.map((day) => {
+        const dayPoints = optimizationResult.orderedPoints.filter(
+          (point) => events.find((event) => event.id === point.id)?.dateStr === day
+        );
+        const lodgingEvent = getLodgingEventForDay(day);
+        const dayHotel = getHotelPointForDay(day);
+        const hotelUnavailable = Boolean(lodgingEvent && !dayHotel);
+        const routePoints: GeoPoint[] = dayHotel
+          ? [dayHotel, ...dayPoints, dayHotel]
+          : dayPoints;
+        const mapsPoints = routePoints.map((point) => ({
+          ...point,
+          lat: point.isUnresolved ? undefined : point.lat,
+          lon: point.isUnresolved ? undefined : point.lon,
+        }));
+        const matrixInfo = dayRoadMatrices[day];
+        const matrixMatchesRoute = Boolean(
+          matrixInfo &&
+          !isApproximateMode &&
+          (!dayHotel || matrixInfo.pointIds[0] === dayHotel.id) &&
+          dayPoints.every((point) => matrixInfo.pointIds.includes(point.id))
+        );
+        let durationMinutes: number | null = null;
+        if (matrixMatchesRoute && matrixInfo) {
+          const indexById = new Map(matrixInfo.pointIds.map((id, index) => [id, index]));
+          let totalSeconds = 0;
+          let completeMatrixPath = true;
+          for (let index = 0; index < routePoints.length - 1; index++) {
+            const from = indexById.get(routePoints[index].id);
+            const to = indexById.get(routePoints[index + 1].id);
+            if (from === undefined || to === undefined) {
+              completeMatrixPath = false;
+              break;
+            }
+            totalSeconds += matrixInfo.matrix[from][to];
+          }
+          if (completeMatrixPath) durationMinutes = Math.round(totalSeconds / 60);
+        }
+
+        return {
+          day,
+          dayPoints,
+          dayHotel,
+          hotelUnavailable,
+          routeUrl: buildGoogleMapsFullRouteUrl(mapsPoints, destinationCity),
+          durationMinutes,
+          isRoadConfirmed: matrixMatchesRoute,
+        };
+      })
+    : [];
 
   if (!visible) return null;
 
@@ -858,30 +1189,98 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               {/* PRZYCISK ZOBACZ CAŁĄ TRASĘ W GOOGLE MAPS */}
               {optimizationResult && (
                 <View style={styles.fullRouteContainer}>
-
-                  <TouchableOpacity
-                    style={styles.fullRouteBtn}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      const fullUrl = buildGoogleMapsFullRouteUrl(
-                        optimizationResult.orderedPoints,
-                        destinationCity
-                      );
-                      Linking.openURL(fullUrl).catch((err) => {
-                        console.warn('Cannot open full route in Google Maps:', err);
-                      });
-                    }}
-                    testID="view-full-route-maps-btn"
-                  >
-                    <View style={styles.fullRouteIconBox}>
-                      <Ionicons name="map" size={18} color="#38BDF8" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fullRouteBtnTitle}>{t.viewEntireRouteInMaps}</Text>
-                      <Text style={styles.fullRouteBtnSubtitle}>{t.fullRouteCardDesc}</Text>
-                    </View>
-                    <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
-                  </TouchableOpacity>
+                  {isMultiDayAllMode ? (
+                    dayRouteCards.map((route, index) => (
+                      <View key={route.day} style={{ marginBottom: 8 }}>
+                        <TouchableOpacity
+                          style={styles.fullRouteBtn}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            Linking.openURL(route.routeUrl).catch((err) => {
+                              console.warn('Cannot open daily route in Google Maps:', err);
+                            });
+                          }}
+                          testID={`maps-day-route-btn-${index}`}
+                        >
+                          <View style={styles.fullRouteIconBox}>
+                            <Ionicons name="map" size={18} color="#38BDF8" />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.fullRouteBtnTitle}>
+                              {language === 'en'
+                                ? `Day ${index + 1} route in Google Maps`
+                                : `Trasa dnia ${index + 1} w Google Maps`}
+                            </Text>
+                            <Text style={styles.fullRouteBtnSubtitle}>
+                              {route.dayHotel
+                                ? language === 'en'
+                                  ? `Hotel round trip${route.durationMinutes === null ? '' : ` · OSRM ${selectedTransportProfile === 'walking' ? 'walking' : 'driving'} estimate ~${route.durationMinutes} min`}`
+                                  : `Pętla z hotelem${route.durationMinutes === null ? '' : ` · szacunek OSRM (${selectedTransportProfile === 'walking' ? 'pieszo' : 'samochodem'}) ~${route.durationMinutes} min`}`
+                                : route.hotelUnavailable
+                                  ? language === 'en'
+                                    ? 'Daily route; hotel location unavailable'
+                                    : 'Trasa dnia; brak potwierdzonej lokalizacji hotelu'
+                                  : language === 'en'
+                                    ? 'Daily route for attractions'
+                                    : 'Trasa dzienna atrakcji'}
+                            </Text>
+                          </View>
+                          <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
+                        </TouchableOpacity>
+                        {route.hotelUnavailable && (
+                          <Text style={styles.fullRouteBtnSubtitle}>
+                            {language === 'en'
+                              ? 'Hotel coordinates could not be verified; this route does not include the hotel.'
+                              : 'Nie udało się potwierdzić lokalizacji hotelu; trasa go nie uwzględnia.'}
+                          </Text>
+                        )}
+                        {!route.isRoadConfirmed && (
+                          <Text style={styles.fullRouteBtnSubtitle}>
+                            {language === 'en'
+                              ? 'Estimated ordering; Google Maps calculates the actual route.'
+                              : 'Kolejność jest szacunkowa; rzeczywistą trasę wyznaczą Mapy Google.'}
+                          </Text>
+                        )}
+                      </View>
+                    ))
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.fullRouteBtn}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        const fullRoutePoints: GeoPoint[] = hotelPoint
+                          ? [hotelPoint, ...optimizationResult.orderedPoints, hotelPoint]
+                          : optimizationResult.orderedPoints;
+                        const fullUrl = buildGoogleMapsFullRouteUrl(
+                          fullRoutePoints.map((point) => ({
+                            ...point,
+                            lat: point.isUnresolved ? undefined : point.lat,
+                            lon: point.isUnresolved ? undefined : point.lon,
+                          })),
+                          destinationCity
+                        );
+                        Linking.openURL(fullUrl).catch((err) => {
+                          console.warn('Cannot open full route in Google Maps:', err);
+                        });
+                      }}
+                      testID="view-full-route-maps-btn"
+                    >
+                      <View style={styles.fullRouteIconBox}>
+                        <Ionicons name="map" size={18} color="#38BDF8" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fullRouteBtnTitle}>{t.viewEntireRouteInMaps}</Text>
+                        <Text style={styles.fullRouteBtnSubtitle}>
+                          {hotelPoint
+                            ? language === 'en'
+                              ? 'Hotel → sights → hotel'
+                              : 'Hotel → atrakcje → hotel'
+                            : t.fullRouteCardDesc}
+                        </Text>
+                      </View>
+                      <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
 
@@ -889,6 +1288,17 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               {optimizationResult && (
                 <View style={styles.routePreviewSection}>
                   <Text style={styles.routePreviewTitle}>{t.previewRoute}</Text>
+
+                  {hasUnresolvedPoints && (
+                    <View style={styles.unresolvedNoticeBanner}>
+                      <Ionicons name="warning-outline" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
+                      <Text style={styles.unresolvedNoticeText}>
+                        {language === 'en'
+                          ? 'Some places do not have exact GPS coordinates. Distances and times for these items are estimates.'
+                          : 'Niektóre atrakcje nie posiadają dokładnych współrzędnych GPS. Czasy i odległości dla tych miejsc są orientacyjne.'}
+                      </Text>
+                    </View>
+                  )}
                   {isSingleDayMode && hotelPoint && (
                     <View style={styles.previewStepRow}>
                       <View style={styles.previewStepLeft}>
@@ -910,12 +1320,16 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     </View>
                   )}
                   {optimizationResult.orderedPoints.map((pt, idx) => {
-                    const nextPt = optimizationResult.orderedPoints[idx + 1];
+                    const dayInfo = dayAssignmentMap ? dayAssignmentMap[pt.id] : null;
+                    const nextCandidate = optimizationResult.orderedPoints[idx + 1];
+                    const nextPt = dayAssignmentMap && dayAssignmentMap[nextCandidate?.id || '']?.dayDate !== dayInfo?.dayDate
+                      ? undefined
+                      : nextCandidate;
                     const legKey = nextPt ? `${pt.id}_${nextPt.id}` : '';
                     const customStreetDist = legKey ? streetDistances[legKey] : undefined;
                     const routeInfo = legKey ? liveRouteInfos[legKey] : undefined;
                     const transit = nextPt ? (routeInfo || calculateTransitEstimates(pt, nextPt, customStreetDist)) : null;
-                    const dayInfo = dayAssignmentMap ? dayAssignmentMap[pt.id] : null;
+                    const dayHotel = dayInfo ? getHotelPointForDay(dayInfo.dayDate) : null;
 
                     return (
                       <React.Fragment key={pt.id}>
@@ -925,6 +1339,26 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                             <Text style={styles.daySectionHeaderText}>
                               {`${language === 'en' ? 'Day' : 'Dzień'} ${dayInfo.dayIndex} • ${dayInfo.dayDate}`}
                             </Text>
+                          </View>
+                        )}
+                        {dayInfo?.isFirstInDay && dayHotel && (
+                          <View style={styles.previewStepRow}>
+                            <View style={styles.previewStepLeft}>
+                              <View style={[styles.previewStepNumberBadge, { backgroundColor: '#38BDF8' }]}>
+                                <Ionicons name="business" size={13} color="#0F172A" />
+                              </View>
+                              <View style={styles.previewStepLine} />
+                            </View>
+                            <View style={styles.previewStepRight}>
+                              <View style={[styles.previewPointCard, { borderColor: '#38BDF8' }]}>
+                                <View style={{ flex: 1, marginRight: 8 }}>
+                                  <Text style={styles.previewPointTitle}>{dayHotel.title}</Text>
+                                  <Text style={styles.previewPointSubtitle} numberOfLines={1}>
+                                    {dayHotel.subtitle || (language === 'en' ? 'Start day: lodging' : 'Start dnia: nocleg')}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
                           </View>
                         )}
                         <View style={styles.previewStepRow}>
@@ -943,6 +1377,14 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                                   {pt.subtitle}
                                 </Text>
                               ) : null}
+                              {pt.isUnresolved && (
+                                <View style={styles.unresolvedBadge}>
+                                  <Ionicons name="alert-circle-outline" size={12} color="#F59E0B" style={{ marginRight: 4 }} />
+                                  <Text style={styles.unresolvedBadgeText}>
+                                    {language === 'en' ? 'Estimated GPS' : 'Orientacyjna lokalizacja (brak GPS)'}
+                                  </Text>
+                                </View>
+                              )}
                             </View>
                             <TouchableOpacity
                               style={styles.pointNavigateBtn}
@@ -975,8 +1417,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                                 />
                                 <Text style={styles.legRecommendationText}>
                                   {language === 'en'
-                                    ? `Recommended transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`
-                                    : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit}`}
+                                    ? `Recommended transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit} (estimate)`
+                                    : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit} (orientacyjnie)`}
                                 </Text>
                               </View>
                               {transit.recommendedMode === 'transit' ? (
@@ -991,8 +1433,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                               ) : (
                                 <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2, marginBottom: 6, fontStyle: 'italic' }}>
                                   {language === 'en'
-                                    ? 'Short walking segment between nearby sights.'
-                                    : 'Krótki spacer turystyczny między pobliskimi punktami.'}
+                                    ? 'Estimated short walk between nearby sights; verify the route in Google Maps.'
+                                    : 'Szacunkowy krótki spacer między pobliskimi punktami; sprawdź trasę w Mapach Google.'}
                                 </Text>
                               )}
 
@@ -1017,6 +1459,25 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                           )}
                         </View>
                       </View>
+                      {dayInfo?.isLastInDay && dayHotel && (
+                        <View style={styles.previewStepRow}>
+                          <View style={styles.previewStepLeft}>
+                            <View style={[styles.previewStepNumberBadge, { backgroundColor: '#38BDF8' }]}>
+                              <Ionicons name="business" size={13} color="#0F172A" />
+                            </View>
+                          </View>
+                          <View style={styles.previewStepRight}>
+                            <View style={[styles.previewPointCard, { borderColor: '#38BDF8' }]}>
+                              <View style={{ flex: 1, marginRight: 8 }}>
+                                <Text style={styles.previewPointTitle}>{dayHotel.title}</Text>
+                                <Text style={styles.previewPointSubtitle} numberOfLines={1}>
+                                  {dayHotel.subtitle || (language === 'en' ? 'Return: lodging' : 'Powrót: nocleg')}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -1042,14 +1503,48 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               </View>
               )}
 
+              {/* OSTRZEŻENIE O TRYBIE PRZYBLIŻONYM LUB ŁADOWANIU OSRM */}
+              {osrmStatus === 'loading' ? (
+                <View style={styles.approximateWarningBanner} testID="osrm-loading-apply-warning">
+                  <ActivityIndicator size="small" color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.approximateWarningText}>
+                    {language === 'en'
+                      ? 'Loading road network from OSRM... Route currently uses straight-line approximation.'
+                      : 'Wczytywanie siatki drogowej OSRM... Trasa opiera się obecnie na szacunku linii prostej.'}
+                  </Text>
+                </View>
+              ) : activeSource === 'approximate' ? (
+                <View style={styles.approximateWarningBanner} testID="approximate-warning-banner">
+                  <Ionicons name="information-circle-outline" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.approximateWarningText}>
+                    {language === 'en'
+                      ? isMultiDayAllMode && !isApproximateMode
+                        ? 'At least one day uses a straight-line estimate because its road route could not be confirmed. Other days may use OSRM.'
+                        : 'Route is estimated (straight-line distance). Applying will update order according to geometric heuristic.'
+                      : isMultiDayAllMode && !isApproximateMode
+                        ? 'Co najmniej jeden dzień jest oszacowany w linii prostej, ponieważ nie udało się potwierdzić jego trasy drogowej. Pozostałe dni mogą korzystać z OSRM.'
+                        : 'Trasa wyznaczona w trybie szacunkowym (linia prosta). Zastosowanie zaktualizuje kolejność według heurystyki geometrycznej.'}
+                  </Text>
+                </View>
+              ) : null}
+
               {/* PRZYCISKI AKCJI */}
               <View style={styles.actionsRow}>
                 <TouchableOpacity
-                  style={styles.applyBtn}
+                  testID="confirm-apply-button"
+                  style={[
+                    styles.applyBtn,
+                    (osrmStatus === 'loading' || hasUnresolvedPoints) && styles.applyBtnDisabled,
+                  ]}
                   onPress={handleConfirmApply}
+                  disabled={osrmStatus === 'loading' || hasUnresolvedPoints}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark-circle-outline" size={18} color="#0F172A" style={{ marginRight: 8 }} />
+                  {osrmStatus === 'loading' ? (
+                    <ActivityIndicator size="small" color="#0F172A" style={{ marginRight: 8 }} testID="apply-loading-spinner" />
+                  ) : (
+                    <Ionicons name="checkmark-circle-outline" size={18} color="#0F172A" style={{ marginRight: 8 }} />
+                  )}
                   <Text style={styles.applyBtnText}>{t.applyOptimization}</Text>
                 </TouchableOpacity>
 
@@ -1615,5 +2110,54 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     lineHeight: 16,
   },
+  applyBtnDisabled: {
+    opacity: 0.6,
+  },
+  approximateWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  approximateWarningText: {
+    fontSize: 12,
+    color: '#FDE68A',
+    flex: 1,
+    lineHeight: 16,
+  },
+  unresolvedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  unresolvedBadgeText: {
+    fontSize: 11,
+    color: '#F59E0B',
+    fontWeight: '500',
+  },
+  unresolvedNoticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  unresolvedNoticeText: {
+    fontSize: 12,
+    color: '#FCD34D',
+    flex: 1,
+    lineHeight: 16,
+  },
 });
-

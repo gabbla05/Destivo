@@ -12,9 +12,14 @@ export const DEFAULT_FALLBACK_GOOGLE_API_KEY = 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O
 export const DEFAULT_FALLBACK_WEATHER_API_KEY = '68a647f3b99a084c4a1c3809b971b034';
 
 /**
- * Domyślny adres bazowy serwera OSRM (Open Source Routing Machine).
+ * Domyślny adres bazowy serwera OSRM dla profilu samochodowego (Open Source Routing Machine).
  */
 export const DEFAULT_OSRM_ROUTER_URL = 'https://router.project-osrm.org';
+
+/**
+ * Domyślny adres bazowy serwera routingu pieszego OpenStreetMap (Foot routing).
+ */
+export const DEFAULT_OSRM_FOOT_ROUTER_URL = 'https://routing.openstreetmap.de/routed-foot';
 
 /**
  * Zwraca aktywny klucz Google API.
@@ -72,13 +77,10 @@ export function getWeatherApiKey(): string {
 }
 
 /**
- * Zwraca aktywny adres bazowy serwera OSRM.
- * Kolejność priorytetów:
- * 1. Zmienna środowiskowa EXPO_PUBLIC_OSRM_BASE_URL
- * 2. extra.osrmBaseUrl z app.json (Constants.expoConfig)
- * 3. DEFAULT_OSRM_ROUTER_URL (domyślny publiczny serwer OSRM)
+ * Zwraca aktywny adres bazowy serwera routingu OSRM dla zadanego profilu.
+ * Obsługuje dedykowane serwery dla profilu samochodowego ('driving') i pieszego ('walking').
  */
-export function getOsrmBaseUrl(): string {
+export function getOsrmBaseUrl(profile: 'driving' | 'walking' = 'driving'): string {
   const sanitizeAndValidate = (urlStr: string): string | null => {
     try {
       const trimmed = urlStr.trim().replace(/\/+$/, '');
@@ -91,6 +93,27 @@ export function getOsrmBaseUrl(): string {
     }
     return null;
   };
+
+  if (profile === 'walking') {
+    const footEnvUrl =
+      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_FOOT_BASE_URL'] ||
+      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_WALKING_BASE_URL'] ||
+      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_FOOT_URL'];
+    if (footEnvUrl && footEnvUrl.trim().length > 0) {
+      const valid = sanitizeAndValidate(footEnvUrl);
+      if (valid) return valid;
+    }
+
+    const extraFootUrl =
+      (Constants?.expoConfig?.extra as any)?.osrmFootBaseUrl ||
+      (Constants?.expoConfig?.extra as any)?.osrmWalkingBaseUrl;
+    if (extraFootUrl && typeof extraFootUrl === 'string' && extraFootUrl.trim().length > 0) {
+      const valid = sanitizeAndValidate(extraFootUrl);
+      if (valid) return valid;
+    }
+
+    return DEFAULT_OSRM_FOOT_ROUTER_URL;
+  }
 
   const envUrl =
     (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_BASE_URL'] ||

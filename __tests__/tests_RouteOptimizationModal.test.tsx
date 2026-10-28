@@ -3,7 +3,8 @@ import React from 'react';
 import { Linking } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { RouteOptimizationModal } from '../src/components/RouteOptimizationModal';
-import { OSRM_MATRIX_CACHE } from '../src/lib/routeOptimization';
+import { OSRM_MATRIX_CACHE, clearInFlightOsrmRequests } from '../src/lib/routeOptimization';
+import * as routeOptimization from '../src/lib/routeOptimization';
 
 // Mock authStore
 jest.mock('../src/store/authStore', () => ({
@@ -46,9 +47,27 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     },
   ];
 
+  const mockOsrmTableResponse = () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      const coordinateCount = String(url).split('?')[0].split('/').pop()?.split(';').length || 0;
+      const durations = Array.from({ length: coordinateCount }, (_, from) =>
+        Array.from({ length: coordinateCount }, (_, to) => (from === to ? 0 : 60))
+      );
+      const distances = durations.map((row) => row.map((duration) => duration * 10));
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ code: 'Ok', durations, distances }),
+      } as Response;
+    });
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     OSRM_MATRIX_CACHE.clear();
+    clearInFlightOsrmRequests();
+    process.env.NODE_ENV = 'test';
   });
 
   test('nie renderuje się, gdy visible={false}', () => {
@@ -159,7 +178,8 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     spyOpenURL.mockRestore();
   });
 
-  test('kliknięcie "Zapisz kolejność" wywołuje onApply z uszeregowanymi wydarzeniami i nowymi godzinami', () => {
+  test('kliknięcie "Zapisz kolejność" wywołuje onApply z uszeregowanymi wydarzeniami i nowymi godzinami', async () => {
+    mockOsrmTableResponse();
     render(
       <RouteOptimizationModal
         visible={true}
@@ -170,13 +190,16 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
       />
     );
 
+    await waitFor(() => {
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+    });
     fireEvent.press(screen.getByText('Zapisz kolejność'));
 
     expect(mockOnApply).toHaveBeenCalledTimes(1);
     const appliedEvents = mockOnApply.mock.calls[0][0];
     expect(appliedEvents.length).toBe(3);
     expect(appliedEvents[0].timeStr).toBe('10:00');
-    expect(appliedEvents[1].timeStr).toBe('11:41');
+    expect(appliedEvents[1].timeStr).toBe('11:51');
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
@@ -195,7 +218,8 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(mockOnApply).not.toHaveBeenCalled();
   });
 
-  test('dla wyjazdu wielodniowego wyświetla zakładki dni i poprawnie rozdziela atrakcje na poszczególne dni', () => {
+  test('dla wyjazdu wielodniowego wyświetla zakładki dni i poprawnie rozdziela atrakcje na poszczególne dni', async () => {
+    mockOsrmTableResponse();
     const multiDayEvents = [
       {
         id: 'evt_d1_dep',
@@ -253,12 +277,19 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
       />
     );
 
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalled();
+    });
+
     // Sprawdzamy obecność zakładek zakresu
     expect(screen.getByTestId('scope-tab-all')).toBeTruthy();
     expect(screen.getByTestId('scope-tab-day-0')).toBeTruthy();
     expect(screen.getByTestId('scope-tab-day-1')).toBeTruthy();
 
     // Klikamy "Zapisz kolejność" dla całego wyjazdu
+    await waitFor(() => {
+      expect(screen.queryByTestId('osrm-loading-banner')).toBeNull();
+    });
     fireEvent.press(screen.getByText('Zapisz kolejność'));
 
     expect(mockOnApply).toHaveBeenCalledTimes(1);
@@ -279,6 +310,181 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
     expect(d1AttrIdx).toBeLessThan(d1HotelIdx);
     expect(d1HotelIdx).toBeLessThan(d2AttrIdx);
+  });
+
+  test('cały wyjazd pobiera osobne macierze z hotelem dla każdego dnia i nie łączy odcinków między dniami', async () => {
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    const multiDayEvents = [
+      {
+        id: 'hotel_day_1',
+        type: 'LODGING',
+        title: 'Hotel Dzień 1',
+        dateStr: '10-09-2026',
+        timeStr: '18:00',
+        parsedDate: new Date('2026-09-10T18:00:00Z'),
+        lat: 41.8900,
+        lon: 12.4900,
+      },
+      {
+        id: 'day_1_a',
+        type: 'ATTRACTION',
+        title: 'Atrakcja 1A',
+        dateStr: '10-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-10T10:00:00Z'),
+        lat: 41.8910,
+        lon: 12.4910,
+      },
+      {
+        id: 'day_1_b',
+        type: 'ATTRACTION',
+        title: 'Atrakcja 1B',
+        dateStr: '10-09-2026',
+        timeStr: '12:00',
+        parsedDate: new Date('2026-09-10T12:00:00Z'),
+        lat: 41.8920,
+        lon: 12.4920,
+      },
+      {
+        id: 'hotel_day_2',
+        type: 'LODGING',
+        title: 'Hotel Dzień 2',
+        dateStr: '11-09-2026',
+        timeStr: '18:00',
+        parsedDate: new Date('2026-09-11T18:00:00Z'),
+        lat: 41.9000,
+        lon: 12.4500,
+      },
+      {
+        id: 'day_2_a',
+        type: 'ATTRACTION',
+        title: 'Atrakcja 2A',
+        dateStr: '11-09-2026',
+        timeStr: '10:00',
+        parsedDate: new Date('2026-09-11T10:00:00Z'),
+        lat: 41.9010,
+        lon: 12.4510,
+      },
+      {
+        id: 'day_2_b',
+        type: 'ATTRACTION',
+        title: 'Atrakcja 2B',
+        dateStr: '11-09-2026',
+        timeStr: '12:00',
+        parsedDate: new Date('2026-09-11T12:00:00Z'),
+        lat: 41.9020,
+        lon: 12.4520,
+      },
+    ];
+    const requestedUrls: string[] = [];
+    jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      const requestUrl = String(url);
+      requestedUrls.push(requestUrl);
+      if (requestUrl.includes('/table/v1/')) {
+        const coordinateCount = requestUrl.split('?')[0].split('/').pop()?.split(';').length || 0;
+        const durations = Array.from({ length: coordinateCount }, (_, from) =>
+          Array.from({ length: coordinateCount }, (_, to) => (from === to ? 0 : 90))
+        );
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ code: 'Ok', durations, distances: durations }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ code: 'Ok', routes: [{ distance: 1000, duration: 600 }] }),
+      } as Response;
+    });
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={multiDayEvents}
+        destinationCity="Rzym"
+      />
+    );
+
+    await waitFor(() => {
+      expect(requestedUrls.filter((url) => url.includes('/table/v1/')).length).toBe(2);
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+    });
+
+    const matrixUrls = requestedUrls.filter((url) => url.includes('/table/v1/'));
+    expect(matrixUrls[0]).toContain('12.49,41.89');
+    expect(matrixUrls[1]).toContain('12.45,41.9');
+    expect(screen.getAllByText('Hotel Dzień 1')).toHaveLength(2);
+    expect(screen.getAllByText('Hotel Dzień 2')).toHaveLength(2);
+    expect(screen.getAllByTestId(/transit-maps-btn-/)).toHaveLength(2);
+
+    fireEvent.press(screen.getByTestId('maps-day-route-btn-0'));
+    expect(openUrlSpy.mock.calls[0][0]).toContain('origin=41.89,12.49');
+    expect(openUrlSpy.mock.calls[0][0]).toContain('destination=41.89,12.49');
+    fireEvent.press(screen.getByTestId('maps-day-route-btn-1'));
+    expect(openUrlSpy.mock.calls[1][0]).toContain('origin=41.9,12.45');
+    expect(openUrlSpy.mock.calls[1][0]).toContain('destination=41.9,12.45');
+    openUrlSpy.mockRestore();
+  });
+
+  test('zapis kolejności nie czeka na opcjonalne wskazówki dojazdu', async () => {
+    const resolvePendingInfo: Array<(info: routeOptimization.StreetRouteInfo) => void> = [];
+    const environmentSpy = jest.spyOn(routeOptimization, 'isTestEnvironment').mockReturnValue(false);
+    const routeInfoSpy = jest.spyOn(routeOptimization, 'fetchRealRouteInfo').mockImplementation(
+      () => new Promise((resolve) => resolvePendingInfo.push(resolve))
+    );
+    mockOsrmTableResponse();
+
+    const { rerender } = render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents.slice(0, 2).map((event, index) => ({
+          ...event,
+          lat: 41.89 + index * 0.01,
+          lon: 12.49 + index * 0.01,
+        }))}
+        destinationCity="Rzym"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(routeInfoSpy).toHaveBeenCalled();
+    });
+
+    const applyButton = screen.getByTestId('confirm-apply-button');
+    expect(applyButton.props.disabled).not.toBe(true);
+    fireEvent.press(applyButton);
+    expect(mockOnApply).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <RouteOptimizationModal
+        visible={false}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={mockEvents.slice(0, 2)}
+        destinationCity="Rzym"
+      />
+    );
+    resolvePendingInfo.forEach((resolve) => resolve({
+      walkMinutes: 10,
+      walkDistanceKm: 1,
+      transitMinutes: 8,
+      driveMinutes: 5,
+      driveDistanceKm: 1,
+      straightDistanceKm: 0.8,
+      recommendedMode: 'walking',
+      isLongWalk: false,
+      isTransitEstimated: true,
+    }));
+    routeInfoSpy.mockRestore();
+    environmentSpy.mockRestore();
   });
 
   test('wyświetla ostrzeżenie o przybliżonych/zbitych współrzędnych, gdy punkty mają identyczne koordynaty (hasCollapsedCoordinates)', () => {
@@ -657,7 +863,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     );
 
     await waitFor(() => {
-      expect(urlsCalled.some((u) => u.includes('/table/v1/walking/'))).toBe(true);
+      expect(urlsCalled.some((u) => u.includes('/table/v1/walking/') || u.includes('/table/v1/foot/'))).toBe(true);
     });
   });
 
@@ -799,7 +1005,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
   test('dla profilu "walking" badge prezentuje "Sieć piesza OSRM • Zoptymalizowano czas przejścia"', async () => {
     jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
-      if (typeof url === 'string' && url.includes('/table/v1/walking/')) {
+      if (typeof url === 'string' && (url.includes('/table/v1/walking/') || url.includes('/table/v1/foot/'))) {
         return {
           ok: true,
           status: 200,
@@ -843,4 +1049,3 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(screen.getByText('Sieć piesza OSRM • Zoptymalizowano czas przejścia')).toBeTruthy();
   });
 });
-

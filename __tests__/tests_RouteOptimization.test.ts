@@ -720,17 +720,14 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(Math.abs(offset2.lonOffset)).toBeGreaterThan(0.001);
     });
 
-    test('resolvePointCoordinates dla nieznanych punktów offline w małej miejscowości przypisuje rozproszone punkty (dystans > 100m)', () => {
+    test('resolvePointCoordinates dla nieznanych punktów offline oznacza je jako isUnresolved: true bez fałszywych przesunięć', () => {
       const coords1 = resolvePointCoordinates('Nieznana Galeria Sztuki', [], 'Kazimierz Dolny');
       const coords2 = resolvePointCoordinates('Ukryta Kawiarnia w Ogrodzie', [], 'Kazimierz Dolny');
 
       expect(coords1).not.toBeNull();
       expect(coords2).not.toBeNull();
-
-      // Odległość między dwoma nieznanymi punktami w Kazimierzu Dolnym NIE może być zerowa (kolaps zlikwidowany)
-      const dist = haversineDistance(coords1.lat, coords1.lon, coords2.lat, coords2.lon);
-      expect(dist).toBeGreaterThan(0.1); // Co najmniej 100 metrów
-      expect(dist).toBeLessThan(5.0); // W rozsądnym zasięgu miejscowości
+      expect(coords1.isUnresolved).toBe(true);
+      expect(coords2.isUnresolved).toBe(true);
     });
 
     test('optimizeSightseeingRoute wykrywa zbieżne/zbite współrzędne i ustawia hasCollapsedCoordinates: true', () => {

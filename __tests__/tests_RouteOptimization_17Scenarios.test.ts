@@ -244,6 +244,29 @@ describe('DESTIVO: 17 Scenariuszy Weryfikacji Silnika Optymalizacji Tras', () =>
         fetchOsrmRoadMatrix([ptA, ptB], { timeoutMs: 100, maxRetries: 0 })
       ).rejects.toThrow(/Przekroczono limit czasu/i);
     });
+
+    test('fetchOsrmRoadMatrix obejmuje timeoutem także odczyt treści odpowiedzi', async () => {
+      const ptA: GeoPoint = { id: 'a', title: 'A', lat: 41.89, lon: 12.49 };
+      const ptB: GeoPoint = { id: 'b', title: 'B', lat: 41.90, lon: 12.50 };
+
+      jest.spyOn(global, 'fetch').mockImplementation(async (_url: any, init?: any) => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              const error = new Error('The operation was aborted.');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          }),
+      } as Response));
+
+      await expect(
+        fetchOsrmRoadMatrix([ptA, ptB], { timeoutMs: 10, maxRetries: 0 })
+      ).rejects.toThrow(/Przekroczono limit czasu/i);
+    });
   });
 
   // =========================================================================
