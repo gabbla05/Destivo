@@ -532,12 +532,12 @@ describe('DESTIVO: 17 Scenariuszy Weryfikacji Silnika Optymalizacji Tras', () =>
       const firstPoint = res.orderedPoints[0];
       const lastPoint = res.orderedPoints[res.orderedPoints.length - 1];
 
-      // Origin w URL odpowiada dokładnie pierwszemu punktowi zoptymalizowanej listy
-      expect(url).toContain('origin=');
-      expect(url).toContain(encodeURIComponent(firstPoint.title));
-      // Destination odpowiada dokładnie ostatniemu punktowi listy
-      expect(url).toContain('destination=');
-      expect(url).toContain(encodeURIComponent(lastPoint.title));
+      const parsedUrl = new URL(url);
+      expect(parsedUrl.searchParams.get('origin')).toBe(`${firstPoint.lat},${firstPoint.lon}`);
+      expect(parsedUrl.searchParams.get('destination')).toBe(`${lastPoint.lat},${lastPoint.lon}`);
+      expect(parsedUrl.searchParams.get('waypoints')).toBe(
+        res.orderedPoints.slice(1, -1).map((point) => `${point.lat},${point.lon}`).join('|')
+      );
     });
   });
 

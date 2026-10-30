@@ -21,6 +21,7 @@ import {
   recalculateItineraryTimes,
   calculateTransitEstimates,
   buildGoogleMapsDirectionsUrl,
+  buildGoogleMapsFullRouteUrls,
   resolvePointCoordinates,
   getDeterministicCoordinateOffset,
   findIntelligentInsertionSlot,
@@ -207,6 +208,40 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
 
       const driveUrl = buildGoogleMapsDirectionsUrl(colosseum, vatican, 'driving');
       expect(driveUrl).toContain('travelmode=driving');
+    });
+
+    test('dzieli długą trasę na mobilne linki z maksymalnie trzema punktami pośrednimi i zachowuje kolejność', () => {
+      const points = Array.from({ length: 9 }, (_, index) => ({
+        id: `stop-${index}`,
+        title: `Stop ${index}`,
+        lat: 41 + index / 100,
+        lon: 12 + index / 100,
+      }));
+
+      const urls = buildGoogleMapsFullRouteUrls(points, 'Rome', 'walking');
+      expect(urls).toHaveLength(2);
+
+      const segments = urls.map((url) => {
+        const parsed = new URL(url);
+        const waypoints = parsed.searchParams.get('waypoints')?.split('|') || [];
+        expect(waypoints.length).toBeLessThanOrEqual(3);
+        expect(parsed.searchParams.get('travelmode')).toBe('walking');
+        return [
+          parsed.searchParams.get('origin'),
+          ...waypoints,
+          parsed.searchParams.get('destination'),
+        ];
+      });
+
+      expect(segments[0][segments[0].length - 1]).toBe(segments[1][0]);
+      expect([...segments[0], ...segments[1].slice(1)]).toEqual(
+        points.map((point) => `${point.lat},${point.lon}`)
+      );
+    });
+
+    test('koduje nazwę pojedynczego punktu dokładnie raz w linku do wyszukiwania', () => {
+      const [url] = buildGoogleMapsFullRouteUrls([{ title: 'Sagrada Família' }], 'Barcelona');
+      expect(new URL(url).searchParams.get('query')).toBe('Sagrada Família, Barcelona');
     });
 
     test('Powinien poprawnie wyznaczyć czasy dotarcia i link nawigacji dla Sagrada Família i La Pedrera - Casa Milà w Barcelonie', () => {
@@ -800,6 +835,35 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(res.matrix[1][2]).toBe(250);
       expect(res.criterion).toBe('duration');
       expect(res.isApproximate).toBe(false);
+    });
+
+    test('fetchOsrmRoadMatrix używa profilu foot dla lokalnego serwera pieszego', async () => {
+      const mockFetch = jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+        expect(url).toContain('http://192.168.1.20:5001/table/v1/foot/');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            code: 'Ok',
+            durations: [
+              [0, 300],
+              [300, 0],
+            ],
+            distances: [
+              [0, 1000],
+              [1000, 0],
+            ],
+          }),
+        } as Response;
+      });
+
+      await fetchOsrmRoadMatrix([ptA, ptB], {
+        profile: 'walking',
+        baseUrl: 'http://192.168.1.20:5001',
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     test('fetchOsrmRoadMatrix obsługuje kryterium distance zwracając metry', async () => {
@@ -1578,6 +1642,35 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(res.orderedAttractions.length).toBe(3);
       expect(res.totalCost).toBe(res.outboundCost + res.attractionsCost + res.returnCost);
       expect(res.totalCost).toBeGreaterThan(0);
+    });
+
+    test('dla długiej pętli hotelowej poprawia zachłanną kolejność i zachowuje wszystkie punkty', () => {
+      const hotel: GeoPoint = { id: 'hotel', title: 'Hotel', lat: 41.89, lon: 12.49 };
+      const attractions = Array.from({ length: 9 }, (_, index) => ({
+        id: `attraction-${index + 1}`,
+        title: `Attraction ${index + 1}`,
+        lat: 41.89 + (index + 1) * 0.001,
+        lon: 12.49 + (index + 1) * 0.001,
+      }));
+      const matrix: number[][] = Array.from({ length: 10 }, (_, from) =>
+        Array.from({ length: 10 }, (_, to) => (from === to ? 0 : 1000))
+      );
+      matrix[0][1] = 1;
+      matrix[1][3] = 0.5;
+      matrix[3][2] = 0.5;
+      matrix[1][2] = 2;
+      for (let from = 2; from < 9; from++) matrix[from][from + 1] = 2;
+      matrix[9][0] = 1;
+
+      const result = optimizeDayRouteWithHotel(hotel, attractions, {
+        matrix,
+        criterion: 'duration',
+        isApproximate: false,
+      });
+
+      expect(result.orderedAttractions.map((point) => point.id)).toHaveLength(9);
+      expect(new Set(result.orderedAttractions.map((point) => point.id)).size).toBe(9);
+      expect(result.totalCost).toBeLessThan(1010);
     });
 
     // 7. Optymalizacja z hotelem: dzień z hotelem i 1 atrakcją

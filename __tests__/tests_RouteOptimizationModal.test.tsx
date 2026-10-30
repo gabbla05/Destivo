@@ -133,10 +133,11 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(screen.queryByText(/CPU time/i)).toBeNull();
     expect(screen.queryByText(/\(TSP\)/i)).toBeNull();
 
-    // Usunięte zbędne przyciski trybów (pieszo, komunikacja, auto) - zostawiona rekomendacja i przycisk Google Maps
+    // Transport is selected once; each point has a single navigation action.
     expect(screen.queryByText('Samochód / taxi')).toBeNull();
-    expect(screen.getAllByText(/Rekomendowany transport:/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Wskazówki w Google Maps').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Nawiguj')).toHaveLength(3);
+    expect(screen.queryByText(/Rekomendowany transport|Dojazd:/i)).toBeNull();
+    expect(screen.queryByText(/OSRM/i)).toBeNull();
   });
 
   test('kliknięcie nawigacji oraz całej trasy otwiera Google Maps z bieżącej lokalizacji', () => {
@@ -167,14 +168,13 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(fullRouteUrl).toContain('destination=');
     expect(fullRouteUrl).toContain('waypoints=');
 
-    // 3. Przycisk odcinkowy Google Maps (z aktualnej lokalizacji do punktu docelowego)
-    const mapsButtons = screen.getAllByText('Wskazówki w Google Maps');
-    fireEvent.press(mapsButtons[0]);
+    // 3. Pojedynczy przycisk Nawiguj kieruje do konkretnej atrakcji.
+    fireEvent.press(screen.getAllByText('Nawiguj')[0]);
     const lastCalledUrl = spyOpenURL.mock.calls[spyOpenURL.mock.calls.length - 1][0];
     expect(lastCalledUrl).toContain('https://www.google.com/maps/dir/?api=1');
     expect(lastCalledUrl).toContain('destination=');
     expect(lastCalledUrl).not.toContain('origin=');
-
+    expect(screen.queryByText(/Rekomendowany transport|Wskazówki w Google Maps/i)).toBeNull();
     spyOpenURL.mockRestore();
   });
 
@@ -191,7 +191,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(screen.getByTestId('confirm-apply-button').props.disabled).not.toBe(true);
     });
     fireEvent.press(screen.getByText('Zapisz kolejność'));
 
@@ -412,7 +412,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
     await waitFor(() => {
       expect(requestedUrls.filter((url) => url.includes('/table/v1/')).length).toBe(2);
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(screen.getByTestId('confirm-apply-button').props.disabled).not.toBe(true);
     });
 
     const matrixUrls = requestedUrls.filter((url) => url.includes('/table/v1/'));
@@ -420,23 +420,91 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     expect(matrixUrls[1]).toContain('12.45,41.9');
     expect(screen.getAllByText('Hotel Dzień 1')).toHaveLength(2);
     expect(screen.getAllByText('Hotel Dzień 2')).toHaveLength(2);
-    expect(screen.getAllByTestId(/transit-maps-btn-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/preview-point-maps-btn-/)).toHaveLength(4);
+    expect(screen.queryAllByTestId(/transit-maps-btn-/)).toHaveLength(0);
 
     fireEvent.press(screen.getByTestId('maps-day-route-btn-0'));
-    expect(openUrlSpy.mock.calls[0][0]).toContain('origin=41.89,12.49');
-    expect(openUrlSpy.mock.calls[0][0]).toContain('destination=41.89,12.49');
+    const dayOneUrl = new URL(openUrlSpy.mock.calls[0][0]);
+    expect(dayOneUrl.searchParams.get('origin')).toBe('41.89,12.49');
+    expect(dayOneUrl.searchParams.get('destination')).toBe('41.89,12.49');
+    expect(dayOneUrl.searchParams.get('waypoints')).toBe('41.891,12.491|41.892,12.492');
+    expect(dayOneUrl.searchParams.get('waypoints')).not.toContain('41.9,12.45');
     fireEvent.press(screen.getByTestId('maps-day-route-btn-1'));
-    expect(openUrlSpy.mock.calls[1][0]).toContain('origin=41.9,12.45');
-    expect(openUrlSpy.mock.calls[1][0]).toContain('destination=41.9,12.45');
+    const dayTwoUrl = new URL(openUrlSpy.mock.calls[1][0]);
+    expect(dayTwoUrl.searchParams.get('origin')).toBe('41.9,12.45');
+    expect(dayTwoUrl.searchParams.get('destination')).toBe('41.9,12.45');
+    expect(dayTwoUrl.searchParams.get('waypoints')).toBe('41.901,12.451|41.902,12.452');
+    expect(dayTwoUrl.searchParams.get('waypoints')).not.toContain('41.89,12.49');
     openUrlSpy.mockRestore();
   });
 
-  test('zapis kolejności nie czeka na opcjonalne wskazówki dojazdu', async () => {
-    const resolvePendingInfo: Array<(info: routeOptimization.StreetRouteInfo) => void> = [];
-    const environmentSpy = jest.spyOn(routeOptimization, 'isTestEnvironment').mockReturnValue(false);
-    const routeInfoSpy = jest.spyOn(routeOptimization, 'fetchRealRouteInfo').mockImplementation(
-      () => new Promise((resolve) => resolvePendingInfo.push(resolve))
+  test('dzieli długi dzień na odcinki Google Maps bez pomijania atrakcji', async () => {
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    mockOsrmTableResponse();
+    const dateStr = '10-09-2026';
+    const events = [
+      {
+        id: 'hotel',
+        type: 'LODGING',
+        title: 'Hotel',
+        dateStr,
+        timeStr: '18:00',
+        parsedDate: new Date('2026-09-10T18:00:00Z'),
+        lat: 41.89,
+        lon: 12.49,
+      },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `attraction-${index + 1}`,
+        type: 'ATTRACTION',
+        title: `Attraction ${index + 1}`,
+        dateStr,
+        timeStr: `${10 + index}:00`,
+        parsedDate: new Date(`2026-09-10T${String(10 + index).padStart(2, '0')}:00:00Z`),
+        lat: 41.891 + index * 0.001,
+        lon: 12.491 + index * 0.001,
+      })),
+    ];
+
+    render(
+      <RouteOptimizationModal
+        visible={true}
+        onClose={mockOnClose}
+        onApply={mockOnApply}
+        events={events}
+        destinationCity="Rzym"
+        targetDay={dateStr}
+      />
     );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-apply-button').props.disabled).not.toBe(true);
+      expect(screen.getByTestId('view-full-route-maps-btn-segment-1')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('view-full-route-maps-btn'));
+    fireEvent.press(screen.getByTestId('view-full-route-maps-btn-segment-1'));
+    const urls = openUrlSpy.mock.calls.map(([url]) => new URL(url));
+    const routeSegments = urls.map((url) => [
+      url.searchParams.get('origin'),
+      ...(url.searchParams.get('waypoints')?.split('|') || []),
+      url.searchParams.get('destination'),
+    ]);
+
+    expect(routeSegments).toHaveLength(2);
+    expect(routeSegments[0]).toHaveLength(5);
+    expect(routeSegments[1]).toHaveLength(4);
+    expect(routeSegments[0][4]).toBe(routeSegments[1][0]);
+    expect([...routeSegments[0], ...routeSegments[1].slice(1)]).toEqual([
+      '41.89,12.49',
+      ...events.slice(1).map((event) => `${event.lat},${event.lon}`),
+      '41.89,12.49',
+    ]);
+    openUrlSpy.mockRestore();
+  });
+
+  test('zapis kolejności nie odpytuje dodatkowo o wskazówki dojazdu', async () => {
+    const environmentSpy = jest.spyOn(routeOptimization, 'isTestEnvironment').mockReturnValue(false);
+    const routeInfoSpy = jest.spyOn(routeOptimization, 'fetchRealRouteInfo');
     mockOsrmTableResponse();
 
     const { rerender } = render(
@@ -454,9 +522,9 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
-      expect(routeInfoSpy).toHaveBeenCalled();
+      expect(screen.getByTestId('confirm-apply-button').props.disabled).not.toBe(true);
     });
+    expect(routeInfoSpy).not.toHaveBeenCalled();
 
     const applyButton = screen.getByTestId('confirm-apply-button');
     expect(applyButton.props.disabled).not.toBe(true);
@@ -472,17 +540,6 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
         destinationCity="Rzym"
       />
     );
-    resolvePendingInfo.forEach((resolve) => resolve({
-      walkMinutes: 10,
-      walkDistanceKm: 1,
-      transitMinutes: 8,
-      driveMinutes: 5,
-      driveDistanceKm: 1,
-      straightDistanceKm: 0.8,
-      recommendedMode: 'walking',
-      isLongWalk: false,
-      isTransitEstimated: true,
-    }));
     routeInfoSpy.mockRestore();
     environmentSpy.mockRestore();
   });
@@ -552,19 +609,19 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     // Czekamy na obsłużenie błędu
     const errorBanner = await screen.findByTestId('osrm-error-banner');
     expect(errorBanner).toBeTruthy();
-    expect(screen.getByText('Nie udało się pobrać danych drogowych')).toBeTruthy();
+    expect(screen.getByText('Nie udało się ułożyć trasy')).toBeTruthy();
 
-    // Klikamy "Użyj trybu przybliżonego (linia prosta)"
+    // Choose approximate order.
     const fallbackBtn = await screen.findByTestId('osrm-fallback-btn');
     fireEvent.press(fallbackBtn);
 
     // Powinien pojawić się banner trybu przybliżonego
     const approxBanner = await screen.findByTestId('approximate-mode-banner');
     expect(approxBanner).toBeTruthy();
-    expect(screen.getByText('Tryb przybliżony (linia prosta)')).toBeTruthy();
+    expect(screen.getByText('Kolejność może być orientacyjna.')).toBeTruthy();
   });
 
-  test('wyświetla badge sieci drogowej OSRM po pomyślnym pobraniu macierzy', async () => {
+  test('po ułożeniu trasy nie pokazuje technicznych informacji o usłudze routingu', async () => {
     jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && url.includes('/table/v1/')) {
         return {
@@ -605,9 +662,9 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
-      expect(screen.getByText('Sieć drogowa OSRM • Zoptymalizowano czas przejazdu')).toBeTruthy();
+      expect(screen.getByTestId('route-ready-indicator')).toBeTruthy();
     });
+    expect(screen.queryByText(/OSRM|siatka drogowa/i)).toBeNull();
   });
 
   test('szybka zmiana zakresu odrzuca spóźnioną odpowiedź OSRM (ochrona przed race condition)', async () => {
@@ -708,14 +765,14 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
 
     // Drugie zapytanie powinno się zakończyć sukcesem
     await waitFor(() => {
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(screen.getByTestId('route-ready-indicator')).toBeTruthy();
     });
 
     // Teraz spóźniona pierwsza odpowiedź powraca
     resolveFirstReq(true);
 
     // Badge nadal musi być widoczny i reprezentować aktywny zakres (nie może nastąpić błąd ani wyścig stanów)
-    expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+    expect(screen.getByTestId('route-ready-indicator')).toBeTruthy();
   });
 
   test('w trybie przybliżonym badge sieci drogowej NIGDY się nie pojawia, a widoczny jest baner przybliżony', async () => {
@@ -745,7 +802,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     fireEvent.press(fallbackBtn);
 
     // W trybie przybliżonym:
-    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+    expect(screen.queryByTestId('route-ready-indicator')).toBeNull();
     expect(screen.getByTestId('approximate-mode-banner')).toBeTruthy();
   });
 
@@ -808,7 +865,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('road-network-badge')).toBeTruthy();
+      expect(screen.getByTestId('route-ready-indicator')).toBeTruthy();
     });
   });
 
@@ -938,7 +995,7 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
       />
     );
 
-    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+    expect(screen.queryByTestId('route-ready-indicator')).toBeNull();
   });
 
   test('odpowiedź OSRM z wartością null (odcinek nieosiągalny) wyświetla błąd OSRM_UNREACHABLE_POINTS, brak badge drogowego i pozwala przejść na oznaczony tryb przybliżony', async () => {
@@ -985,11 +1042,10 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     // 1. Wykrycie błędu odcinków nieprzejezdnych
     const errorBanner = await screen.findByTestId('osrm-error-banner');
     expect(errorBanner).toBeTruthy();
-    expect(screen.getByText(/OSRM_UNREACHABLE_POINTS/i)).toBeTruthy();
-    expect(screen.getByText(/Watykan.*Koloseum/i)).toBeTruthy();
+    expect(screen.getByText('Nie udało się ułożyć trasy')).toBeTruthy();
 
     // 2. Bezwzględny brak potwierdzonego badge sieci drogowej
-    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+    expect(screen.queryByTestId('route-ready-indicator')).toBeNull();
 
     // 3. Użytkownik decyduje się na jawny fallback do trybu przybliżonego
     const fallbackBtn = await screen.findByTestId('osrm-fallback-btn');
@@ -998,12 +1054,11 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
     // 4. Prezentacja jawnego banera trybu przybliżonego z zastrzeżeniem o braku gwarancji przejezdności
     const approxBanner = await screen.findByTestId('approximate-mode-banner');
     expect(approxBanner).toBeTruthy();
-    expect(screen.getByText(/Tryb przybliżony \(linia prosta\)/i)).toBeTruthy();
-    expect(screen.getByText(/przejezdność nie jest gwarantowana/i)).toBeTruthy();
-    expect(screen.queryByTestId('road-network-badge')).toBeNull();
+    expect(screen.getByText('Kolejność może być orientacyjna.')).toBeTruthy();
+    expect(screen.queryByTestId('route-ready-indicator')).toBeNull();
   });
 
-  test('dla profilu "walking" badge prezentuje "Sieć piesza OSRM • Zoptymalizowano czas przejścia"', async () => {
+  test('profil pieszy działa bez pokazywania technicznych szczegółów', async () => {
     jest.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
       if (typeof url === 'string' && (url.includes('/table/v1/walking/') || url.includes('/table/v1/foot/'))) {
         return {
@@ -1044,8 +1099,8 @@ describe('Komponent RouteOptimizationModal (Praktyczna optymalizacja trasy bez �
       />
     );
 
-    const badge = await screen.findByTestId('road-network-badge');
-    expect(badge).toBeTruthy();
-    expect(screen.getByText('Sieć piesza OSRM • Zoptymalizowano czas przejścia')).toBeTruthy();
+    expect(await screen.findByTestId('route-ready-indicator')).toBeTruthy();
+    expect(screen.getByText('Pieszo')).toBeTruthy();
+    expect(screen.queryByText(/OSRM|siatka drogowa/i)).toBeNull();
   });
 });

@@ -482,7 +482,7 @@ export const fetchOsrmRoadMatrix = async (
     criterion = 'duration',
     profile = 'driving',
     timeoutMs = 8000,
-    baseUrl = options.baseUrl || getOsrmBaseUrl(profile),
+    baseUrl = options.baseUrl || getOsrmBaseUrl(profile, points),
   } = options;
 
   const n = points.length;
@@ -528,10 +528,7 @@ export const fetchOsrmRoadMatrix = async (
   const runFetch = async (): Promise<OsrmMatrixResult> => {
   // 3. Budowa zapytania OSRM Table Service (kolejność lon,lat)
   const coordsParam = points.map((p) => `${p.lon},${p.lat}`).join(';');
-  const routeProfile =
-    profile === 'walking' && /routed-foot|routing\.openstreetmap\.de/i.test(baseUrl)
-      ? 'foot'
-      : profile;
+  const routeProfile = profile === 'walking' ? 'foot' : profile;
   const url = `${baseUrl}/table/v1/${routeProfile}/${coordsParam}?annotations=duration,distance`;
 
   const externalSignal = options.signal;
@@ -1496,6 +1493,51 @@ export const optimizeDayRouteWithHotel = (
     }
     bestOrder = greedyOrder;
     bestCost = routeCost(bestOrder);
+
+    if (hasHotel) {
+      let improved = true;
+      let iterations = 0;
+      while (improved && iterations < 500) {
+        improved = false;
+        iterations++;
+
+        for (let start = 0; start < bestOrder.length - 1 && !improved; start++) {
+          for (let end = start + 1; end < bestOrder.length; end++) {
+            const candidate = [
+              ...bestOrder.slice(0, start),
+              ...bestOrder.slice(start, end + 1).reverse(),
+              ...bestOrder.slice(end + 1),
+            ];
+            const candidateCost = routeCost(candidate);
+            if (candidateCost < bestCost - 1e-9) {
+              bestOrder = candidate;
+              bestCost = candidateCost;
+              improved = true;
+              break;
+            }
+          }
+        }
+
+        for (let from = 0; from < bestOrder.length && !improved; from++) {
+          const attraction = bestOrder[from];
+          const remainingOrder = bestOrder.filter((_, index) => index !== from);
+          for (let insertAt = 0; insertAt <= remainingOrder.length; insertAt++) {
+            const candidate = [
+              ...remainingOrder.slice(0, insertAt),
+              attraction,
+              ...remainingOrder.slice(insertAt),
+            ];
+            const candidateCost = routeCost(candidate);
+            if (candidateCost < bestCost - 1e-9) {
+              bestOrder = candidate;
+              bestCost = candidateCost;
+              improved = true;
+              break;
+            }
+          }
+        }
+      }
+    }
   }
 
   const orderedAttractions = bestOrder.map((index) => attractions[index]);
@@ -2859,17 +2901,21 @@ export const buildGoogleMapsNavigationToDestinationUrl = (
   return `https://www.google.com/maps/dir/?api=1&destination=${destParam}${modeParam}`;
 };
 
-/**
- * Buduje link do Google Maps z pełną trasą i wszystkimi kolejnymi przystankami (waypoints).
- * Ustawia kolejno pierwszy punkt jako start (origin), ostatni jako cel (destination),
- * a wszystkie pośrednie punkty zwiedzania jako przystanki (waypoints).
- * Odfiltrowuje punkty noclegowe bez podanego fizycznego adresu, zapobiegając fałszywym trasom.
- */
+/** Legacy single-link helper. Use buildGoogleMapsFullRouteUrls to retain every stop on mobile. */
 export const buildGoogleMapsFullRouteUrl = (
   rawPoints: Array<{ lat?: number; lon?: number; title?: string; subtitle?: string; type?: string }>,
-  city?: string
+  city?: string,
+  mode?: 'driving' | 'walking'
 ): string => {
-  if (!rawPoints || rawPoints.length === 0) return 'https://www.google.com/maps';
+  return buildGoogleMapsFullRouteUrls(rawPoints, city, mode)[0] || 'https://www.google.com/maps';
+};
+
+export const buildGoogleMapsFullRouteUrls = (
+  rawPoints: Array<{ lat?: number; lon?: number; title?: string; subtitle?: string; type?: string }>,
+  city?: string,
+  mode?: 'driving' | 'walking'
+): string[] => {
+  if (!rawPoints || rawPoints.length === 0) return [];
   const cleanCity = city?.trim() || '';
 
   // Wykluczamy noclegi, które nie mają faktycznego adresu (żeby nie nawigować do fikcyjnego centrum)
@@ -2903,7 +2949,7 @@ export const buildGoogleMapsFullRouteUrl = (
     return true;
   });
 
-  const effectivePoints = points.length > 0 ? points : rawPoints;
+  const effectivePoints = points;
 
   const formatPt = (p: { lat?: number; lon?: number; title?: string; subtitle?: string; type?: string }): string => {
     const rawTitle = (p.title || '').trim();
@@ -2923,6 +2969,15 @@ export const buildGoogleMapsFullRouteUrl = (
       lower.includes('return') ||
       rawTitle.includes('➔');
 
+    if (
+      typeof p.lat === 'number' &&
+      Number.isFinite(p.lat) &&
+      typeof p.lon === 'number' &&
+      Number.isFinite(p.lon)
+    ) {
+      return `${p.lat},${p.lon}`;
+    }
+
     // Nocleg
     if (
       isLodging &&
@@ -2937,9 +2992,9 @@ export const buildGoogleMapsFullRouteUrl = (
     ) {
       const address = p.subtitle.trim();
       if (cleanCity && !address.toLowerCase().includes(cleanCity.toLowerCase())) {
-        return encodeURIComponent(`${address}, ${cleanCity}`);
+        return `${address}, ${cleanCity}`;
       }
-      return encodeURIComponent(address);
+      return address;
     }
 
     if (isLodging && p.lat !== undefined && p.lon !== undefined &&
@@ -2951,18 +3006,18 @@ export const buildGoogleMapsFullRouteUrl = (
     if (isTransitStation) {
       const isTrain = lower.includes('pociag') || lower.includes('kolej') || lower.includes('train') || lower.includes('station');
       if (cleanCity) {
-        return encodeURIComponent(isTrain ? `Central Station, ${cleanCity}` : `Airport, ${cleanCity}`);
+        return isTrain ? `Central Station, ${cleanCity}` : `Airport, ${cleanCity}`;
       }
-      return encodeURIComponent(isTrain ? 'Central Station' : 'Airport');
+      return isTrain ? 'Central Station' : 'Airport';
     }
 
     // Atrakcja
     const cleanTitle = rawTitle.replace(/^(zwiedzanie|atrakcja)[\s:\-–—]+/i, '').trim();
     if (cleanCity && cleanTitle) {
       if (!cleanTitle.toLowerCase().includes(cleanCity.toLowerCase())) {
-        return encodeURIComponent(`${cleanTitle}, ${cleanCity}`);
+        return `${cleanTitle}, ${cleanCity}`;
       }
-      return encodeURIComponent(cleanTitle);
+      return cleanTitle;
     }
 
     if (p.lat !== undefined && p.lon !== undefined && !isNaN(p.lat) && !isNaN(p.lon)) {
@@ -2970,32 +3025,40 @@ export const buildGoogleMapsFullRouteUrl = (
     }
 
     if (cleanTitle) {
-      return encodeURIComponent(cleanTitle);
+      return cleanTitle;
     }
 
-    return encodeURIComponent(cleanCity || 'City Center');
+    return cleanCity || 'City Center';
   };
 
   if (effectivePoints.length === 1) {
-    const singleParam = formatPt(effectivePoints[0]);
-    return `https://www.google.com/maps/search/?api=1&query=${singleParam}`;
+    const params = new URLSearchParams({
+      api: '1',
+      query: formatPt(effectivePoints[0]),
+    });
+    return [`https://www.google.com/maps/search/?${params.toString()}`];
   }
 
-  const originParam = formatPt(effectivePoints[0]);
-  const destParam = formatPt(effectivePoints[effectivePoints.length - 1]);
+  if (effectivePoints.length === 0) return [];
 
-  // Google Maps Universal URL obsługuje do 9 przystanków pośrednich (waypoints)
-  const waypoints = effectivePoints
-    .slice(1, effectivePoints.length - 1)
-    .slice(0, 9)
-    .map(formatPt)
-    .join('%7C');
-
-  if (!waypoints) {
-    return `https://www.google.com/maps/dir/?api=1&origin=${originParam}&destination=${destParam}`;
+  const urls: string[] = [];
+  let startIndex = 0;
+  while (startIndex < effectivePoints.length - 1) {
+    const endIndex = Math.min(startIndex + 4, effectivePoints.length - 1);
+    const segment = effectivePoints.slice(startIndex, endIndex + 1);
+    const params = new URLSearchParams({
+      api: '1',
+      origin: formatPt(segment[0]),
+      destination: formatPt(segment[segment.length - 1]),
+    });
+    const waypoints = segment.slice(1, -1).map(formatPt);
+    if (waypoints.length > 0) params.set('waypoints', waypoints.join('|'));
+    if (mode) params.set('travelmode', mode);
+    urls.push(`https://www.google.com/maps/dir/?${params.toString()}`);
+    startIndex = endIndex;
   }
 
-  return `https://www.google.com/maps/dir/?api=1&origin=${originParam}&destination=${destParam}&waypoints=${waypoints}`;
+  return urls;
 };
 
 /**

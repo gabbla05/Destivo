@@ -18,9 +18,7 @@ import {
   optimizeDayRouteWithHotel,
   fetchOsrmRoadMatrix,
   resolvePointCoordinates,
-  calculateTransitEstimates,
-  fetchRealRouteInfo,
-  buildGoogleMapsFullRouteUrl,
+  buildGoogleMapsFullRouteUrls,
   buildGoogleMapsNavigationToDestinationUrl,
   fetchGooglePlaceLocation,
   optimizeMultiDayTimeline,
@@ -29,7 +27,6 @@ import {
   type GeoPoint,
   type OptimizationResult,
   type AlgorithmBenchmark,
-  type StreetRouteInfo,
 } from '../lib/routeOptimization';
 
 interface TimelineEventLike {
@@ -111,18 +108,11 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     });
   }, [events]);
 
-  // Rzeczywisty dystans siatki ulic z OSRM dla poszczególnych odcinków
-  const [streetDistances, setStreetDistances] = useState<Record<string, number>>({});
-  // Rzeczywiste pełne czasy przejść/przejazdów z serwera OSRM / Google Maps Live
-  const [liveRouteInfos, setLiveRouteInfos] = useState<Record<string, StreetRouteInfo>>({});
   // Prawdziwe koordynaty z Google Places pobrane w tle na żywo
   const [liveCoordsMap, setLiveCoordsMap] = useState<Record<string, { lat: number; lon: number; isUnresolved?: boolean }>>({});
-  // Stan pobierania danych na żywo z Google Maps / sieci ulicznej
-  const [isLiveLoading, setIsLiveLoading] = useState<boolean>(false);
 
   // Stan pobierania macierzy czasów drogowych z OSRM Table API
   const [osrmStatus, setOsrmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [osrmError, setOsrmError] = useState<string | null>(null);
   const [roadMatrix, setRoadMatrix] = useState<number[][] | null>(null);
   const [dayRoadMatrices, setDayRoadMatrices] = useState<
     Record<string, { matrix: number[][]; pointIds: string[] }>
@@ -299,7 +289,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     if (!visible || pointsForMatrix.length < 2) {
       setOsrmStatus('idle');
       setRoadMatrix(null);
-      setOsrmError(null);
       if (osrmAbortRef.current) {
         osrmAbortRef.current.abort();
         osrmAbortRef.current = null;
@@ -320,7 +309,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       osrmAbortRef.current = abortController;
       setRoadMatrix(null);
       setDayRoadMatrices({});
-      setOsrmError(null);
       setOsrmStatus('loading');
 
       const dayEntries = Object.entries(dayRoutingInputs);
@@ -382,7 +370,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         }
         setDayRoadMatrices(successfulMatrices);
         setOsrmStatus(failures.length > 0 ? 'error' : 'success');
-        setOsrmError(failures[0]?.message || null);
       });
 
       return () => {
@@ -398,11 +385,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     if (pointsForMatrix.some((point) => point.isUnresolved)) {
       setRoadMatrix(null);
       setOsrmStatus('error');
-      setOsrmError(
-        language === 'en'
-          ? 'Some attractions do not have confirmed GPS coordinates. Resolve their locations before routing.'
-          : 'Niektóre atrakcje nie mają potwierdzonych współrzędnych GPS. Ustal ich lokalizację przed wyznaczeniem trasy.'
-      );
       return;
     }
 
@@ -416,7 +398,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     // Zapewniamy natychmiastowe wyczyszczenie starej macierzy, aby nie mogła być użyta dla nowej listy punktów
     setRoadMatrix(null);
     setOsrmStatus('loading');
-    setOsrmError(null);
 
     fetchOsrmRoadMatrix(pointsForMatrix, {
       criterion: 'duration',
@@ -440,12 +421,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             setOsrmStatus('idle');
           } else {
             setOsrmStatus('error');
-            setOsrmError(
-              err?.message ||
-                (language === 'en'
-                  ? 'Failed to fetch road travel times from OSRM'
-                  : 'Nie udało się pobrać czasów przejazdu z sieci drogowej OSRM')
-            );
           }
         }
       });
@@ -701,14 +676,12 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     return map;
   }, [optimizationResult, uniqueDays, activeDayScope, events]);
 
-  // Asynchroniczne dociąganie precyzyjnych danych z Google Places i siatki ulic OSRM
-  // Zabezpieczone przed nieskończonym wiszeniem stanu isLiveLoading przez AbortController i gwarantowane finally
+  // Resolve only missing point coordinates; route guidance is opened directly in Google Maps.
   const loadLiveAbortRef = useRef<AbortController | null>(null);
   const loadLiveReqIdRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!visible || candidateEvents.length < 2 || isApproximateMode) {
-      setIsLiveLoading(false);
+    if (!visible || routeLocationEvents.length === 0) {
       if (loadLiveAbortRef.current) {
         loadLiveAbortRef.current.abort();
         loadLiveAbortRef.current = null;
@@ -717,7 +690,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     }
 
     if (isTestEnvironment()) {
-      setIsLiveLoading(false);
       return;
     }
 
@@ -728,9 +700,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     loadLiveAbortRef.current = abortController;
     const reqId = ++loadLiveReqIdRef.current;
 
-    setIsLiveLoading(true);
-
-    const loadLiveGoogleData = async () => {
+    const resolveMissingCoordinates = async () => {
       try {
         const fetchedCoords: Record<string, { lat: number; lon: number; isUnresolved?: boolean }> = {};
         for (const evt of routeLocationEvents) {
@@ -763,81 +733,19 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         if (Object.keys(fetchedCoords).length > 0 && !abortController.signal.aborted && reqId === loadLiveReqIdRef.current) {
           setLiveCoordsMap((prev) => ({ ...prev, ...fetchedCoords }));
         }
-
-        if (
-          optimizationResult &&
-          optimizationResult.orderedPoints.length >= 2 &&
-          !abortController.signal.aborted &&
-          reqId === loadLiveReqIdRef.current
-        ) {
-          const points = optimizationResult.orderedPoints;
-          const legPromises = [];
-          const eventDatesById = new Map(candidateEvents.map((event) => [event.id, event.dateStr]));
-          for (let i = 0; i < points.length - 1; i++) {
-            const p1 = points[i];
-            const p2 = points[i + 1];
-            if (eventDatesById.get(p1.id) !== eventDatesById.get(p2.id)) continue;
-            const key = `${p1.id}_${p2.id}`;
-            legPromises.push(
-              fetchRealRouteInfo(p1, p2, { signal: abortController.signal })
-                .then((info) => ({ key, info }))
-                .catch(() => null)
-            );
-          }
-
-          const results = await Promise.all(legPromises);
-          if (!abortController.signal.aborted && reqId === loadLiveReqIdRef.current) {
-            const newDistances: Record<string, number> = {};
-            const newInfos: Record<string, StreetRouteInfo> = {};
-            for (const item of results) {
-              if (item) {
-                newDistances[item.key] = item.info.walkDistanceKm;
-                newInfos[item.key] = item.info;
-              }
-            }
-            setStreetDistances((prev) => ({ ...prev, ...newDistances }));
-            setLiveRouteInfos((prev) => ({ ...prev, ...newInfos }));
-          }
-        }
       } catch (err) {
-        console.warn('Błąd podczas pobierania tras Google Maps:', err);
-      } finally {
-        if (reqId === loadLiveReqIdRef.current) {
-          setIsLiveLoading(false);
+        if (!abortController.signal.aborted) {
+          console.warn('Nie udało się ustalić części lokalizacji:', err);
         }
       }
     };
 
-    loadLiveGoogleData();
+    resolveMissingCoordinates();
 
     return () => {
       abortController.abort();
-      if (reqId === loadLiveReqIdRef.current) {
-        setIsLiveLoading(false);
-      }
     };
-  }, [visible, routeLocationEvents, candidateEvents, destinationCity, optimizationResult, isApproximateMode]);
-
-  // Łączny czas przemieszczania się w ciągu dnia
-  const totalTransitMinutes = useMemo(() => {
-    if (!optimizationResult || optimizationResult.orderedPoints.length < 2) return 0;
-    let total = 0;
-    for (let i = 0; i < optimizationResult.orderedPoints.length - 1; i++) {
-      const p1 = optimizationResult.orderedPoints[i];
-      const p2 = optimizationResult.orderedPoints[i + 1];
-      const legKey = `${p1.id}_${p2.id}`;
-      const legDist = streetDistances[legKey];
-      const routeInfo = liveRouteInfos[legKey];
-      const est = routeInfo || calculateTransitEstimates(p1, p2, legDist);
-      const mode = est.recommendedMode;
-      if (mode === 'walking') {
-        total += est.walkMinutes;
-      } else {
-        total += est.transitMinutes;
-      }
-    }
-    return total;
-  }, [optimizationResult, streetDistances, liveRouteInfos]);
+  }, [visible, routeLocationEvents, destinationCity]);
 
   const handleConfirmApply = () => {
     if (osrmStatus === 'loading' || hasUnresolvedPoints) {
@@ -854,8 +762,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       poolAttractions,
       destinationCity,
       lodgingCoords,
-      streetDistances,
-      liveRouteInfos,
       roadCostMatrix: activeSource === 'osrm' ? roadMatrix : null,
       costCriterion: 'duration',
       precomputedOrderedPoints: optimizationResult?.orderedPoints || null,
@@ -884,40 +790,31 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
           lat: point.isUnresolved ? undefined : point.lat,
           lon: point.isUnresolved ? undefined : point.lon,
         }));
-        const matrixInfo = dayRoadMatrices[day];
-        const matrixMatchesRoute = Boolean(
-          matrixInfo &&
-          !isApproximateMode &&
-          (!dayHotel || matrixInfo.pointIds[0] === dayHotel.id) &&
-          dayPoints.every((point) => matrixInfo.pointIds.includes(point.id))
-        );
-        let durationMinutes: number | null = null;
-        if (matrixMatchesRoute && matrixInfo) {
-          const indexById = new Map(matrixInfo.pointIds.map((id, index) => [id, index]));
-          let totalSeconds = 0;
-          let completeMatrixPath = true;
-          for (let index = 0; index < routePoints.length - 1; index++) {
-            const from = indexById.get(routePoints[index].id);
-            const to = indexById.get(routePoints[index + 1].id);
-            if (from === undefined || to === undefined) {
-              completeMatrixPath = false;
-              break;
-            }
-            totalSeconds += matrixInfo.matrix[from][to];
-          }
-          if (completeMatrixPath) durationMinutes = Math.round(totalSeconds / 60);
-        }
-
         return {
           day,
-          dayPoints,
           dayHotel,
           hotelUnavailable,
-          routeUrl: buildGoogleMapsFullRouteUrl(mapsPoints, destinationCity),
-          durationMinutes,
-          isRoadConfirmed: matrixMatchesRoute,
+          routeUrls: buildGoogleMapsFullRouteUrls(
+            mapsPoints,
+            destinationCity,
+            selectedTransportProfile
+          ),
         };
       })
+    : [];
+  const fullRouteUrls = !isMultiDayAllMode && optimizationResult
+    ? buildGoogleMapsFullRouteUrls(
+        (hotelPoint
+          ? [hotelPoint, ...optimizationResult.orderedPoints, hotelPoint]
+          : optimizationResult.orderedPoints
+        ).map((point) => ({
+          ...point,
+          lat: point.isUnresolved ? undefined : point.lat,
+          lon: point.isUnresolved ? undefined : point.lon,
+        })),
+        destinationCity,
+        selectedTransportProfile
+      )
     : [];
 
   if (!visible) return null;
@@ -1049,23 +946,13 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
           )}
 
-          {/* BANER WCZYTYWANIA SIECI DROGOWEJ OSRM NA ŻYWO */}
+          {/* Trasa is calculated while loading */}
           {osrmStatus === 'loading' && (
             <View style={styles.liveLoadingBanner} testID="osrm-loading-banner">
               <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
               <Text style={styles.liveLoadingText}>
-                {language === 'en'
-                  ? 'Optimizing route with OSRM road network...'
-                  : 'Optymalizacja trasy według sieci drogowej OSRM...'}
+                {language === 'en' ? 'Arranging stops...' : 'Układam kolejność miejsc...'}
               </Text>
-            </View>
-          )}
-
-          {/* BANER WCZYTYWANIA DANYCH GOOGLE MAPS NA ŻYWO */}
-          {isLiveLoading && (
-            <View style={styles.liveLoadingBanner}>
-              <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
-              <Text style={styles.liveLoadingText}>{t.loadingGoogleRoutes}</Text>
             </View>
           )}
 
@@ -1075,19 +962,24 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
               <Ionicons name="alert-circle-outline" size={24} color="#EF4444" style={{ marginRight: 10, marginTop: 2 }} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.osrmErrorTitle}>
-                  {language === 'en' ? 'Failed to fetch road network' : 'Nie udało się pobrać danych drogowych'}
+                  {hasUnresolvedPoints
+                    ? language === 'en' ? 'Some locations need checking' : 'Sprawdź lokalizacje miejsc'
+                    : language === 'en' ? 'Could not arrange the route' : 'Nie udało się ułożyć trasy'}
                 </Text>
                 <Text style={styles.osrmErrorDesc}>
-                  {osrmError || (language === 'en'
-                    ? 'Failed to fetch travel times along road network from OSRM.'
-                    : 'Nie udało się pobrać czasów przejazdu po sieci drogowej OSRM.')}
+                  {hasUnresolvedPoints
+                    ? language === 'en'
+                      ? 'Some stops do not have a confirmed location.'
+                      : 'Niektóre miejsca nie mają potwierdzonej lokalizacji.'
+                    : language === 'en'
+                      ? 'Check your connection, try again, or use an approximate order.'
+                      : 'Sprawdź połączenie, spróbuj ponownie albo użyj szacunkowej kolejności.'}
                 </Text>
                 <View style={styles.osrmErrorBtnRow}>
                   <TouchableOpacity
                     style={styles.osrmRetryBtn}
                     onPress={() => {
                       setIsApproximateMode(false);
-                      setOsrmError(null);
                       setRetryTrigger((prev) => prev + 1);
                     }}
                     activeOpacity={0.8}
@@ -1105,7 +997,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     testID="osrm-fallback-btn"
                   >
                     <Text style={styles.osrmApproximateBtnText}>
-                      {language === 'en' ? 'Use approximate mode (straight line)' : 'Użyj trybu przybliżonego (linia prosta)'}
+                      {language === 'en' ? 'Use approximate order' : 'Użyj szacunkowej kolejności'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1134,38 +1026,12 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-              {/* OZNACZENIE SIECI DROGOWEJ LUB TRYBU PRZYBLIŻONEGO */}
-              {activeSource === 'osrm' ? (
-                <View style={styles.roadNetworkBadge} testID="road-network-badge">
-                  <Ionicons
-                    name={selectedTransportProfile === 'walking' ? 'walk-outline' : 'car-outline'}
-                    size={14}
-                    color="#10B981"
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={styles.roadNetworkBadgeText}>
-                    {selectedTransportProfile === 'walking'
-                      ? language === 'en'
-                        ? 'OSRM Pedestrian Network • Walking time optimized'
-                        : 'Sieć piesza OSRM • Zoptymalizowano czas przejścia'
-                      : language === 'en'
-                        ? 'OSRM Road Network • Driving time optimized'
-                        : 'Sieć drogowa OSRM • Zoptymalizowano czas przejazdu'}
+              {activeSource === 'approximate' && osrmStatus !== 'loading' && (
+                <View style={styles.approximateWarningBanner} testID="approximate-mode-banner">
+                  <Ionicons name="information-circle-outline" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.approximateWarningText}>
+                    {language === 'en' ? 'Order may be approximate.' : 'Kolejność może być orientacyjna.'}
                   </Text>
-                </View>
-              ) : (
-                <View style={styles.approximateModeBanner} testID="approximate-mode-banner">
-                  <Ionicons name="information-circle-outline" size={18} color="#F59E0B" style={{ marginRight: 8, marginTop: 1 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.approximateModeTitle}>
-                      {language === 'en' ? 'Approximate mode (straight line)' : 'Tryb przybliżony (linia prosta)'}
-                    </Text>
-                    <Text style={styles.approximateModeText}>
-                      {language === 'en'
-                        ? 'Route optimized using straight-line geographic distances. Actual road travel times may vary and do not guarantee drivability.'
-                        : 'Kolejność została ułożona na podstawie odległości w linii prostej. Rzeczywisty czas i droga mogą się różnić, a przejezdność nie jest gwarantowana.'}
-                    </Text>
-                  </View>
                 </View>
               )}
 
@@ -1192,101 +1058,91 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                   {isMultiDayAllMode ? (
                     dayRouteCards.map((route, index) => (
                       <View key={route.day} style={{ marginBottom: 8 }}>
-                        <TouchableOpacity
-                          style={styles.fullRouteBtn}
-                          activeOpacity={0.8}
-                          onPress={() => {
-                            Linking.openURL(route.routeUrl).catch((err) => {
-                              console.warn('Cannot open daily route in Google Maps:', err);
-                            });
-                          }}
-                          testID={`maps-day-route-btn-${index}`}
-                        >
-                          <View style={styles.fullRouteIconBox}>
-                            <Ionicons name="map" size={18} color="#38BDF8" />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.fullRouteBtnTitle}>
-                              {language === 'en'
-                                ? `Day ${index + 1} route in Google Maps`
-                                : `Trasa dnia ${index + 1} w Google Maps`}
-                            </Text>
-                            <Text style={styles.fullRouteBtnSubtitle}>
-                              {route.dayHotel
-                                ? language === 'en'
-                                  ? `Hotel round trip${route.durationMinutes === null ? '' : ` · OSRM ${selectedTransportProfile === 'walking' ? 'walking' : 'driving'} estimate ~${route.durationMinutes} min`}`
-                                  : `Pętla z hotelem${route.durationMinutes === null ? '' : ` · szacunek OSRM (${selectedTransportProfile === 'walking' ? 'pieszo' : 'samochodem'}) ~${route.durationMinutes} min`}`
-                                : route.hotelUnavailable
+                        {route.routeUrls.map((url, segmentIndex) => (
+                          <TouchableOpacity
+                            key={`${route.day}-${segmentIndex}`}
+                            style={[styles.fullRouteBtn, { marginBottom: 6 }]}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              Linking.openURL(url).catch((err) => {
+                                console.warn('Cannot open daily route in Google Maps:', err);
+                              });
+                            }}
+                            testID={segmentIndex === 0
+                              ? `maps-day-route-btn-${index}`
+                              : `maps-day-route-btn-${index}-segment-${segmentIndex}`}
+                          >
+                            <View style={styles.fullRouteIconBox}>
+                              <Ionicons name="map" size={18} color="#38BDF8" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.fullRouteBtnTitle}>
+                                {route.routeUrls.length > 1
                                   ? language === 'en'
-                                    ? 'Daily route; hotel location unavailable'
-                                    : 'Trasa dnia; brak potwierdzonej lokalizacji hotelu'
+                                    ? `Day ${index + 1} · part ${segmentIndex + 1}/${route.routeUrls.length}`
+                                    : `Dzień ${index + 1} · etap ${segmentIndex + 1}/${route.routeUrls.length}`
                                   : language === 'en'
-                                    ? 'Daily route for attractions'
-                                    : 'Trasa dzienna atrakcji'}
-                            </Text>
-                          </View>
-                          <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
-                        </TouchableOpacity>
-                        {route.hotelUnavailable && (
-                          <Text style={styles.fullRouteBtnSubtitle}>
-                            {language === 'en'
-                              ? 'Hotel coordinates could not be verified; this route does not include the hotel.'
-                              : 'Nie udało się potwierdzić lokalizacji hotelu; trasa go nie uwzględnia.'}
-                          </Text>
-                        )}
-                        {!route.isRoadConfirmed && (
-                          <Text style={styles.fullRouteBtnSubtitle}>
-                            {language === 'en'
-                              ? 'Estimated ordering; Google Maps calculates the actual route.'
-                              : 'Kolejność jest szacunkowa; rzeczywistą trasę wyznaczą Mapy Google.'}
-                          </Text>
-                        )}
+                                    ? `Day ${index + 1} route in Google Maps`
+                                    : `Trasa dnia ${index + 1} w Google Maps`}
+                              </Text>
+                              {segmentIndex === 0 && route.hotelUnavailable && (
+                                <Text style={styles.fullRouteBtnSubtitle}>
+                                  {language === 'en' ? 'Hotel location unavailable' : 'Brak lokalizacji hotelu'}
+                                </Text>
+                              )}
+                            </View>
+                            <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
+                          </TouchableOpacity>
+                        ))}
                       </View>
                     ))
                   ) : (
-                    <TouchableOpacity
-                      style={styles.fullRouteBtn}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        const fullRoutePoints: GeoPoint[] = hotelPoint
-                          ? [hotelPoint, ...optimizationResult.orderedPoints, hotelPoint]
-                          : optimizationResult.orderedPoints;
-                        const fullUrl = buildGoogleMapsFullRouteUrl(
-                          fullRoutePoints.map((point) => ({
-                            ...point,
-                            lat: point.isUnresolved ? undefined : point.lat,
-                            lon: point.isUnresolved ? undefined : point.lon,
-                          })),
-                          destinationCity
-                        );
-                        Linking.openURL(fullUrl).catch((err) => {
-                          console.warn('Cannot open full route in Google Maps:', err);
-                        });
-                      }}
-                      testID="view-full-route-maps-btn"
-                    >
-                      <View style={styles.fullRouteIconBox}>
-                        <Ionicons name="map" size={18} color="#38BDF8" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.fullRouteBtnTitle}>{t.viewEntireRouteInMaps}</Text>
-                        <Text style={styles.fullRouteBtnSubtitle}>
-                          {hotelPoint
-                            ? language === 'en'
-                              ? 'Hotel → sights → hotel'
-                              : 'Hotel → atrakcje → hotel'
-                            : t.fullRouteCardDesc}
-                        </Text>
-                      </View>
-                      <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
-                    </TouchableOpacity>
+                    fullRouteUrls.map((url, segmentIndex) => (
+                      <TouchableOpacity
+                        key={`full-route-${segmentIndex}`}
+                        style={[styles.fullRouteBtn, { marginBottom: 6 }]}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          Linking.openURL(url).catch((err) => {
+                            console.warn('Cannot open full route in Google Maps:', err);
+                          });
+                        }}
+                        testID={segmentIndex === 0
+                          ? 'view-full-route-maps-btn'
+                          : `view-full-route-maps-btn-segment-${segmentIndex}`}
+                      >
+                        <View style={styles.fullRouteIconBox}>
+                          <Ionicons name="map" size={18} color="#38BDF8" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fullRouteBtnTitle}>
+                            {fullRouteUrls.length > 1
+                              ? language === 'en'
+                                ? `Route · part ${segmentIndex + 1}/${fullRouteUrls.length}`
+                                : `Trasa · etap ${segmentIndex + 1}/${fullRouteUrls.length}`
+                              : t.viewEntireRouteInMaps}
+                          </Text>
+                          {segmentIndex === 0 && (
+                            <Text style={styles.fullRouteBtnSubtitle}>
+                              {hotelPoint
+                                ? language === 'en' ? 'Hotel → sights → hotel' : 'Hotel → atrakcje → hotel'
+                                : t.fullRouteCardDesc}
+                            </Text>
+                          )}
+                        </View>
+                        <Ionicons name="open-outline" size={16} color="#38BDF8" style={{ marginLeft: 8 }} />
+                      </TouchableOpacity>
+                    ))
                   )}
                 </View>
               )}
 
               {/* PODGLĄD USZEREGOWANEJ TRASY */}
               {optimizationResult && (
-                <View style={styles.routePreviewSection}>
+                <View
+                  style={styles.routePreviewSection}
+                  testID={activeSource === 'osrm' ? 'route-ready-indicator' : undefined}
+                >
                   <Text style={styles.routePreviewTitle}>{t.previewRoute}</Text>
 
                   {hasUnresolvedPoints && (
@@ -1325,10 +1181,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                     const nextPt = dayAssignmentMap && dayAssignmentMap[nextCandidate?.id || '']?.dayDate !== dayInfo?.dayDate
                       ? undefined
                       : nextCandidate;
-                    const legKey = nextPt ? `${pt.id}_${nextPt.id}` : '';
-                    const customStreetDist = legKey ? streetDistances[legKey] : undefined;
-                    const routeInfo = legKey ? liveRouteInfos[legKey] : undefined;
-                    const transit = nextPt ? (routeInfo || calculateTransitEstimates(pt, nextPt, customStreetDist)) : null;
                     const dayHotel = dayInfo ? getHotelPointForDay(dayInfo.dayDate) : null;
 
                     return (
@@ -1390,7 +1242,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                               style={styles.pointNavigateBtn}
                               activeOpacity={0.7}
                               onPress={() => {
-                                const url = buildGoogleMapsNavigationToDestinationUrl(pt, destinationCity);
+                                const target = pt.isUnresolved
+                                  ? { ...pt, lat: undefined, lon: undefined }
+                                  : pt;
+                                const url = buildGoogleMapsNavigationToDestinationUrl(target, destinationCity);
                                 Linking.openURL(url).catch((err) => console.warn('Cannot open Google Maps:', err));
                               }}
                               testID={`preview-point-maps-btn-${idx}`}
@@ -1400,63 +1255,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                             </TouchableOpacity>
                           </View>
 
-                          {nextPt && transit && (
-                            <View style={styles.transitLegCard}>
-                              <View style={styles.transitLegHeader}>
-                                <Ionicons name="git-commit-outline" size={13} color="#94A3B8" style={{ marginRight: 4 }} />
-                                <Text style={styles.transitLegHeaderText}>{t.transitHeader}</Text>
-                              </View>
-
-                              {/* REKOMENDACJA ORIENTACYJNA: PIESZO CZY KOMUNIKACJA */}
-                              <View style={styles.legRecommendationBanner}>
-                                <Ionicons
-                                  name={transit.recommendedMode === 'walking' ? 'walk-outline' : 'bus-outline'}
-                                  size={14}
-                                  color={transit.recommendedMode === 'walking' ? '#F59E0B' : '#38BDF8'}
-                                  style={{ marginRight: 6 }}
-                                />
-                                <Text style={styles.legRecommendationText}>
-                                  {language === 'en'
-                                    ? `Recommended transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit} (estimate)`
-                                    : `Rekomendowany transport: ${transit.recommendedMode === 'walking' ? t.modeWalk : t.modeTransit} (orientacyjnie)`}
-                                </Text>
-                              </View>
-                              {transit.recommendedMode === 'transit' ? (
-                                <View style={styles.transitNoticeBox}>
-                                  <Ionicons name="information-circle-outline" size={13} color="#38BDF8" style={{ marginRight: 6, marginTop: 1 }} />
-                                  <Text style={styles.transitNoticeText}>
-                                    {language === 'en'
-                                      ? `Distance is ~${transit.walkDistanceKm} km (walking would take ~${transit.walkMinutes} min). Public transit or taxi advised. Timetables are not fetched from OSRM — check real-time departures in Google Maps.`
-                                      : `Dystans to ~${transit.walkDistanceKm} km (spacer zająłby ~${transit.walkMinutes} min). Zalecana komunikacja miejska lub taxi. Aplikacja nie pobiera rozkładów z OSRM — połączenia weryfikuj w Mapach Google.`}
-                                  </Text>
-                                </View>
-                              ) : (
-                                <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2, marginBottom: 6, fontStyle: 'italic' }}>
-                                  {language === 'en'
-                                    ? 'Estimated short walk between nearby sights; verify the route in Google Maps.'
-                                    : 'Szacunkowy krótki spacer między pobliskimi punktami; sprawdź trasę w Mapach Google.'}
-                                </Text>
-                              )}
-
-                              {/* PRZYCISK GŁÓWNY GOOGLE MAPS Z AKTUALNEJ POZYCJI DO NASTĘPNEGO PUNKTU */}
-                              <TouchableOpacity
-                                style={styles.googleMapsBtn}
-                                activeOpacity={0.8}
-                                onPress={() => {
-                                  const targetMode = transit.recommendedMode === 'walking' ? 'walking' : 'transit';
-                                  const url = buildGoogleMapsNavigationToDestinationUrl(nextPt, destinationCity, targetMode);
-                                  Linking.openURL(url).catch((err) => {
-                                    console.warn('Cannot open Google Maps:', err);
-                                  });
-                                }}
-                                testID={`transit-maps-btn-${idx}`}
-                              >
-                                <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 6 }} />
-                                <Text style={styles.googleMapsBtnText}>{t.checkInGoogleMaps}</Text>
-                                <Ionicons name="open-outline" size={12} color="#38BDF8" style={{ marginLeft: 4 }} />
-                              </TouchableOpacity>
-                            </View>
-                          )}
                         </View>
                       </View>
                       {dayInfo?.isLastInDay && dayHotel && (
@@ -1502,31 +1300,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
                 )}
               </View>
               )}
-
-              {/* OSTRZEŻENIE O TRYBIE PRZYBLIŻONYM LUB ŁADOWANIU OSRM */}
-              {osrmStatus === 'loading' ? (
-                <View style={styles.approximateWarningBanner} testID="osrm-loading-apply-warning">
-                  <ActivityIndicator size="small" color="#F59E0B" style={{ marginRight: 8 }} />
-                  <Text style={styles.approximateWarningText}>
-                    {language === 'en'
-                      ? 'Loading road network from OSRM... Route currently uses straight-line approximation.'
-                      : 'Wczytywanie siatki drogowej OSRM... Trasa opiera się obecnie na szacunku linii prostej.'}
-                  </Text>
-                </View>
-              ) : activeSource === 'approximate' ? (
-                <View style={styles.approximateWarningBanner} testID="approximate-warning-banner">
-                  <Ionicons name="information-circle-outline" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
-                  <Text style={styles.approximateWarningText}>
-                    {language === 'en'
-                      ? isMultiDayAllMode && !isApproximateMode
-                        ? 'At least one day uses a straight-line estimate because its road route could not be confirmed. Other days may use OSRM.'
-                        : 'Route is estimated (straight-line distance). Applying will update order according to geometric heuristic.'
-                      : isMultiDayAllMode && !isApproximateMode
-                        ? 'Co najmniej jeden dzień jest oszacowany w linii prostej, ponieważ nie udało się potwierdzić jego trasy drogowej. Pozostałe dni mogą korzystać z OSRM.'
-                        : 'Trasa wyznaczona w trybie szacunkowym (linia prosta). Zastosowanie zaktualizuje kolejność według heurystyki geometrycznej.'}
-                  </Text>
-                </View>
-              ) : null}
 
               {/* PRZYCISKI AKCJI */}
               <View style={styles.actionsRow}>
@@ -1731,23 +1504,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 2,
   },
-  legRecommendationBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.25)',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginBottom: 8,
-  },
-  legRecommendationText: {
-    color: '#F8FAFC',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
   // Podgląd trasy
   routePreviewSection: {
     marginBottom: 20,
@@ -1824,45 +1580,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  transitLegCard: {
-    marginTop: 8,
-    marginBottom: 6,
-    backgroundColor: '#0F172A',
-    borderRadius: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  transitLegHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  transitLegHeaderText: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  googleMapsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.25)',
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    marginTop: 2,
-  },
-  googleMapsBtnText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
   // Przyciski
   actionsRow: {
     marginTop: 6,
@@ -2023,45 +1740,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  roadNetworkBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-  },
-  roadNetworkBadgeText: {
-    color: '#10B981',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  approximateModeBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.4)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-  },
-  approximateModeTitle: {
-    color: '#F59E0B',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  approximateModeText: {
-    color: '#CBD5E1',
-    fontSize: 11,
-    lineHeight: 15,
-  },
   profileSelectorRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2092,23 +1770,6 @@ const styles = StyleSheet.create({
   },
   profileOptionTextActive: {
     color: '#0F172A',
-  },
-  transitNoticeBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(56, 189, 248, 0.08)',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 4,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.2)',
-  },
-  transitNoticeText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#94A3B8',
-    lineHeight: 16,
   },
   applyBtnDisabled: {
     opacity: 0.6,

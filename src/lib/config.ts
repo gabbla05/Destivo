@@ -80,7 +80,11 @@ export function getWeatherApiKey(): string {
  * Zwraca aktywny adres bazowy serwera routingu OSRM dla zadanego profilu.
  * Obsługuje dedykowane serwery dla profilu samochodowego ('driving') i pieszego ('walking').
  */
-export function getOsrmBaseUrl(profile: 'driving' | 'walking' = 'driving'): string {
+export function getOsrmBaseUrl(
+  profile: 'driving' | 'walking' = 'driving',
+  points?: Array<{ lat: number; lon: number }>,
+  extraConfig: Record<string, unknown> = (Constants?.expoConfig?.extra || {}) as Record<string, unknown>
+): string {
   const sanitizeAndValidate = (urlStr: string): string | null => {
     try {
       const trimmed = urlStr.trim().replace(/\/+$/, '');
@@ -93,6 +97,29 @@ export function getOsrmBaseUrl(profile: 'driving' | 'walking' = 'driving'): stri
     }
     return null;
   };
+
+  const isKrakowTestArea =
+    Array.isArray(points) &&
+    points.length > 0 &&
+    points.every(
+      (point) =>
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lon) &&
+        point.lat >= 49.85 &&
+        point.lat <= 50.25 &&
+        point.lon >= 19.65 &&
+        point.lon <= 20.25
+    );
+  if (isKrakowTestArea) {
+    const krakowEnvUrl =
+      profile === 'walking'
+        ? extraConfig.osrmKrakowFootBaseUrl
+        : extraConfig.osrmKrakowBaseUrl;
+    if (typeof krakowEnvUrl === 'string' && krakowEnvUrl.trim().length > 0) {
+      const valid = sanitizeAndValidate(krakowEnvUrl);
+      if (valid) return valid;
+    }
+  }
 
   if (profile === 'walking') {
     const footEnvUrl =

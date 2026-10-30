@@ -7,7 +7,6 @@ import {
   DEFAULT_FALLBACK_WEATHER_API_KEY,
   DEFAULT_OSRM_ROUTER_URL,
 } from '../src/lib/config';
-import Constants from 'expo-constants';
 
 describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)', () => {
   const originalEnv = process.env;
@@ -69,5 +68,21 @@ describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)'
   test('getOsrmBaseUrl ignoruje nieprawidłowy URL i stosuje fallback', () => {
     process.env.EXPO_PUBLIC_OSRM_URL = 'ftp://invalid-server';
     expect(getOsrmBaseUrl()).toBe(DEFAULT_OSRM_ROUTER_URL);
+  });
+
+  test('getOsrmBaseUrl używa lokalnego serwera Krakowa tylko dla punktów w obszarze testowym', () => {
+    const config = {
+      osrmKrakowBaseUrl: 'http://192.168.1.20:5000',
+      osrmKrakowFootBaseUrl: 'http://192.168.1.20:5001',
+    };
+    const krakowPoints = [
+      { lat: 50.0647, lon: 19.945 },
+      { lat: 50.061, lon: 19.95 },
+    ];
+    const outsideKrakow = [{ lat: 52.2297, lon: 21.0122 }];
+
+    expect(getOsrmBaseUrl('driving', krakowPoints, config)).toBe('http://192.168.1.20:5000');
+    expect(getOsrmBaseUrl('walking', krakowPoints, config)).toBe('http://192.168.1.20:5001');
+    expect(getOsrmBaseUrl('driving', outsideKrakow, config)).toBe(DEFAULT_OSRM_ROUTER_URL);
   });
 });
