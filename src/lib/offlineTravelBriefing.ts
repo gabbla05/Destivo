@@ -8,6 +8,7 @@ import jsQR from 'jsqr';
 import * as jpeg from 'jpeg-js';
 import * as UPNG from 'upng-js';
 import pako from 'pako';
+import { VaultManager, VaultFileReference } from './vaultManager';
 import { getEmergencyNumber } from '../screens/HomeScreen';
 import { translations } from '../i18n/translations';
 import {
@@ -519,8 +520,9 @@ export const prepareVaultTickets = async (
         const uriToRead = file.uri.startsWith('file://') || file.uri.startsWith('content://')
           ? file.uri
           : `file://${file.uri}`;
-        const base64 = await FileSystem.readAsStringAsync(uriToRead, {
-          encoding: 'base64',
+        const base64 = await VaultManager.readFileAsBase64({
+          ...file,
+          uri: uriToRead,
         });
         if (base64) {
           const fileBuf = Buffer.from(base64, 'base64');
@@ -1227,33 +1229,9 @@ export const saveBriefingToVaultStorage = async (
   pdfUri: string,
   tripId: string,
   tripName: string
-): Promise<any> => {
-  try {
-    const vaultDir = `${FileSystem.documentDirectory}destivo_vault/`;
-    const dirInfo = await FileSystem.getInfoAsync(vaultDir);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-    }
-
-    const cleanName = `Briefing_${tripName.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
-    const permanentUri = `${vaultDir}${Crypto.randomUUID()}.pdf`;
-
-    await FileSystem.copyAsync({
-      from: pdfUri,
-      to: permanentUri,
-    });
-
-    return {
-      id: Crypto.randomUUID(),
-      name: cleanName,
-      uri: permanentUri,
-      type: 'PDF',
-      createdAt: new Date().toISOString(),
-    };
-  } catch (err) {
-    console.error('Failed to save briefing in vault:', err);
-    return null;
-  }
+): Promise<VaultFileReference> => {
+  const cleanName = `Briefing_${tripName.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+  return VaultManager.saveToVault(pdfUri, cleanName);
 };
 
 /**

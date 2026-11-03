@@ -15,6 +15,7 @@ import { useVaultStore } from '../src/store/vaultStore';
 // --------------------------------------------------------------------------
 
 let mockLanguage = 'pl';
+const mockSecureEntries = new Map<string, string>();
 jest.mock('../src/store/authStore', () => ({
   useAuthStore: () => ({
     user: { id: 'test-user-id', email: 'test@destivo.io', isGuest: false },
@@ -33,6 +34,7 @@ jest.mock('@powersync/react-native', () => ({
 
 // 3. Mock Supabase
 const mockSupabaseUpdateEq = jest.fn().mockResolvedValue({ error: null });
+const mockVaultFiles = new Map<string, string>();
 const mockSupabaseUpdate = jest.fn().mockImplementation(() => ({
   eq: mockSupabaseUpdateEq,
 }));
@@ -69,9 +71,19 @@ jest.mock('expo-image-picker', () => ({
 
 jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file://mock_docs/',
+  cacheDirectory: 'file://mock_cache/',
+  EncodingType: { Base64: 'base64' },
   getInfoAsync: jest.fn().mockResolvedValue({ exists: true }),
   makeDirectoryAsync: jest.fn().mockResolvedValue(true),
+  readDirectoryAsync: jest.fn().mockResolvedValue([]),
   copyAsync: jest.fn().mockResolvedValue(true),
+  readAsStringAsync: jest.fn(async (uri: string) => mockVaultFiles.get(uri) || 'dGlja2V0'),
+  writeAsStringAsync: jest.fn(async (uri: string, contents: string) => {
+    mockVaultFiles.set(uri, contents);
+  }),
+  deleteAsync: jest.fn(async (uri: string) => {
+    mockVaultFiles.delete(uri);
+  }),
 }));
 
 jest.mock('expo-sharing', () => ({
@@ -81,6 +93,14 @@ jest.mock('expo-sharing', () => ({
 
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-9999',
+  getRandomBytesAsync: async (length: number) => new Uint8Array(length).fill(17),
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async (key: string) => mockSecureEntries.get(key) || null),
+  setItemAsync: jest.fn(async (key: string, value: string) => {
+    mockSecureEntries.set(key, value);
+  }),
 }));
 
 // Mock Alert & Vibration
@@ -113,6 +133,7 @@ const mockTripsData = [
 describe('Moduł Sejfu Offline (Vault)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockVaultFiles.clear();
     jest.useFakeTimers(); // Ponieważ w ekranie PIN użyto setTimeout na 100ms
     
     // Resetowanie stanu Zustand dla Sejfu przed każdym testem
@@ -254,11 +275,12 @@ describe('Moduł Sejfu Offline (Vault)', () => {
         // Sprawdzamy czy wywołano natywny Document Picker
         expect(require('expo-document-picker').getDocumentAsync).toHaveBeenCalled();
         
-        // Sprawdzamy czy plik skopiowano do lokalnego systemu
-        expect(require('expo-file-system/legacy').copyAsync).toHaveBeenCalledWith({
-          from: 'file://temp/ticket.pdf',
-          to: 'file://mock_docs/destivo_vault/mock-uuid-9999.pdf',
-        });
+        // Plik jest zapisany jako zaszyfrowany blob o niejawnej nazwie.
+        expect(require('expo-file-system/legacy').writeAsStringAsync).toHaveBeenCalledWith(
+          'file://mock_docs/destivo_vault/mock-uuid-9999.vault',
+          expect.any(String),
+          { encoding: 'base64' }
+        );
 
         // Weryfikacja Dual-Write
         // 1. Zapis do PowerSync
@@ -304,7 +326,9 @@ describe('Moduł Sejfu Offline (Vault)', () => {
       fireEvent.press(screen.getByText('bilet.pdf'));
 
       await waitFor(() => {
-        expect(require('expo-sharing').shareAsync).toHaveBeenCalledWith('file://mock_docs/destivo_vault/mock.pdf');
+        expect(require('expo-sharing').shareAsync).toHaveBeenCalledWith(
+          expect.stringContaining('destivo-vault-mock-uuid-9999.pdf')
+        );
       });
     });
 
@@ -332,7 +356,7 @@ describe('Moduł Sejfu Offline (Vault)', () => {
 
       await waitFor(() => {
         expect(require('expo-print').printAsync).toHaveBeenCalledWith({
-          uri: 'file://mock_docs/destivo_vault/mock.pdf'
+          uri: expect.stringContaining('destivo-vault-mock-uuid-9999.pdf')
         });
       });
     });

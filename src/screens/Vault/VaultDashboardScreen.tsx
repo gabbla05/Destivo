@@ -62,6 +62,23 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
+    VaultManager.cleanupTemporaryFiles().catch((error) => {
+      console.warn('Could not clean up temporary decrypted Vault files:', error);
+    });
+  }, []);
+
+  useEffect(() => {
+    const temporaryUri = previewFile?.temporaryPreviewUri;
+    return () => {
+      if (temporaryUri) {
+        VaultManager.deleteFile(temporaryUri).catch((error) => {
+          console.warn('Could not remove temporary decrypted Vault file:', error);
+        });
+      }
+    };
+  }, [previewFile?.temporaryPreviewUri]);
+
+  useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
@@ -139,14 +156,105 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     setSelectedTrip({ ...selectedTrip, lodging_data: newLodgingData });
   };
 
+  useEffect(() => {
+    if (!selectedTrip?.id) return;
+    let active = true;
+
+    const migrateLegacyFiles = async () => {
+      const lodgingData = JSON.parse(selectedTrip.lodging_data || '{}');
+      const vaultFiles = Array.isArray(lodgingData.vaultFiles) ? lodgingData.vaultFiles : [];
+      const transportData = JSON.parse(selectedTrip.transport_data || '{}');
+      const transportDetails = transportData.details || {};
+      const transportFileEntries = ['ticketFile', 'outboundTicketFile', 'returnTicketFile']
+        .map((key) => ({ key, file: transportDetails[key] || transportData[key] }))
+        .filter((entry: any) => entry.file?.uri);
+      const files = [...vaultFiles, ...transportFileEntries.map((entry: any) => entry.file)];
+      const legacyFiles = files.filter((file: any) => file?.uri && file.encryptionVersion !== 1);
+      if (legacyFiles.length === 0) return;
+
+      const migratedFiles = await Promise.all(
+        files.map((file: any) =>
+          file?.uri && file.encryptionVersion !== 1
+            ? VaultManager.migrateLegacyFile(file)
+            : file
+        )
+      );
+      if (!active) {
+        await Promise.all(migratedFiles
+          .filter((file: any, index: number) => file?.uri !== files[index]?.uri)
+          .map((file: any) => VaultManager.deleteFile(file.uri)));
+        return;
+      }
+
+      const updatedLodgingData = JSON.stringify({
+        ...lodgingData,
+        vaultFiles: migratedFiles.slice(0, vaultFiles.length),
+      });
+      const migratedTransportFiles = migratedFiles.slice(vaultFiles.length);
+      const updatedTransportDetails = { ...transportDetails };
+      transportFileEntries.forEach((entry: any, index: number) => {
+        if (transportDetails[entry.key]) {
+          updatedTransportDetails[entry.key] = migratedTransportFiles[index];
+        } else if (transportData[entry.key]) {
+          transportData[entry.key] = migratedTransportFiles[index];
+        }
+      });
+      const updatedTransportData = JSON.stringify({
+        ...transportData,
+        ...(transportData.details ? { details: updatedTransportDetails } : {}),
+      });
+      await db.execute(
+        'UPDATE trips SET lodging_data = ?, transport_data = ? WHERE id = ?',
+        [updatedLodgingData, updatedTransportData, selectedTrip.id]
+      );
+      const updatedTrip = {
+        ...selectedTrip,
+        lodging_data: updatedLodgingData,
+        transport_data: updatedTransportData,
+      };
+      setSelectedTrip(updatedTrip);
+      setTrips((currentTrips) =>
+        currentTrips.map((trip) => trip.id === selectedTrip.id ? updatedTrip : trip)
+      );
+
+      if (user && !user.isGuest) {
+        const { error } = await supabase
+          .from('trips')
+          .update({ lodging_data: updatedLodgingData })
+          .eq('id', selectedTrip.id);
+        if (error) {
+          console.warn('Vault file encryption metadata could not be synced to Supabase:', error);
+        }
+      }
+
+      await Promise.all(legacyFiles
+        .filter((file: any) => file.uri.includes('/destivo_vault/'))
+        .map((file: any) => VaultManager.deleteFile(file.uri)));
+    };
+
+    migrateLegacyFiles().catch((error) => {
+      console.error('Could not migrate existing Vault files to encryption:', error);
+      Alert.alert(
+        t.error || 'Błąd',
+        language === 'en'
+          ? 'Some existing Vault files could not be encrypted. Keep the app installed and check available storage.'
+          : 'Nie udało się zaszyfrować części dotychczasowych plików Sejfu. Nie odinstalowuj aplikacji i sprawdź wolne miejsce.'
+      );
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedTrip?.id]);
+
   // Zapis pliku do bazy (Dual-Write) oraz otwarcie okna nadania nazwy
   const handleAddFile = async (method: 'DOC' | 'IMAGE') => {
     if (!selectedTrip) return;
-    
-    const fileData = method === 'DOC' ? await VaultManager.pickFile() : await VaultManager.pickImage();
-    if (!fileData) return;
 
     try {
+      const fileData = method === 'DOC' ? await VaultManager.pickFile() : await VaultManager.pickImage();
+      if (!fileData) return;
+
       const isUserGuest = user?.isGuest || !user;
       const lodgingData = JSON.parse(selectedTrip.lodging_data || '{}');
       const currentFiles = lodgingData.vaultFiles || [];
@@ -212,9 +320,15 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
           style: 'destructive',
           onPress: async () => {
             const currentFiles = getFilesForSelectedTrip();
+            const deletedFile = currentFiles.find((file: any) => file.id === fileId);
             const updated = currentFiles.filter((f: any) => f.id !== fileId);
             await updateTripFiles(updated);
-            if (previewFile?.id === fileId) setPreviewFile(null);
+            if (deletedFile?.uri) {
+              await VaultManager.deleteFile(deletedFile.uri).catch((error) => {
+                console.warn('Could not delete Vault file from device storage:', error);
+              });
+            }
+            if (previewFile?.id === fileId) closePreview();
           },
         },
       ]
@@ -222,17 +336,26 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
   };
 
   // Otwieranie pliku (In-App Viewer oraz Sharing dla testów/zewnętrznych aplikacji)
+  const closePreview = () => {
+    setPreviewFile(null);
+  };
+
   const handleOpenFile = async (file: any) => {
-    setPreviewFile(file);
-    if (process.env.NODE_ENV === 'test') {
-      try {
+    try {
+      const decrypted = await VaultManager.createDecryptedTemporaryCopy(file);
+      const preview = {
+        ...file,
+        previewUri: decrypted.uri,
+        temporaryPreviewUri: decrypted.isTemporary ? decrypted.uri : undefined,
+      };
+      setPreviewFile(preview);
+      if (process.env.NODE_ENV === 'test') {
         const isAvailable = await Sharing.isAvailableAsync();
-        if (isAvailable) {
-          await Sharing.shareAsync(file.uri);
-        }
-      } catch (e) {
-        // Ignorujemy błędy w środowisku testowym
+        if (isAvailable) await Sharing.shareAsync(decrypted.uri);
       }
+    } catch (error) {
+      console.error('Could not decrypt Vault file for preview:', error);
+      Alert.alert(t.error, t.readError);
     }
   };
 
@@ -251,14 +374,23 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
 
   const handlePrintFile = async (file: any) => {
     if (!file?.uri) return;
+    let temporaryUri: string | null = null;
     try {
-      await printVaultFile(file);
+      const decrypted = await VaultManager.createDecryptedTemporaryCopy(file);
+      temporaryUri = decrypted.isTemporary ? decrypted.uri : null;
+      await printVaultFile({ ...file, uri: decrypted.uri });
     } catch (e) {
       console.error('Błąd drukowania pliku:', e);
       Alert.alert(
         t.error || (language === 'en' ? 'Error' : 'Błąd'),
         t.printFileError || (language === 'en' ? 'Failed to launch printing for this file.' : 'Nie udało się uruchomić drukowania pliku.')
       );
+    } finally {
+      if (temporaryUri) {
+        await VaultManager.deleteFile(temporaryUri).catch((error) => {
+          console.warn('Could not remove temporary decrypted Vault file:', error);
+        });
+      }
     }
   };
 
@@ -612,12 +744,12 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         visible={!!previewFile}
         transparent
         animationType="fade"
-        onRequestClose={() => setPreviewFile(null)}
+        onRequestClose={closePreview}
       >
         <SafeAreaView style={styles.previewContainer}>
           {/* HEADER PODGLĄDU */}
           <View style={styles.previewHeader}>
-            <TouchableOpacity onPress={() => setPreviewFile(null)} style={styles.previewCloseBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={closePreview} style={styles.previewCloseBtn} activeOpacity={0.7}>
               <Ionicons name="close" size={24} color="#F8FAFC" />
             </TouchableOpacity>
 
@@ -630,7 +762,11 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
 
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <TouchableOpacity
-                onPress={() => previewFile && handlePrintFile(previewFile)}
+                onPress={() => previewFile && handlePrintFile({
+                  ...previewFile,
+                  uri: previewFile.previewUri,
+                  encryptionVersion: undefined,
+                })}
                 style={[styles.previewShareBtn, { marginRight: 8 }]}
                 activeOpacity={0.7}
                 testID="preview-print-btn"
@@ -639,7 +775,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => previewFile && handleShareExternal(previewFile.uri)}
+                onPress={() => previewFile && handleShareExternal(previewFile.previewUri)}
                 style={styles.previewShareBtn}
                 activeOpacity={0.7}
               >
@@ -653,13 +789,17 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
             {isImageFile(previewFile) ? (
               <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
                 <Image
-                  source={{ uri: previewFile?.uri }}
+                  source={{ uri: previewFile?.previewUri }}
                   style={styles.previewImage}
                   resizeMode="contain"
                 />
                 <TouchableOpacity
                   style={styles.imagePrintBtn}
-                  onPress={() => previewFile && handlePrintFile(previewFile)}
+                  onPress={() => previewFile && handlePrintFile({
+                    ...previewFile,
+                    uri: previewFile.previewUri,
+                    encryptionVersion: undefined,
+                  })}
                   activeOpacity={0.8}
                   testID="image-print-btn"
                 >
@@ -690,7 +830,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                 
                 <TouchableOpacity
                   style={styles.openExternalBtn}
-                  onPress={() => previewFile && handleShareExternal(previewFile.uri)}
+                  onPress={() => previewFile && handleShareExternal(previewFile.previewUri)}
                   activeOpacity={0.8}
                 >
                   <Ionicons name="open-outline" size={18} color="#0B1120" style={{ marginRight: 8 }} />

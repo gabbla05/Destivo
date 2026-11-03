@@ -25,6 +25,8 @@ import { Buffer } from 'buffer';
 import * as jpeg from 'jpeg-js';
 import * as UPNG from 'upng-js';
 
+const mockSecureEntries = new Map<string, string>();
+
 // Mock expo-sharing
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn().mockResolvedValue(true),
@@ -34,10 +36,25 @@ jest.mock('expo-sharing', () => ({
 // Mock expo-file-system/legacy
 jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file://mock_app_dir/',
+  cacheDirectory: 'file://mock_cache/',
   getInfoAsync: jest.fn().mockResolvedValue({ exists: true }),
   makeDirectoryAsync: jest.fn().mockResolvedValue(true),
   copyAsync: jest.fn().mockResolvedValue(true),
   readAsStringAsync: jest.fn().mockResolvedValue('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='),
+  writeAsStringAsync: jest.fn().mockResolvedValue(undefined),
+  deleteAsync: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => 'mock-vault-uuid',
+  getRandomBytesAsync: async (length: number) => new Uint8Array(length).fill(17),
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async (key: string) => mockSecureEntries.get(key) || null),
+  setItemAsync: jest.fn(async (key: string, value: string) => {
+    mockSecureEntries.set(key, value);
+  }),
 }));
 
 describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
@@ -387,19 +404,21 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       });
     });
 
-    test('saveBriefingToVaultStorage kopiuje plik PDF do katalogu Sejfu destivo_vault', async () => {
+    test('saveBriefingToVaultStorage szyfruje PDF przed zapisaniem go do katalogu Sejfu', async () => {
       const savedDoc = await saveBriefingToVaultStorage(
         'file:///temp/briefing.pdf',
         sampleTrip.id,
         sampleTrip.trip_name
       );
 
-      expect(FileSystem.copyAsync).toHaveBeenCalledWith({
-        from: 'file:///temp/briefing.pdf',
-        to: expect.stringContaining('file://mock_app_dir/destivo_vault/'),
-      });
+      expect(FileSystem.writeAsStringAsync).toHaveBeenCalledWith(
+        'file://mock_app_dir/destivo_vault/mock-vault-uuid.vault',
+        expect.any(String),
+        { encoding: 'base64' }
+      );
       expect(savedDoc).toBeTruthy();
       expect(savedDoc.type).toBe('PDF');
+      expect(savedDoc.encryptionVersion).toBe(1);
       expect(savedDoc.name).toContain('Briefing_Rzymska_Przygoda_2026');
     });
 
