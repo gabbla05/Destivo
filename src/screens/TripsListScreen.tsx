@@ -100,6 +100,8 @@ export const TripsListScreen = ({ navigation }: any) => {
       setLoading(true);
       const userId = user?.id || 'guest';
       const tripsById = new Map<string, TripRecord>();
+      let cloudLoadFailed = false;
+      let cloudReturnedEmpty = false;
 
       // 1. Najpierw pobieramy z lokalnej bazy PowerSync SQLite (dostępne natychmiast offline)
       let localFullTrips: any[] = [];
@@ -184,7 +186,13 @@ export const TripsListScreen = ({ navigation }: any) => {
             .eq('user_id', queryUserId)
             .order('start_date', { ascending: true });
 
+          if (error) {
+            cloudLoadFailed = true;
+            console.warn('TripsList: błąd pobierania podróży z Supabase:', error);
+          }
+
           if (!error && Array.isArray(data)) {
+            cloudReturnedEmpty = data.length === 0;
             for (const trip of data) {
               const tripTitle = trip.title || trip.trip_name || t.untitled;
               let transportType = 'flight';
@@ -357,6 +365,12 @@ export const TripsListScreen = ({ navigation }: any) => {
 
       const mergedTrips = Array.from(tripsById.values());
       setTrips(mergedTrips);
+      if (cloudLoadFailed && mergedTrips.length === 0) {
+        Alert.alert(commonT.label_error, t.cloudLoadError);
+      } else if (cloudReturnedEmpty && mergedTrips.length === 0 && user && !user.isGuest) {
+        console.warn('TripsList: Supabase returned no trips for the authenticated account.');
+        Alert.alert(commonT.label_error, t.cloudEmptyWarning);
+      }
 
       // 5. Zapisujemy w trwałym cache, aby nigdy nie znikały
       try {

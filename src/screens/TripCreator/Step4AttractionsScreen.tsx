@@ -465,6 +465,7 @@ export const Step4AttractionsScreen = () => {
         ]
       );
 
+      let cloudSyncFailed = false;
       if (user && !isGuest && !user.isGuest) {
         let targetUserId = user.id;
         try {
@@ -490,11 +491,17 @@ export const Step4AttractionsScreen = () => {
           }]);
 
         if (supabaseError) {
+          cloudSyncFailed = true;
           console.warn('Błąd bezpośredniego zapisu do Supabase w Step4:', supabaseError);
         }
       }
 
-      Alert.alert('DESTIVO', t.saveSuccess);
+      const saveNotice = isGuest || user?.isGuest || !user
+        ? translations[language].trips.guestSaveWarning
+        : cloudSyncFailed
+          ? translations[language].trips.cloudSaveWarning
+          : t.saveSuccess;
+      Alert.alert('DESTIVO', saveNotice);
       reset(); 
       navigation.navigate('MainTabs' as never, { screen: 'Trips' } as never);
 

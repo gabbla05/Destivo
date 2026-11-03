@@ -69,8 +69,16 @@ const mockSupabaseLimit = jest.fn().mockImplementation(() => ({
 }));
 
 const mockSupabaseInsert = jest.fn().mockResolvedValue({ error: null });
+const mockSupabaseUpdateMaybeSingle = jest.fn().mockResolvedValue({
+  data: { id: 'trip-upcoming' },
+  error: null,
+});
+const mockSupabaseUpdateEq = jest.fn().mockImplementation(() => ({
+  select: jest.fn().mockReturnValue({ maybeSingle: mockSupabaseUpdateMaybeSingle }),
+  then: (resolve: any) => resolve({ data: { id: 'trip-upcoming' }, error: null }),
+}));
 const mockSupabaseUpdate = jest.fn().mockImplementation(() => ({
-  eq: jest.fn().mockResolvedValue({ error: null })
+  eq: mockSupabaseUpdateEq,
 }));
 const mockSupabaseDelete = jest.fn().mockImplementation(() => ({
   eq: jest.fn().mockResolvedValue({ error: null })
@@ -198,6 +206,10 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSupabaseUpdateMaybeSingle.mockReset().mockResolvedValue({
+      data: { id: 'trip-upcoming' },
+      error: null,
+    });
     AsyncStorage.clear();
     mockAuthState.user = { id: 'test-user-id', email: 'test@destivo.io', isGuest: false };
     mockAuthState.isGuest = false;
@@ -226,6 +238,25 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
   });
 
   describe('1. Ekran Listy Podróży (TripsListScreen)', () => {
+    test('powinien poinformować, gdy chmura odpowiada pustą listą', async () => {
+      mockDbExecute.mockResolvedValueOnce({ rows: [] });
+      mockSupabaseSelect.mockImplementationOnce(() => ({
+        eq: jest.fn().mockImplementationOnce(() => ({
+          order: jest.fn().mockResolvedValueOnce({ data: [], error: null }),
+          then: (resolve: any) => resolve({ data: [], error: null }),
+        })),
+      }));
+
+      render(<TripsListScreen navigation={{ navigate: mockNavigate } as any} />);
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith(
+          'Wystąpił błąd',
+          expect.stringContaining('Chmura nie zwróciła żadnych podróży')
+        );
+      });
+    });
+
     test('powinien poprawnie podzielić wycieczki na Nadchodzące i Archiwalne oraz wyliczyć statystyki', async () => {
       mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
       mockSupabaseSelect.mockImplementationOnce(() => ({
@@ -538,6 +569,30 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
         expect(mockSupabaseUpdate).toHaveBeenCalled();
         expect(Alert.alert).toHaveBeenCalledWith("Sukces", "Oś czasu została zaktualizowana.");
       });
+    });
+
+    test('nie zgłasza sukcesu ani nie czyści zmian, gdy chmura nie potwierdzi zapisu', async () => {
+      mockSupabaseUpdateMaybeSingle.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'row filtered by RLS' },
+      });
+      render(<TimelineScreen route={{ params: { tripId: 'trip-upcoming' } }} />);
+
+      await waitFor(() => expect(screen.getByText('Panteon')).toBeTruthy());
+      fireEvent.press(findPressableAncestor(screen.getByText('Panteon')));
+      fireEvent.press(screen.getByText('▲'));
+      await waitFor(() => expect(screen.getByText('Zapisz układ osi czasu')).toBeTruthy());
+
+      fireEvent.press(screen.getByText('Zapisz układ osi czasu'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith(
+          'Błąd',
+          expect.stringContaining('Zmiany zapisano lokalnie')
+        );
+        expect(screen.getByText('Zapisz układ osi czasu')).toBeTruthy();
+      });
+      expect(Alert.alert).not.toHaveBeenCalledWith('Sukces', 'Oś czasu została zaktualizowana.');
     });
 
     test('archiwalna podróż nie pokazuje oznaczenia TERAZ / NASTĘPNE', async () => {

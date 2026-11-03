@@ -885,7 +885,8 @@ export const solveRelocateTSP = (
 export const solveSimulatedAnnealingTSP = (
   initialRoute: number[],
   matrix: number[][],
-  fixStart: boolean = true
+  fixStart: boolean = true,
+  randomSeed?: number
 ): { route: number[]; distance: number; iterations: number; timeMs: number } => {
   if (!matrix || !Array.isArray(matrix)) {
     throw new Error('solveSimulatedAnnealingTSP: Macierz kosztów nie jest tablicą.');
@@ -931,6 +932,17 @@ export const solveSimulatedAnnealingTSP = (
   const minTemp = 0.01;
   let iterations = 0;
   const startIndex = fixStart ? 1 : 0;
+  let random = Math.random;
+  if (randomSeed !== undefined) {
+    let state = randomSeed >>> 0;
+    random = () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let value = state;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
   while (temp > minTemp && iterations < 1500) {
     iterations++;
@@ -938,10 +950,10 @@ export const solveSimulatedAnnealingTSP = (
     let candidateRoute: number[];
     const range = n - startIndex;
 
-    if (Math.random() < 0.5 && range >= 2) {
+    if (random() < 0.5 && range >= 2) {
       // Ruch 2-opt (odwrócenie losowego podciągu)
-      const i = startIndex + Math.floor(Math.random() * (range - 1));
-      const j = i + 1 + Math.floor(Math.random() * (n - i - 1));
+      const i = startIndex + Math.floor(random() * (range - 1));
+      const j = i + 1 + Math.floor(random() * (n - i - 1));
       candidateRoute = [
         ...currentRoute.slice(0, i),
         ...currentRoute.slice(i, j + 1).reverse(),
@@ -949,10 +961,10 @@ export const solveSimulatedAnnealingTSP = (
       ];
     } else {
       // Ruch Relocate (przeniesienie wierzchołka)
-      const fromIdx = startIndex + Math.floor(Math.random() * range);
+      const fromIdx = startIndex + Math.floor(random() * range);
       const node = currentRoute[fromIdx];
       const remaining = [...currentRoute.slice(0, fromIdx), ...currentRoute.slice(fromIdx + 1)];
-      let toIdx = startIndex + Math.floor(Math.random() * (remaining.length - startIndex + 1));
+      let toIdx = startIndex + Math.floor(random() * (remaining.length - startIndex + 1));
       if (toIdx === fromIdx && remaining.length > startIndex) {
         toIdx = toIdx === remaining.length ? startIndex : toIdx + 1;
       }
@@ -966,7 +978,7 @@ export const solveSimulatedAnnealingTSP = (
     const candidateDist = calculatePathDistance(candidateRoute, matrix);
     const delta = candidateDist - currentDist;
 
-    if (delta < 0 || Math.exp(-delta / temp) > Math.random()) {
+    if (delta < 0 || Math.exp(-delta / temp) > random()) {
       currentRoute = candidateRoute;
       currentDist = candidateDist;
 
@@ -1075,6 +1087,7 @@ export interface OptimizeSightseeingOptions {
   customMatrix?: number[][];
   criterion?: OptimizationCriterion;
   isApproximate?: boolean;
+  randomSeed?: number;
 }
 
 /**
@@ -1122,6 +1135,7 @@ export const optimizeSightseeingRoute = (
   let customMatrix: number[][] | undefined;
   let criterion: OptimizationCriterion = 'distance';
   let isApproximate = false;
+  let randomSeed: number | undefined;
 
   if (Array.isArray(customMatrixOrOptions)) {
     customMatrix = customMatrixOrOptions;
@@ -1131,6 +1145,7 @@ export const optimizeSightseeingRoute = (
     customMatrix = customMatrixOrOptions.customMatrix;
     criterion = customMatrixOrOptions.criterion || 'duration';
     isApproximate = customMatrixOrOptions.isApproximate ?? false;
+    randomSeed = customMatrixOrOptions.randomSeed;
   }
 
   let isRoadMatrix = false;
@@ -1208,7 +1223,7 @@ export const optimizeSightseeingRoute = (
   });
 
   // 3. Symulowane Wyżarzanie (Simulated Annealing) - startujemy ze zoptymalizowanej trasy
-  const saRes = solveSimulatedAnnealingTSP(twoOptRes.route, matrix, fixStartPoint);
+  const saRes = solveSimulatedAnnealingTSP(twoOptRes.route, matrix, fixStartPoint, randomSeed);
   benchmarks.push({
     algorithmId: 'simulated_annealing',
     name: 'Symulowane Wyżarzanie (Simulated Annealing)',

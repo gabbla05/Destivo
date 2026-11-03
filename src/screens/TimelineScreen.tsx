@@ -1106,9 +1106,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const persistTimeline = async (
     updatedEvents: TimelineEvent[],
     addedPoolAttr?: PoolAttraction
-  ) => {
+  ): Promise<'saved' | 'localOnly' | 'cloudFailed' | 'failed'> => {
     const currentTrip = tripDataRef.current || tripData;
-    if (!currentTrip) return;
+    if (!currentTrip) return 'failed';
+    let localPersisted = false;
+    let cloudSyncStarted = false;
     try {
       const isUserGuest = user?.isGuest || !user;
       const currentAttractions = JSON.parse(currentTrip.attractions_data || '{}');
@@ -1160,6 +1162,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           ]
         );
       }
+      localPersisted = true;
 
       // 2. Kopia zapasowa w AsyncStorage (gwarancja trwałości po restarcie aplikacji)
       try {
@@ -1181,26 +1184,42 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         console.warn('Błąd zapisu timeline w AsyncStorage:', cacheErr);
       }
 
-      // 3. Zapis w chmurze Supabase dla zalogowanego
-      if (!isUserGuest) {
-        const { error } = await supabase
-          .from('trips')
-          .update({ attractions_data: serialized })
-          .eq('id', currentTrip.id);
-        if (error) {
-          console.warn('Supabase update warning:', error);
-        }
-      }
-
       setTripData((prev) => (prev ? { ...prev, attractions_data: serialized } : null));
       tripDataRef.current = { ...currentTrip, attractions_data: serialized };
       if (addedPoolAttr && !poolHasItem) {
         setAttractionsPool(updatedPool);
       }
+
+      if (isUserGuest) {
+        setHasUnsavedChanges(false);
+        hasUnsavedChangesRef.current = false;
+        return 'localOnly';
+      }
+
+      // 3. Potwierdzamy, że RLS nie odfiltrował aktualizowanego rekordu.
+      cloudSyncStarted = true;
+      const { data, error } = await supabase
+        .from('trips')
+        .update({ attractions_data: serialized })
+        .eq('id', currentTrip.id)
+        .select('id')
+        .maybeSingle();
+      if (error || !data) {
+        console.warn('Supabase update warning:', error || 'No trip row was updated.');
+        setHasUnsavedChanges(true);
+        hasUnsavedChangesRef.current = true;
+        return 'cloudFailed';
+      }
+
       setHasUnsavedChanges(false);
       hasUnsavedChangesRef.current = false;
+      return 'saved';
     } catch (err) {
       console.error('Błąd zapisu osi czasu do bazy:', err);
+      const saveFailed = localPersisted && cloudSyncStarted ? 'cloudFailed' : 'failed';
+      setHasUnsavedChanges(true);
+      hasUnsavedChangesRef.current = true;
+      return saveFailed;
     }
   };
 
@@ -1350,12 +1369,16 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const saveTimelineChanges = async () => {
     const currentTrip = tripDataRef.current || tripData;
     if (!currentTrip) return;
-    try {
-      await persistTimeline(events);
+    const result = await persistTimeline(events);
+    if (result === 'saved') {
       Alert.alert(commonT.success, t.saveSuccess);
       processAndSetEvents(events); 
-    } catch (e) {
-      console.error(e);
+    } else if (result === 'cloudFailed') {
+      Alert.alert(commonT.error, t.cloudSaveError);
+    } else if (result === 'localOnly') {
+      Alert.alert(commonT.success, t.localSaveWarning);
+      processAndSetEvents(events);
+    } else {
       Alert.alert(commonT.error, t.saveError);
     }
   };

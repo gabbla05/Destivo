@@ -287,6 +287,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
         ]
       );
 
+      let cloudSyncFailed = false;
       if (user && !isGuest && !user.isGuest) {
         let targetUserId = user.id;
         try {
@@ -312,6 +313,7 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
           }]);
 
         if (supabaseError) {
+          cloudSyncFailed = true;
           console.warn('QuickSetupScreen: Błąd zapisu do Supabase:', supabaseError);
         }
       }
@@ -335,7 +337,12 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
         console.warn('Błąd zapisu do cache AsyncStorage w QuickSetup:', cacheErr);
       }
 
-      Alert.alert('DESTIVO', t.saveSuccess);
+      const saveNotice = isGuest || user?.isGuest || !user
+        ? translations[language].trips.guestSaveWarning
+        : cloudSyncFailed
+          ? translations[language].trips.cloudSaveWarning
+          : t.saveSuccess;
+      Alert.alert('DESTIVO', saveNotice);
       navigation.navigate('MainTabs', { screen: 'Trips' });
     } catch (error) {
       console.error('Błąd zapisu podróży w QuickSetupScreen:', error);

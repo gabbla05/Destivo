@@ -106,6 +106,16 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(res.iterations).toBeGreaterThan(0);
     });
 
+    test('Symulowane wyżarzanie powinno być powtarzalne dla tego samego ziarna', () => {
+      const initialRoute = [0, 1, 2, 3, 4];
+      const first = solveSimulatedAnnealingTSP(initialRoute, matrix, true, 12345);
+      const second = solveSimulatedAnnealingTSP(initialRoute, matrix, true, 12345);
+
+      expect(second.route).toEqual(first.route);
+      expect(second.distance).toBe(first.distance);
+      expect(second.iterations).toBe(first.iterations);
+    });
+
     test('Metoda Dokładna (Brute Force) powinna znaleźć globalne optimum dla N <= 8', () => {
       const res = solveBruteForceTSP(matrix, true);
       expect(res).not.toBeNull();
@@ -144,6 +154,15 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(benchmarkIds).toContain('2opt');
       expect(benchmarkIds).toContain('simulated_annealing');
       expect(benchmarkIds).toContain('brute_force'); // Ponieważ N = 5 <= 8
+    });
+
+    test('Powinien przekazać ziarno do benchmarku symulowanego wyżarzania', () => {
+      const points = [colosseum, vatican, trevi, spanishSteps, pantheon];
+      const first = optimizeSightseeingRoute(points, true, { randomSeed: 77 });
+      const second = optimizeSightseeingRoute(points, true, { randomSeed: 77 });
+
+      expect(second.benchmarks.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices)
+        .toEqual(first.benchmarks.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices);
     });
 
     test('Powinien bezpiecznie obsłużyć puste wejście lub pojedynczy punkt', () => {
