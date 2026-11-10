@@ -299,9 +299,17 @@ describe('LiveExplore - Rygorystyczne testy algorytmu i Etapów 1, 2, 3', () => 
         }),
       }) as any;
 
-      const photoUrl = await fetchCityGooglePhoto('Rzym', 41.9028, 12.4964);
-      expect(photoUrl).toContain('maps.googleapis.com');
-      expect(photoUrl).toContain('PHOTO_REF_12345');
+      // Klucz API nie jest już zaszyty w kodzie - ustawiamy fikcyjny klucz tylko na czas testu
+      const previousKey = process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
+      process.env.EXPO_PUBLIC_GOOGLE_API_KEY = 'AIzaTestOnlyKey1234567890';
+      try {
+        const photoUrl = await fetchCityGooglePhoto('Rzym', 41.9028, 12.4964);
+        expect(photoUrl).toContain('maps.googleapis.com');
+        expect(photoUrl).toContain('PHOTO_REF_12345');
+      } finally {
+        if (previousKey === undefined) delete process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
+        else process.env.EXPO_PUBLIC_GOOGLE_API_KEY = previousKey;
+      }
     });
 
     test('fetchCityGooglePhoto zwraca null przy braku zdjęć lub błędzie API', async () => {

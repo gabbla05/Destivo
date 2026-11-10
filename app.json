@@ -20,11 +20,6 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#0B1120"
-      },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ"
-        }
       }
     },
     "extra": {

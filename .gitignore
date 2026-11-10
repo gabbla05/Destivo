@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (sekrety - nigdy nie commitować)
+.env
 .env*.local
 
 # typescript
@@ -47,3 +48,5 @@ yarn-error.*
 # test coverage
 coverage/
 
+supabase/.temp/
+!.env.example

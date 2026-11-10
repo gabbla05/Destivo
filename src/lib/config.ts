@@ -1,15 +1,10 @@
 import Constants from 'expo-constants';
 
-/**
- * Scentralizowany awaryjny klucz Google API (Google Maps / Places API).
- * Zdefiniowany w jednym miejscu, by wyeliminować duplikację w 7 różnych plikach źródłowych.
+/*
+ * Klucze API NIE są przechowywane w kodzie źródłowym.
+ * Wartości pochodzą wyłącznie ze zmiennych środowiskowych (.env lokalnie, EAS env przy buildach).
+ * Szablon zmiennych: .env.example
  */
-export const DEFAULT_FALLBACK_GOOGLE_API_KEY = 'AIzaSyAFeiDtoS013DQEmkjDsJkzBC7O_pu-ZOQ';
-
-/**
- * Domyślny awaryjny klucz OpenWeatherMap API.
- */
-export const DEFAULT_FALLBACK_WEATHER_API_KEY = '68a647f3b99a084c4a1c3809b971b034';
 
 /**
  * Domyślny adres bazowy serwera OSRM dla profilu samochodowego (Open Source Routing Machine).
@@ -27,7 +22,7 @@ export const DEFAULT_OSRM_FOOT_ROUTER_URL = 'https://routing.openstreetmap.de/ro
  * 1. Zmienna środowiskowa process.env.EXPO_PUBLIC_GOOGLE_API_KEY (EAS Build / .env)
  * 2. android.config.googleMaps.apiKey z app.json (Constants.expoConfig)
  * 3. extra.googleApiKey z app.json (Constants.expoConfig)
- * 4. DEFAULT_FALLBACK_GOOGLE_API_KEY (scentralizowany fallback)
+ * Brak klucza w żadnym źródle -> pusty string (funkcje Google są wtedy wyłączane).
  */
 export function getGoogleApiKey(): string {
   // 1. Zmienna środowiskowa process.env.EXPO_PUBLIC_GOOGLE_API_KEY (najwyższy priorytet)
@@ -48,13 +43,8 @@ export function getGoogleApiKey(): string {
     return extraKey.trim();
   }
 
-  // 4. Jeśli w konfiguracji jawnie oznaczono klucz jako tymczasowy lub pusty
-  if (configKey !== undefined && (configKey === '' || configKey.includes('TYMCZASOWY'))) {
-    return '';
-  }
-
-  // 5. Awaryjny fallback scentralizowany
-  return DEFAULT_FALLBACK_GOOGLE_API_KEY;
+  // 4. Brak skonfigurowanego klucza
+  return '';
 }
 
 /**
@@ -66,14 +56,14 @@ export function hasValidGoogleApiKey(): boolean {
 }
 
 /**
- * Zwraca aktywny klucz OpenWeatherMap API ze zmiennych środowiskowych lub scentralizowanego fallbacku.
+ * Zwraca aktywny klucz OpenWeatherMap API ze zmiennych środowiskowych (pusty string, gdy brak).
  */
 export function getWeatherApiKey(): string {
   const envKey = (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_WEATHER_API_KEY'];
   if (envKey && envKey.trim().length > 5) {
     return envKey.trim();
   }
-  return DEFAULT_FALLBACK_WEATHER_API_KEY;
+  return '';
 }
 
 /**

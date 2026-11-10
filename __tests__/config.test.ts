@@ -3,8 +3,6 @@ import {
   hasValidGoogleApiKey,
   getWeatherApiKey,
   getOsrmBaseUrl,
-  DEFAULT_FALLBACK_GOOGLE_API_KEY,
-  DEFAULT_FALLBACK_WEATHER_API_KEY,
   DEFAULT_OSRM_ROUTER_URL,
 } from '../src/lib/config';
 
@@ -26,18 +24,15 @@ describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)'
     expect(hasValidGoogleApiKey()).toBe(true);
   });
 
-  test('getGoogleApiKey ignoruje wartości placeholder "TYMCZASOWY" i używa awaryjnego fallbacku', () => {
+  test('getGoogleApiKey ignoruje wartości placeholder "TYMCZASOWY"', () => {
     process.env.EXPO_PUBLIC_GOOGLE_API_KEY = 'TYMCZASOWY_KLUCZ';
-    // Powinien zignorować klucz tymczasowy i użyć fallbacku
-    const key = getGoogleApiKey();
-    expect(key).toBe(DEFAULT_FALLBACK_GOOGLE_API_KEY);
+    expect(getGoogleApiKey()).not.toContain('TYMCZASOWY');
   });
 
-  test('getGoogleApiKey zwraca DEFAULT_FALLBACK_GOOGLE_API_KEY gdy zmienna jest pusta lub niezdefiniowana', () => {
+  test('getGoogleApiKey zwraca pusty string gdy klucz nie jest skonfigurowany (brak klucza w kodzie)', () => {
     delete process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
-    const key = getGoogleApiKey();
-    expect(key).toBe(DEFAULT_FALLBACK_GOOGLE_API_KEY);
-    expect(hasValidGoogleApiKey()).toBe(true);
+    expect(getGoogleApiKey()).toBe('');
+    expect(hasValidGoogleApiKey()).toBe(false);
   });
 
   test('hasValidGoogleApiKey rozpoznaje poprawne klucze', () => {
@@ -50,9 +45,9 @@ describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)'
     expect(getWeatherApiKey()).toBe('weatherCustomKey123');
   });
 
-  test('getWeatherApiKey zwraca DEFAULT_FALLBACK_WEATHER_API_KEY gdy brak zmiennej w środowisku', () => {
+  test('getWeatherApiKey zwraca pusty string gdy brak zmiennej w środowisku', () => {
     delete process.env.EXPO_PUBLIC_WEATHER_API_KEY;
-    expect(getWeatherApiKey()).toBe(DEFAULT_FALLBACK_WEATHER_API_KEY);
+    expect(getWeatherApiKey()).toBe('');
   });
 
   test('getOsrmBaseUrl zwraca DEFAULT_OSRM_ROUTER_URL domyślnie', () => {

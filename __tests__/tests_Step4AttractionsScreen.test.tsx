@@ -313,7 +313,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
     render(<Step4AttractionsScreen />);
 
     await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Brak poprawnego klucza Google API w app.json.');
+      expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Brak poprawnego klucza Google API (EXPO_PUBLIC_GOOGLE_API_KEY w pliku .env).');
     });
 
     // Przywracamy klucz dla innych testów
