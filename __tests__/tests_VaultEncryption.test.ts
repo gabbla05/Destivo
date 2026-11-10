@@ -33,6 +33,9 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(async (key: string, value: string) => {
     mockSecureEntries.set(key, value);
   }),
+  deleteItemAsync: jest.fn(async (key: string) => {
+    mockSecureEntries.delete(key);
+  }),
 }));
 jest.mock('expo-crypto', () => ({
   getRandomBytesAsync: jest.fn(async (length: number) => {
@@ -98,5 +101,24 @@ describe('Szyfrowanie plików Sejfu', () => {
 
     const decrypted = await VaultManager.createDecryptedTemporaryCopy(migrated);
     expect(mockFiles.get(decrypted.uri)).toBe(plaintext);
+  });
+
+  test('wipeVault usuwa katalog Sejfu i klucz - pozostałe kopie plików są nieodszyfrowywalne', async () => {
+    const FileSystem = require('expo-file-system/legacy');
+    const plaintext = Buffer.from('Paszport').toString('base64');
+    mockFiles.set('file://source/passport.pdf', plaintext);
+    const file = await VaultManager.saveToVault('file://source/passport.pdf', 'passport.pdf');
+    const leftoverCiphertext = mockFiles.get(file.uri)!;
+    const oldKey = mockSecureEntries.get('destivo_vault_aes256_key_v1');
+
+    await VaultManager.wipeVault();
+
+    expect(FileSystem.deleteAsync).toHaveBeenCalledWith('file://vault-docs/destivo_vault/', { idempotent: true });
+    expect(mockSecureEntries.has('destivo_vault_aes256_key_v1')).toBe(false);
+
+    // Nawet jeśli kopia zaszyfrowanego pliku przetrwała, nowy klucz jej nie odszyfruje
+    mockFiles.set(file.uri, leftoverCiphertext);
+    await expect(VaultManager.createDecryptedTemporaryCopy(file)).rejects.toThrow();
+    expect(mockSecureEntries.get('destivo_vault_aes256_key_v1')).not.toBe(oldKey);
   });
 });

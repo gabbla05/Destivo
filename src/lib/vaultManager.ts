@@ -207,6 +207,19 @@ export const VaultManager = {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   },
 
+  /**
+   * Trwale niszczy zawartość Sejfu: usuwa zaszyfrowane pliki oraz klucz AES z SecureStore
+   * (crypto-shredding - ewentualne pozostałe kopie plików stają się nieodszyfrowywalne).
+   * Używane przy resecie PIN-u bez potwierdzenia tożsamości (konto gościa).
+   */
+  async wipeVault(): Promise<void> {
+    const documentDirectory = getDirectoryUri(FileSystem.documentDirectory, 'document');
+    await FileSystem.deleteAsync(`${documentDirectory}destivo_vault/`, { idempotent: true });
+    await SecureStore.deleteItemAsync(KEY_STORAGE_NAME);
+    keyInitializationPromise = null;
+    await this.cleanupTemporaryFiles().catch(() => undefined);
+  },
+
   async cleanupTemporaryFiles(): Promise<void> {
     const cacheDirectory = getDirectoryUri(FileSystem.cacheDirectory, 'cache');
     const names = await FileSystem.readDirectoryAsync(cacheDirectory);

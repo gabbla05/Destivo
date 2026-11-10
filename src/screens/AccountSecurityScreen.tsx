@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useVaultStore } from '../store/vaultStore';
+import { VaultManager } from '../lib/vaultManager';
 import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
 
@@ -60,8 +61,10 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
           { 
             text: t.resetVaultPinBtn, 
             style: 'destructive',
-            onPress: () => {
-              useVaultStore.setState({ pin: null, isUnlocked: false });
+            onPress: async () => {
+              // Gość nie ma hasła do potwierdzenia tożsamości - reset PIN-u niszczy zawartość Sejfu
+              await VaultManager.wipeVault();
+              await useVaultStore.getState().resetPin();
               Alert.alert(t.successTitle, t.vaultPinResetDone);
             }
           }
@@ -95,7 +98,7 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
       }
 
       // Hasło prawidłowe - resetujemy PIN do sejfu
-      useVaultStore.setState({ pin: null, isUnlocked: false });
+      await useVaultStore.getState().resetPin();
       setShowPinModal(false);
       setPasswordInput('');
       Alert.alert(t.successTitle, t.vaultPinResetDone);

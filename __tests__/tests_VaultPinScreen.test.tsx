@@ -4,6 +4,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { Alert, Vibration } from 'react-native';
 import { VaultPinScreen } from '../src/screens/Vault/VaultPinScreen';
 import { useVaultStore } from '../src/store/vaultStore';
+import { VaultManager } from '../src/lib/vaultManager';
+import { setVaultTestState } from '../test-shims/vaultTestUtils';
 import { useAuthStore } from '../src/store/authStore';
 import { supabase } from '../src/lib/supabase';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -29,14 +31,14 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
   const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   const vibrateSpy = jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     useAuthStore.setState({
       user: { id: 'u-1', email: 'vaultuser@destivo.io', isGuest: false },
       isGuest: false,
       language: 'pl',
     });
-    useVaultStore.setState({
+    await setVaultTestState({
       pin: null,
       isBiometricsEnabled: false,
       isUnlocked: false,
@@ -117,15 +119,15 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
 
       await waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith('Sukces', 'Kod PIN został ustawiony!');
-        expect(useVaultStore.getState().pin).toBe('5678');
+        expect(useVaultStore.getState().hasPin).toBe(true);
         expect(useVaultStore.getState().isUnlocked).toBe(true);
       });
     });
   });
 
   describe('2. Tryb odblokowywania PIN-em i biometrią', () => {
-    beforeEach(() => {
-      useVaultStore.setState({
+    beforeEach(async () => {
+      await setVaultTestState({
         pin: '1234',
         isBiometricsEnabled: true,
         isUnlocked: false,
@@ -142,7 +144,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
     });
 
     test('wpisanie poprawnego PIN-u odblokowuje sejf', async () => {
-      useVaultStore.setState({ pin: '4321', isBiometricsEnabled: false, isUnlocked: false });
+      await setVaultTestState({ pin: '4321', isBiometricsEnabled: false, isUnlocked: false });
 
       render(<VaultPinScreen />);
       expect(screen.getByText('Wprowadź PIN Sejfu')).toBeTruthy();
@@ -158,7 +160,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
     });
 
     test('wpisanie błędnego PIN-u wywołuje wibrację i czyści input', async () => {
-      useVaultStore.setState({ pin: '4321', isBiometricsEnabled: false, isUnlocked: false });
+      await setVaultTestState({ pin: '4321', isBiometricsEnabled: false, isUnlocked: false });
 
       render(<VaultPinScreen />);
 
@@ -174,7 +176,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
     });
 
     test('przycisk biometrii wywołuje ponowne uwierzytelnienie biometryczne', async () => {
-      useVaultStore.setState({ pin: '1234', isBiometricsEnabled: true, isUnlocked: false });
+      await setVaultTestState({ pin: '1234', isBiometricsEnabled: true, isUnlocked: false });
 
       render(<VaultPinScreen />);
       const bioBtn = screen.getByText('Użyj biometrii');
@@ -187,8 +189,8 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
   });
 
   describe('3. Modal resetowania zapomnianego PIN-u (Forgot PIN)', () => {
-    beforeEach(() => {
-      useVaultStore.setState({
+    beforeEach(async () => {
+      await setVaultTestState({
         pin: '9999',
         isBiometricsEnabled: false,
         isUnlocked: false,
@@ -201,6 +203,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
         isGuest: true,
       });
 
+      const wipeSpy = jest.spyOn(VaultManager, 'wipeVault').mockResolvedValue(undefined);
       render(<VaultPinScreen />);
 
       fireEvent.press(screen.getByText('Zapomniałeś PIN-u?'));
@@ -210,12 +213,15 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
       fireEvent.press(resetBtn);
 
       await waitFor(() => {
-        expect(useVaultStore.getState().pin).toBeNull();
+        expect(useVaultStore.getState().hasPin).toBe(false);
+        // Gość nie potwierdza tożsamości hasłem - reset PIN-u musi zniszczyć zawartość Sejfu
+        expect(wipeSpy).toHaveBeenCalled();
         expect(alertSpy).toHaveBeenCalledWith(
           'Sukces',
           'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.'
         );
       });
+      wipeSpy.mockRestore();
     });
 
     test('dla zalogowanego użytkownika wymaga hasła i resetuje PIN po poprawnym haśle', async () => {
@@ -223,6 +229,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
         data: { user: { id: 'u-1' } },
         error: null,
       });
+      const wipeSpy = jest.spyOn(VaultManager, 'wipeVault').mockResolvedValue(undefined);
 
       render(<VaultPinScreen />);
 
@@ -244,7 +251,8 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
           email: 'vaultuser@destivo.io',
           password: 'MojeSuperTajneHaslo123',
         });
-        expect(useVaultStore.getState().pin).toBeNull();
+        expect(wipeSpy).not.toHaveBeenCalled();
+        expect(useVaultStore.getState().hasPin).toBe(false);
         expect(alertSpy).toHaveBeenCalledWith(
           'Sukces',
           'Kod PIN został zresetowany. Możesz teraz ustawić nowy PIN.'
@@ -272,7 +280,7 @@ describe('VaultPinScreen - Ekran blokady i konfiguracji PIN Sejfu', () => {
           'DESTIVO',
           'Nieprawidłowe hasło do konta. Spróbuj ponownie.'
         );
-        expect(useVaultStore.getState().pin).toBe('9999');
+        expect(useVaultStore.getState().hasPin).toBe(true);
       });
     });
 

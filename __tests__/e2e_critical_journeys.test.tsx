@@ -22,6 +22,7 @@ import { VaultDashboardScreen } from '../src/screens/Vault/VaultDashboardScreen'
 import { useAuthStore } from '../src/store/authStore';
 import { useTripCreatorStore } from '../src/store/tripCreatorStore';
 import { useVaultStore } from '../src/store/vaultStore';
+import { setVaultTestState } from '../test-shims/vaultTestUtils';
 import { LiveDestination, generateLiveRecommendations } from '../src/lib/liveExplore';
 
 // ---------------------------------------------------------------------------
@@ -164,6 +165,10 @@ jest.mock('expo-sharing', () => ({
 }));
 
 jest.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+  digestStringAsync: async (_alg: string, data: string) =>
+    require('crypto').createHash('sha256').update(data).digest('hex'),
+  getRandomBytesAsync: async (length: number) => new Uint8Array(require('crypto').randomBytes(length)),
   randomUUID: () => `mock-e2e-uuid-${Math.random().toString(36).substring(2, 9)}`,
 }));
 
@@ -271,7 +276,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     });
 
     useTripCreatorStore.getState().reset();
-    useVaultStore.setState({
+    await setVaultTestState({
       pin: null,
       isUnlocked: false,
       isBiometricsEnabled: false,
@@ -633,7 +638,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
   // =========================================================================
   test('E2E Ścieżka 5: Konfiguracja PIN-u sejfu, odblokowanie i generowanie raportu podróży PDF', async () => {
     // 1. Sejf początkowo zablokowany bez PIN-u
-    expect(useVaultStore.getState().pin).toBeNull();
+    expect(useVaultStore.getState().hasPin).toBe(false);
     expect(useVaultStore.getState().isUnlocked).toBe(false);
 
     // 2. Pierwsze wejście: Ustawienie 4-cyfrowego PIN-u (1-2-3-4)
@@ -659,7 +664,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
 
     // Weryfikacja: PIN ustawiony, sejf odblokowany
     await waitFor(() => {
-      expect(useVaultStore.getState().pin).toBe('1234');
+      expect(useVaultStore.getState().hasPin).toBe(true);
       expect(useVaultStore.getState().isUnlocked).toBe(true);
     });
     unmountPin();

@@ -5,6 +5,8 @@ import { Alert } from 'react-native';
 import { AccountSecurityScreen } from '../src/screens/AccountSecurityScreen';
 import { useAuthStore } from '../src/store/authStore';
 import { useVaultStore } from '../src/store/vaultStore';
+import { VaultManager } from '../src/lib/vaultManager';
+import { setVaultTestState } from '../test-shims/vaultTestUtils';
 import { supabase } from '../src/lib/supabase';
 import { translations } from '../src/i18n/translations';
 
@@ -42,14 +44,14 @@ jest.mock('../src/lib/supabase', () => ({
 describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => {
   const t = translations.pl.accountSecurity;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     useAuthStore.setState({
       user: { id: 'user-sec-1', email: 'jan@destivo.io', name: 'Jan' } as any,
       language: 'pl',
       isGuest: false,
     });
-    useVaultStore.setState({
+    await setVaultTestState({
       pin: '1234',
       isUnlocked: true,
     });
@@ -159,7 +161,7 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
         email: 'jan@destivo.io',
         password: 'mojeSekretneHaslo123',
       });
-      expect(useVaultStore.getState().pin).toBeNull();
+      expect(useVaultStore.getState().hasPin).toBe(false);
       expect(useVaultStore.getState().isUnlocked).toBe(false);
       expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.vaultPinResetDone);
     });
@@ -185,17 +187,18 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
         password: 'zleHaslo',
       });
       // PIN nie może zostać skasowany!
-      expect(useVaultStore.getState().pin).toBe('1234');
+      expect(useVaultStore.getState().hasPin).toBe(true);
       expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.wrongPassword || expect.any(String));
     });
   });
 
-  test('dla gościa resetowanie PIN-u sejfu wyświetla ostrzeżenie i pozwala zresetować', () => {
+  test('dla gościa resetowanie PIN-u sejfu wyświetla ostrzeżenie i pozwala zresetować', async () => {
     useAuthStore.setState({
       user: { id: 'guest-1', isGuest: true } as any,
       isGuest: true,
     });
     const alertSpy = jest.spyOn(Alert, 'alert');
+    const wipeSpy = jest.spyOn(VaultManager, 'wipeVault').mockResolvedValue(undefined);
 
     render(<AccountSecurityScreen navigation={mockNavigation} />);
 
@@ -211,9 +214,11 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     const confirmBtn = buttons.find((b) => b.text === t.resetVaultPinBtn);
     expect(confirmBtn).toBeTruthy();
 
-    confirmBtn.onPress();
+    await confirmBtn.onPress();
 
-    expect(useVaultStore.getState().pin).toBeNull();
+    expect(useVaultStore.getState().hasPin).toBe(false);
+    expect(wipeSpy).toHaveBeenCalled();
+    wipeSpy.mockRestore();
     expect(useVaultStore.getState().isUnlocked).toBe(false);
     expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.vaultPinResetDone);
   });

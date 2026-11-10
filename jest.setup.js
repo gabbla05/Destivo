@@ -4,6 +4,34 @@
 process.env.EXPO_PUBLIC_SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'http://localhost';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'anonkey';
 
+// Mock expo-crypto oparty na prawdziwej kryptografii Node (SHA-256, losowe bajty)
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = require('crypto');
+  return {
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    digestStringAsync: jest.fn(async (_alg, data) =>
+      nodeCrypto.createHash('sha256').update(data).digest('hex')
+    ),
+    getRandomBytesAsync: jest.fn(async (length) => new Uint8Array(nodeCrypto.randomBytes(length))),
+    getRandomBytes: jest.fn((length) => new Uint8Array(nodeCrypto.randomBytes(length))),
+    randomUUID: jest.fn(() => nodeCrypto.randomUUID()),
+  };
+});
+
+// Mock expo-secure-store (pamięć w procesie testów)
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    getItemAsync: jest.fn(async (key) => (store.has(key) ? store.get(key) : null)),
+    setItemAsync: jest.fn(async (key, value) => {
+      store.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key) => {
+      store.delete(key);
+    }),
+  };
+});
+
 // Mock AsyncStorage
 const mockAsyncStorage = require('@react-native-async-storage/async-storage/jest/async-storage-mock');
 jest.mock('@react-native-async-storage/async-storage', () => mockAsyncStorage);

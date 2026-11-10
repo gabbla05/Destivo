@@ -1,6 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 /// <reference types="jest" />
 import { useAuthStore } from '../src/store/authStore';
-import { useVaultStore } from '../src/store/vaultStore';
+import { useVaultStore, PIN_RECORD_KEY, MAX_ATTEMPTS } from '../src/store/vaultStore';
+import * as SecureStore from 'expo-secure-store';
 import { useTripCreatorStore, TransportOption } from '../src/store/tripCreatorStore';
 
 describe('Zarządzanie stanem aplikacji (Stores)', () => {
@@ -91,43 +93,113 @@ describe('Zarządzanie stanem aplikacji (Stores)', () => {
   });
 
   describe('2. vaultStore (useVaultStore)', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+      await useVaultStore.getState().resetPin();
       useVaultStore.setState({
-        pin: null,
+        hasPin: false,
         isBiometricsEnabled: false,
         isUnlocked: false,
+        failedAttempts: 0,
+        lockedUntil: null,
       });
     });
 
     test('inicjalizacja ze stanem domyślnym', () => {
       const state = useVaultStore.getState();
-      expect(state.pin).toBeNull();
+      expect(state.hasPin).toBe(false);
       expect(state.isBiometricsEnabled).toBe(false);
       expect(state.isUnlocked).toBe(false);
     });
 
-    test('ustawienie kodu PIN (setPin) odblokowuje sejf', () => {
-      const { setPin } = useVaultStore.getState();
-      setPin('4321');
+    test('ustawienie kodu PIN (setPin) odblokowuje sejf', async () => {
+      await useVaultStore.getState().setPin('4321');
 
       const state = useVaultStore.getState();
-      expect(state.pin).toBe('4321');
+      expect(state.hasPin).toBe(true);
       expect(state.isUnlocked).toBe(true);
     });
 
-    test('weryfikacja PIN-u (verifyPin)', () => {
-      useVaultStore.setState({ pin: '9876', isUnlocked: false });
+    test('PIN nie jest przechowywany jawnym tekstem - tylko solony skrót SHA-256 w SecureStore', async () => {
+      await useVaultStore.getState().setPin('4321');
+
+      // Stan zapisywany w AsyncStorage nie zawiera PIN-u
+      expect(JSON.stringify(useVaultStore.getState())).not.toContain('4321');
+
+      const raw = await SecureStore.getItemAsync(PIN_RECORD_KEY);
+      expect(raw).not.toBeNull();
+      expect(raw).not.toContain('4321');
+      const record = JSON.parse(raw!);
+      expect(record.salt).toMatch(/^[0-9a-f]{32}$/);
+      expect(record.hash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    test('ten sam PIN daje różne skróty dzięki losowej soli', async () => {
+      await useVaultStore.getState().setPin('1111');
+      const first = JSON.parse((await SecureStore.getItemAsync(PIN_RECORD_KEY))!);
+      await useVaultStore.getState().setPin('1111');
+      const second = JSON.parse((await SecureStore.getItemAsync(PIN_RECORD_KEY))!);
+      expect(first.salt).not.toBe(second.salt);
+      expect(first.hash).not.toBe(second.hash);
+    });
+
+    test('weryfikacja PIN-u (verifyPin)', async () => {
+      await useVaultStore.getState().setPin('9876');
+      useVaultStore.setState({ isUnlocked: false });
       const { verifyPin } = useVaultStore.getState();
 
       // Błędny PIN
-      const invalidResult = verifyPin('1111');
-      expect(invalidResult).toBe(false);
+      expect(await verifyPin('1111')).toBe('wrong');
+      expect(useVaultStore.getState().isUnlocked).toBe(false);
+      expect(useVaultStore.getState().failedAttempts).toBe(1);
+
+      // Poprawny PIN zeruje licznik prób
+      expect(await verifyPin('9876')).toBe('ok');
+      expect(useVaultStore.getState().isUnlocked).toBe(true);
+      expect(useVaultStore.getState().failedAttempts).toBe(0);
+    });
+
+    test(`blokada czasowa po ${MAX_ATTEMPTS} błędnych próbach (nawet poprawny PIN jest wtedy odrzucany)`, async () => {
+      await useVaultStore.getState().setPin('2468');
+      useVaultStore.setState({ isUnlocked: false });
+      const { verifyPin } = useVaultStore.getState();
+
+      for (let i = 1; i < MAX_ATTEMPTS; i++) {
+        expect(await verifyPin('0000')).toBe('wrong');
+      }
+      expect(await verifyPin('0000')).toBe('locked');
+      expect(useVaultStore.getState().getLockoutRemainingMs()).toBeGreaterThan(0);
+
+      expect(await verifyPin('2468')).toBe('locked');
       expect(useVaultStore.getState().isUnlocked).toBe(false);
 
-      // Poprawny PIN
-      const validResult = verifyPin('9876');
-      expect(validResult).toBe(true);
-      expect(useVaultStore.getState().isUnlocked).toBe(true);
+      // Po upływie blokady poprawny PIN znowu działa
+      useVaultStore.setState({ lockedUntil: Date.now() - 1 });
+      expect(await verifyPin('2468')).toBe('ok');
+      expect(useVaultStore.getState().failedAttempts).toBe(0);
+    });
+
+    test('resetPin usuwa skrót z SecureStore i wymusza ustawienie nowego PIN-u', async () => {
+      await useVaultStore.getState().setPin('1357');
+      await useVaultStore.getState().resetPin();
+
+      expect(await SecureStore.getItemAsync(PIN_RECORD_KEY)).toBeNull();
+      expect(useVaultStore.getState().hasPin).toBe(false);
+      expect(useVaultStore.getState().isUnlocked).toBe(false);
+    });
+
+    test('migracja: stary PIN zapisany jawnym tekstem w AsyncStorage jest zamieniany na skrót', async () => {
+      await AsyncStorage.setItem(
+        'destivo-vault-store',
+        JSON.stringify({ state: { pin: '8642', isBiometricsEnabled: true }, version: 0 })
+      );
+      await useVaultStore.persist.rehydrate();
+
+      expect(useVaultStore.getState().hasPin).toBe(true);
+      expect(useVaultStore.getState().isBiometricsEnabled).toBe(true);
+      expect(await AsyncStorage.getItem('destivo-vault-store')).not.toContain('8642');
+
+      useVaultStore.setState({ isUnlocked: false });
+      expect(await useVaultStore.getState().verifyPin('8642')).toBe('ok');
     });
 
     test('ręczne blokowanie i odblokowywanie sejfu (lockVault, unlockVault)', () => {

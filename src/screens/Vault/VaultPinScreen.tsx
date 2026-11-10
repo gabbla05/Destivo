@@ -22,14 +22,16 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { useVaultStore } from '../../store/vaultStore';
 import { useAuthStore } from '../../store/authStore';
 import { supabase } from '../../lib/supabase';
+import { VaultManager } from '../../lib/vaultManager';
 import { translations } from '../../i18n/translations';
 
 export const VaultPinScreen = () => {
-  const { pin, setPin, verifyPin, isBiometricsEnabled, unlockVault } = useVaultStore();
+  const { hasPin, setPin, verifyPin, resetPin, getLockoutRemainingMs, isBiometricsEnabled, unlockVault } =
+    useVaultStore();
   const { user, language } = useAuthStore();
   const t = translations[language].vault;
   const commonT = translations[language].common;
-  const isSetupMode = !pin;
+  const isSetupMode = !hasPin;
   
   const [input, setInput] = useState('');
   const [setupStep, setSetupStep] = useState<'ENTER' | 'CONFIRM'>('ENTER');
@@ -98,7 +100,17 @@ export const VaultPinScreen = () => {
   const handleDelete = () => setInput(prev => prev.slice(0, -1));
   const handleClear = () => setInput('');
 
-  const processCompletePin = (enteredPin: string) => {
+  const showLockoutAlert = () => {
+    const seconds = Math.ceil(getLockoutRemainingMs() / 1000);
+    Alert.alert(
+      t.error,
+      language === 'en'
+        ? `Too many incorrect attempts. Try again in ${seconds} s.`
+        : `Zbyt wiele błędnych prób. Spróbuj ponownie za ${seconds} s.`
+    );
+  };
+
+  const processCompletePin = async (enteredPin: string) => {
     if (isSetupMode) {
       if (setupStep === 'ENTER') {
         setFirstPin(enteredPin);
@@ -106,8 +118,14 @@ export const VaultPinScreen = () => {
         setSetupStep('CONFIRM');
       } else {
         if (enteredPin === firstPin) {
-          Alert.alert(commonT.success, t.pinSet);
-          setPin(enteredPin); // Sukces - PIN utworzony
+          try {
+            await setPin(enteredPin); // Sukces - zapisany wyłącznie skrót PIN-u (SecureStore)
+            Alert.alert(commonT.success, t.pinSet);
+          } catch {
+            Alert.alert(t.error, t.saveError);
+            setInput('');
+            setSetupStep('ENTER');
+          }
         } else {
           Vibration.vibrate();
           Alert.alert(t.error, t.pinMismatch);
@@ -116,9 +134,11 @@ export const VaultPinScreen = () => {
         }
       }
     } else {
-      if (!verifyPin(enteredPin)) {
+      const result = await verifyPin(enteredPin);
+      if (result !== 'ok') {
         Vibration.vibrate();
         setInput('');
+        if (result === 'locked') showLockoutAlert();
       }
     }
   };
@@ -128,8 +148,10 @@ export const VaultPinScreen = () => {
     const isUserGuest = user?.isGuest || !user?.email;
 
     if (isUserGuest) {
-      // Dla gościa - natychmiastowe wyczyszczenie PIN-u
-      useVaultStore.setState({ pin: null, isUnlocked: false });
+      // Dla gościa (brak hasła do potwierdzenia tożsamości) reset PIN-u niszczy zawartość Sejfu,
+      // inaczej każdy z dostępem do telefonu mógłby ominąć PIN.
+      await VaultManager.wipeVault();
+      await resetPin();
       setShowForgotPinModal(false);
       setInput('');
       setFirstPin('');
@@ -165,7 +187,7 @@ export const VaultPinScreen = () => {
       }
 
       // Hasło prawidłowe - resetujemy kod PIN
-      useVaultStore.setState({ pin: null, isUnlocked: false });
+      await resetPin();
       setShowForgotPinModal(false);
       setResetPassword('');
       setInput('');
@@ -328,7 +350,7 @@ export const VaultPinScreen = () => {
             >
               <Text style={styles.modalDesc}>
                 {user?.isGuest || !user?.email
-                  ? (t.guestForgotPinDesc || 'Dla konta gościa możesz zresetować kod PIN Sejfu bezpośrednio.')
+                  ? t.guestForgotPinDesc
                   : (t.forgotPinDesc || 'Aby zresetować kod PIN, potwierdź tożsamość hasłem do swojego konta Destivo.')}
               </Text>
 

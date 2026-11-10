@@ -9,6 +9,7 @@ import { VaultDashboardScreen } from '../src/screens/Vault/VaultDashboardScreen'
 
 // Importy store'a
 import { useVaultStore } from '../src/store/vaultStore';
+import { setVaultTestState } from '../test-shims/vaultTestUtils';
 
 // --------------------------------------------------------------------------
 // MOCKOWANIE ZALEŻNOŚCI I BIBLIOTEK NATYWNYCH
@@ -92,6 +93,9 @@ jest.mock('expo-sharing', () => ({
 }));
 
 jest.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+  digestStringAsync: async (_alg: string, data: string) =>
+    require('crypto').createHash('sha256').update(data).digest('hex'),
   randomUUID: () => 'mock-uuid-9999',
   getRandomBytesAsync: async (length: number) => new Uint8Array(length).fill(17),
 }));
@@ -100,6 +104,9 @@ jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(async (key: string) => mockSecureEntries.get(key) || null),
   setItemAsync: jest.fn(async (key: string, value: string) => {
     mockSecureEntries.set(key, value);
+  }),
+  deleteItemAsync: jest.fn(async (key: string) => {
+    mockSecureEntries.delete(key);
   }),
 }));
 
@@ -131,14 +138,14 @@ const mockTripsData = [
 // --------------------------------------------------------------------------
 
 describe('Moduł Sejfu Offline (Vault)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     mockVaultFiles.clear();
     jest.useFakeTimers(); // Ponieważ w ekranie PIN użyto setTimeout na 100ms
     
     // Resetowanie stanu Zustand dla Sejfu przed każdym testem
-    act(() => {
-      useVaultStore.setState({ pin: null, isUnlocked: false, isBiometricsEnabled: false });
+    await act(async () => {
+      await setVaultTestState({ pin: null, isUnlocked: false, isBiometricsEnabled: false });
     });
   });
 
@@ -228,10 +235,10 @@ describe('Moduł Sejfu Offline (Vault)', () => {
   });
 
   describe('2. Dashboard i Szufladki (VaultDashboardScreen)', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       // Wymuszamy, że sejf jest już odblokowany
-      act(() => {
-        useVaultStore.setState({ pin: '1234', isUnlocked: true });
+      await act(async () => {
+        await setVaultTestState({ pin: '1234', isUnlocked: true });
       });
       // Mockujemy bazę
       mockDbExecute.mockResolvedValue({ rows: { _array: mockTripsData } });
