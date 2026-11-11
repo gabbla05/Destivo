@@ -58,7 +58,8 @@ describe('Baza i mechanizm rekomendacji atrakcji dla miast (Fix 3.2)', () => {
     const unknownPl = getCuratedSuggestionsForDestination('Mała Wieś pod Lasem', 'pl');
     expect(unknownPl.length).toBe(4);
     expect(unknownPl[0].name).toContain('Rynek i Stare Miasto');
-    expect(typeof unknownPl[0].imageUrl).toBe('string');
+    // Brak zdjęć zastępczych: zdjęcie dociąga się później z Google Places dla konkretnego miejsca
+    expect(unknownPl.every((a) => a.imageUrl === undefined)).toBe(true);
 
     const unknownEn = getCuratedSuggestionsForDestination('Small Village', 'en');
     expect(unknownEn.length).toBe(4);

@@ -56,7 +56,11 @@ import {
   minutesToTimeStr,
   type StreetRouteInfo,
 } from '../lib/routeOptimization';
-import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
+import {
+  enrichAttractionsWithGooglePhotos,
+  fetchGoogleCityPhoto,
+  getCachedCityPhoto,
+} from '../lib/placesPhotoService';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -102,36 +106,6 @@ interface TripRecord {
   created_at: string;
 }
 
-// Baza sprawdzonych, reprezentacyjnych zdjęć miast (fallback)
-const CURATED_CITY_PHOTOS: { [key: string]: string } = {
-  rzym: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=800',
-  rome: 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&q=80&w=800',
-  paryż: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=800',
-  paris: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&q=80&w=800',
-  londyn: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
-  london: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
-  barcelona: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?auto=format&fit=crop&q=80&w=800',
-  madryt: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=800',
-  madrid: 'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&q=80&w=800',
-  warszawa: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=800',
-  warsaw: 'https://images.unsplash.com/photo-1519197924294-4ba991a11f28?auto=format&fit=crop&q=80&w=800',
-  kraków: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=800',
-  krakow: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=800',
-  berlin: 'https://images.unsplash.com/photo-1560969184-10fe8719e047?auto=format&fit=crop&q=80&w=800',
-  wiedeń: 'https://images.unsplash.com/photo-1516550893923-42d28e5677af?auto=format&fit=crop&q=80&w=800',
-  vienna: 'https://images.unsplash.com/photo-1516550893923-42d28e5677af?auto=format&fit=crop&q=80&w=800',
-  wenecja: 'https://images.unsplash.com/photo-1514890547357-a9ee288728e0?auto=format&fit=crop&q=80&w=800',
-  venice: 'https://images.unsplash.com/photo-1514890547357-a9ee288728e0?auto=format&fit=crop&q=80&w=800',
-  praga: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=800',
-  prague: 'https://images.unsplash.com/photo-1541849546-216549ae216d?auto=format&fit=crop&q=80&w=800',
-  tokio: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=800',
-  tokyo: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&q=80&w=800',
-  amsterdam: 'https://images.unsplash.com/photo-1512470876302-972faa2aa9a4?auto=format&fit=crop&q=80&w=800',
-  lizbona: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&q=80&w=800',
-  lisbon: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&q=80&w=800',
-  'nowy jork': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&q=80&w=800',
-  'new york': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&q=80&w=800',
-};
 
 export const sanitizeTimeStr = (timeStr?: string): string => {
   if (!timeStr || !timeStr.trim()) return '12:00';
@@ -378,45 +352,27 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const itemLayouts = useRef<{ [key: string]: number }>({});
 
-  // Pobieranie zdjęcia miasta w tle
+  // Zdjęcie miasta w tle: wyłącznie z Google Places (z pamięcią), w przeciwnym razie placeholder
   useEffect(() => {
     if (!tripData?.destination) return;
     const dest = tripData.destination.trim();
-    const key = dest.toLowerCase();
+    let cancelled = false;
+    setCityPhotoUrl('');
 
-    let initialPhoto: string | null = null;
-    for (const [cKey, cUrl] of Object.entries(CURATED_CITY_PHOTOS)) {
-      if (key.includes(cKey)) {
-        initialPhoto = cUrl;
-        break;
-      }
-    }
-    if (!initialPhoto) {
-      initialPhoto = '';
-    }
-    setCityPhotoUrl(initialPhoto);
-
-    const fetchGoogleCityPhoto = async () => {
+    (async () => {
       try {
-        const googleApiKey = getGoogleApiKey();
-        if (!googleApiKey || googleApiKey.includes('TYMCZASOWY')) return;
-
-        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark')}&key=${googleApiKey}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-          const withPhoto = data.results.find((p: any) => Array.isArray(p.photos) && p.photos.length > 0);
-          if (withPhoto && withPhoto.photos[0]?.photo_reference) {
-            const photoRef = withPhoto.photos[0].photo_reference;
-            setCityPhotoUrl(`https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=${photoRef}&key=${googleApiKey}`);
-          }
-        }
+        const cached = await getCachedCityPhoto(dest);
+        if (!cancelled && cached) setCityPhotoUrl(cached);
+        const live = await fetchGoogleCityPhoto(dest);
+        if (!cancelled && live) setCityPhotoUrl(live);
       } catch {
-        // Ignorujemy błędy pobierania tła
+        // Brak zdjęcia nie blokuje osi czasu
       }
-    };
+    })();
 
-    fetchGoogleCityPhoto();
+    return () => {
+      cancelled = true;
+    };
   }, [tripData?.destination]);
 
   const applyPickerDate = (picker: NonNullable<ActivePicker>, date: Date) => {
@@ -1476,7 +1432,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* PÓŁPRZEZROCZYSTE TŁO MIASTA Z GOOGLE PLACES / CURATED */}
+      {/* PÓŁPRZEZROCZYSTE TŁO MIASTA Z GOOGLE PLACES (brak zdjęcia = brak tła) */}
       {cityPhotoUrl ? (
         <View style={styles.backgroundContainer} pointerEvents="none">
           <Image 

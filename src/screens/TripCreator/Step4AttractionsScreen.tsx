@@ -267,7 +267,8 @@ export const Step4AttractionsScreen = () => {
           lat: lodgingCoords?.lat || 41.9028,
           lon: lodgingCoords?.lon || 12.4964,
           rating: 4.8,
-          imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
+          // Brak danych z Google dla tej pozycji: karta pokaże placeholder zamiast przypadkowego zdjęcia
+          imageUrl: '',
         });
       }
     });

@@ -321,25 +321,18 @@ describe('LiveExplore - Rygorystyczne testy algorytmu i Etapów 1, 2, 3', () => 
       expect(photoUrl).toBeNull();
     });
 
-    test('getFallbackRecommendations nie zawiera starego pustynnego mocka (photo-1488646953014-85cb44e25828)', () => {
+    test('getFallbackRecommendations nie podsuwa zdjęć zastępczych (placeholder zamiast przypadkowego obrazu)', () => {
       const fallbacks = getFallbackRecommendations(52.2297, 21.0122);
       expect(fallbacks.length).toBeGreaterThan(0);
-
       fallbacks.forEach((dest) => {
-        expect(dest.coverImage).not.toContain('photo-1488646953014-85cb44e25828');
-        expect(dest.coverImage.length).toBeGreaterThan(15);
+        expect(dest.coverImage).toBe('');
       });
     });
 
-    test('każda destynacja w DESTINATION_POOL posiada unikalne, niepuste zdjęcie', () => {
-      const coverImages = new Set<string>();
+    test('DESTINATION_POOL nie zawiera zdjęć wpisanych na sztywno - zdjęcia dociąga Google Places', () => {
       DESTINATION_POOL.forEach((dest) => {
-        expect(dest.coverImage).toBeTruthy();
-        expect(dest.coverImage).not.toContain('photo-1488646953014-85cb44e25828');
-        coverImages.add(dest.coverImage);
+        expect(dest.coverImage).toBe('');
       });
-      // Sprawdzamy czy większość miast ma dedykowane, unikalne zdjęcia
-      expect(coverImages.size).toBe(DESTINATION_POOL.length);
     });
   });
 

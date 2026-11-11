@@ -21,7 +21,12 @@ import {
 import { useAuthStore } from '../store/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
-import { generateLiveRecommendations, LiveDestination } from '../lib/liveExplore';
+import {
+  EXPLORE_CACHE_KEY,
+  generateLiveRecommendations,
+  LEGACY_EXPLORE_CACHE_KEYS,
+  LiveDestination,
+} from '../lib/liveExplore';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,7 +55,7 @@ import {
   convertCurrencyWithRates,
   DEFAULT_EXCHANGE_RATES,
 } from '../lib/currencyService';
-import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
+import { enrichAttractionsWithGooglePhotos, getCachedCityPhoto } from '../lib/placesPhotoService';
 import {
   POPULAR_DESTINATION_ATTRACTIONS,
   getCuratedSuggestionsForDestination,
@@ -416,24 +421,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   useEffect(() => {
     async function loadExplore() {
-      // 1. Usunięcie starego cache v1 ze starymi/losowymi zdjęciami
+      // 1. Usunięcie starych wersji pamięci (zawierały zdjęcia zastępcze i wygasłe odwołania Google)
       try {
-        await AsyncStorage.removeItem('@destivo_cached_explore_recommendations_v1');
+        await AsyncStorage.multiRemove(LEGACY_EXPLORE_CACHE_KEYS);
       } catch {}
 
-      // 2. Błyskawiczne wczytanie z pamięci cache v3 lub v2 (0 ms oczekiwania dla użytkownika)
+      // 2. Błyskawiczne wczytanie ostatnich propozycji z pamięci. Zdjęcia bierzemy wyłącznie
+      //    z aktualnej pamięci Google Places; gdy jej nie ma, karta pokazuje placeholder.
       try {
-        const cached = (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v3')) ||
-                       (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v2'));
+        const cached = await AsyncStorage.getItem(EXPLORE_CACHE_KEY);
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const sanitized = parsed.map((item: any) => {
-              if (!item.coverImage) {
-                return { ...item, coverImage: getCuratedCityFallback(item.city) };
-              }
-              return item;
-            });
+            const sanitized = await Promise.all(
+              parsed.map(async (item: any) => ({
+                ...item,
+                coverImage: await getCachedCityPhoto(item.city, item.country),
+              }))
+            );
             setRecommendations(sanitized);
             setLoading(false);
           }

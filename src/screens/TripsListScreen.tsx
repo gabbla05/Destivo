@@ -38,7 +38,7 @@ interface TripRecord {
   transport_type?: string;
 }
 
-import { CURATED_CITY_PHOTOS, getCuratedCityFallback, hasCuratedCityFallback } from '../lib/placesPhotoService';
+import { fetchGoogleCityPhoto } from '../lib/placesPhotoService';
 
 export { parseTripDate } from '../lib/tripCollision';
 import { parseTripDate } from '../lib/tripCollision';
@@ -395,81 +395,38 @@ export const TripsListScreen = ({ navigation }: any) => {
     }, [user?.id])
   );
 
-  // Pobieranie zdjęć miast z Google Places
+  // Zdjęcia miast wyłącznie z Google Places (z 7-dniową pamięcią w placesPhotoService).
+  // Gdy zdjęcia nie ma, kafelek pokazuje placeholder.
   useEffect(() => {
+    let cancelled = false;
     const fetchPhotosForTrips = async () => {
       const destinations = Array.from(new Set(trips.map((t) => t.destination.trim()).filter(Boolean)));
+      const pending = destinations.filter((dest) => !cityPhotoCache.current.has(dest.toLowerCase()));
+      if (pending.length === 0) return;
+
       const newPhotos: { [key: string]: string } = {};
-      const pendingFetch: string[] = [];
-
-      for (const dest of destinations) {
-        const key = dest.toLowerCase();
-        if (cityPhotoCache.current.has(key)) {
-          newPhotos[key] = cityPhotoCache.current.get(key)!;
-          continue;
-        }
-
-        if (hasCuratedCityFallback(dest)) {
-          const fallback = getCuratedCityFallback(dest);
-          if (fallback) {
-            cityPhotoCache.current.set(key, fallback);
-            newPhotos[key] = fallback;
-            continue;
-          }
-        }
-
-        pendingFetch.push(dest);
-      }
-
-      if (Object.keys(newPhotos).length > 0) {
-        setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
-      }
-
-      if (pendingFetch.length > 0 && googleApiKey && !googleApiKey.includes('TYMCZASOWY')) {
-        await Promise.all(
-          pendingFetch.map(async (dest) => {
-            const key = dest.toLowerCase();
-            const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(dest + ' tourism landmark architecture')}&key=${googleApiKey}`;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 3500);
-            try {
-              const res = await fetch(url, { signal: controller.signal });
-              const data = await res.json();
-              if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-                const filtered = data.results.filter((p: any) => {
-                  const nameLower = (p.name || '').toLowerCase();
-                  return !nameLower.includes('zoo') && !nameLower.includes('safari') && !nameLower.includes('aquarium') && !nameLower.includes('papugarnia');
-                });
-                const candidate = filtered[0] || data.results[0];
-                if (candidate && Array.isArray(candidate.photos) && candidate.photos[0]?.photo_reference) {
-                  const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${candidate.photos[0].photo_reference}&key=${googleApiKey}`;
-                  cityPhotoCache.current.set(key, photoUrl);
-                  newPhotos[key] = photoUrl;
-                  return;
-                }
-              }
-            } catch {} finally {
-              clearTimeout(timer);
-            }
-            const fallback = hasCuratedCityFallback(dest) ? getCuratedCityFallback(dest) : '';
-            cityPhotoCache.current.set(key, fallback);
-            newPhotos[key] = fallback;
-          })
-        );
-        setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
-      }
+      await Promise.all(
+        pending.map(async (dest) => {
+          const key = dest.toLowerCase();
+          const photo = (await fetchGoogleCityPhoto(dest).catch(() => null)) || '';
+          cityPhotoCache.current.set(key, photo);
+          newPhotos[key] = photo;
+        })
+      );
+      if (!cancelled) setCityPhotos((prev) => ({ ...prev, ...newPhotos }));
     };
 
     if (trips.length > 0) {
       fetchPhotosForTrips();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [trips, googleApiKey]);
 
   const getTripPhoto = (destination: string) => {
     const key = destination?.trim().toLowerCase() || '';
-    if (cityPhotos[key]) return cityPhotos[key];
-    if (cityPhotoCache.current.has(key)) return cityPhotoCache.current.get(key)!;
-    return hasCuratedCityFallback(destination) ? getCuratedCityFallback(destination) : '';
+    return cityPhotos[key] || cityPhotoCache.current.get(key) || '';
   };
 
   const handleTripPress = (tripId: string) => {
