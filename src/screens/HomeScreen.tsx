@@ -42,6 +42,7 @@ import {
 } from '../lib/routeOptimization';
 import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
+import { CurrentWeather, fetchTripCurrentWeather } from '../lib/currentWeather';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import {
   ProximityCheckResult,
@@ -51,7 +52,8 @@ import {
 } from '../lib/proximityAlertService';
 import {
   fetchLiveExchangeRates,
-  formatRatesUpdatedTime,
+  describeRatesSource,
+  RatesSource,
   convertCurrencyWithRates,
   DEFAULT_EXCHANGE_RATES,
 } from '../lib/currencyService';
@@ -291,6 +293,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   
   // Stany dla Aktywnej Podróży
   const [activeTrip, setActiveTrip] = useState<any | null>(null);
+  // Bieżąca pogoda w miejscu trwającej podróży (null = brak danych -> brak plakietki)
+  const [activeTripWeather, setActiveTripWeather] = useState<CurrentWeather | null>(null);
   const [activeTimeline, setActiveTimeline] = useState<any[]>([]);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -306,7 +310,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   // Stany dla Kalkulatora Walut
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
-  const [ratesLastUpdated, setRatesLastUpdated] = useState<Date>(new Date());
+  const [ratesLastUpdated, setRatesLastUpdated] = useState<Date | null>(null);
+  const [ratesSource, setRatesSource] = useState<RatesSource>('default');
   const [enrichedSuggestions, setEnrichedSuggestions] = useState<Array<{ id: string; name: string; subtitle?: string; imageUrl?: string }>>([]);
   const [fromCurrency, setFromCurrency] = useState('EUR');
   const [toCurrency, setToCurrency] = useState('PLN');
@@ -324,6 +329,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       if (isMounted) {
         setExchangeRates(data.rates);
         setRatesLastUpdated(data.lastUpdated);
+        setRatesSource(data.source);
         if (fromAmount) {
           setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
         }
@@ -387,6 +393,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       setActivePicker(null);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    setActiveTripWeather(null);
+    if (!activeTrip) return;
+    fetchTripCurrentWeather(activeTrip)
+      .then((weather) => {
+        if (!cancelled) setActiveTripWeather(weather);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // Pogoda zależy tylko od miejsca podróży
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTrip?.id, activeTrip?.destination, activeTrip?.lodging_data, activeTrip?.accommodation_address]);
 
   const handleOpenProximityPass = (result: ProximityCheckResult) => {
     setQuickPassResult(result);
@@ -1128,11 +1150,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   if (activeTrip) {
     const currentRate = (exchangeRates[fromCurrency] || 1) / (exchangeRates[toCurrency] || 1);
     const rateFormatted = currentRate < 0.05 ? currentRate.toFixed(4) : currentRate.toFixed(2);
-    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • Zaktualizowano: {{time}}')
+    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • {{source}}')
       .replace('{{from}}', fromCurrency)
       .replace('{{rate}}', rateFormatted)
       .replace('{{to}}', toCurrency)
-      .replace('{{time}}', formatRatesUpdatedTime(ratesLastUpdated, language));
+      .replace('{{source}}', describeRatesSource(ratesSource, ratesLastUpdated, language));
 
     const emergencyNum = getEmergencyNumber(activeTrip.destination);
     const destinationLabel = destinationNames[activeTrip.destination] || activeTrip.destination || (t.tripFallback || (language === 'pl' ? 'Wyprawa' : 'Trip'));
@@ -1370,10 +1392,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                                 <Ionicons name="radio-button-on" size={10} color="#F59E0B" style={{ marginRight: 4 }} />
                                 <Text style={styles.inProgressBadgeText}>{t.inProgressBadge || 'W TRAKCIE'}</Text>
                               </View>
-                              <View style={styles.inProgressWeather}>
-                                <Ionicons name="sunny" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                                <Text style={styles.inProgressWeatherText}>24°C</Text>
-                              </View>
+                              {activeTripWeather && (
+                                <View style={styles.inProgressWeather} testID="in-progress-weather">
+                                  <Ionicons name={activeTripWeather.icon} size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                                  <Text style={styles.inProgressWeatherText}>{activeTripWeather.tempC}°C</Text>
+                                </View>
+                              )}
                             </View>
                           )}
 
@@ -2365,9 +2389,17 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       {dest.proposedTrip && (
                         <View style={styles.weatherBadge}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="sunny-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                            <Text style={styles.weatherText}>
-                              ~{dest.proposedTrip.estimatedTemp}°C • {dest.isDayTrip ? `${dest.proposedTrip.startDate.slice(0, 5)} (1 dzień)` : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
+                            <Ionicons
+                              name={typeof dest.proposedTrip.estimatedTemp === 'number' ? 'sunny-outline' : 'cloud-offline-outline'}
+                              size={13}
+                              color={typeof dest.proposedTrip.estimatedTemp === 'number' ? '#F59E0B' : '#94A3B8'}
+                              style={{ marginRight: 4 }}
+                            />
+                            <Text style={styles.weatherText} testID={`explore-weather-${dest.id}`}>
+                              {typeof dest.proposedTrip.estimatedTemp === 'number'
+                                ? `~${dest.proposedTrip.estimatedTemp}°C • `
+                                : `${t.noForecast || 'Brak aktualnej prognozy'} • `}
+                              {dest.isDayTrip ? `${dest.proposedTrip.startDate.slice(0, 5)} (1 dzień)` : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
                             </Text>
                           </View>
                         </View>

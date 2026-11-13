@@ -329,6 +329,19 @@ describe('LiveExplore - Rygorystyczne testy algorytmu i Etapów 1, 2, 3', () => 
       });
     });
 
+    test('P5: getFallbackRecommendations nie zmyśla pogody i sortuje według odległości', () => {
+      const fallbacks = getFallbackRecommendations(52.2297, 21.0122);
+      fallbacks.forEach((dest) => {
+        expect(dest.weather).toBeUndefined();
+        expect(dest.proposedTrip?.weatherSource).toBe('unavailable');
+        expect(dest.proposedTrip?.estimatedTemp).toBeUndefined();
+        expect(dest.proposedTrip?.condition).toBeUndefined();
+        expect(dest.proposedTrip?.crowdLevel).toBeUndefined();
+      });
+      const distances = fallbacks.map((dest) => dest.distanceKm || 0);
+      expect(distances).toEqual([...distances].sort((a, b) => a - b));
+    });
+
     test('DESTINATION_POOL nie zawiera zdjęć wpisanych na sztywno - zdjęcia dociąga Google Places', () => {
       DESTINATION_POOL.forEach((dest) => {
         expect(dest.coverImage).toBe('');

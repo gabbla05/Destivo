@@ -23,9 +23,13 @@ export interface ProposedTrip {
   endDate: string;
   durationDays: number;
   isDayTrip?: boolean;
-  estimatedTemp: number;
-  condition: string;
-  crowdLevel: string;
+  /** Skąd pochodzą dane pogodowe: prognoza z API albo brak prognozy (wtedy brak temperatury). */
+  weatherSource?: 'forecast' | 'unavailable';
+  /** Średnia temperatura maksymalna z prognozy - tylko gdy weatherSource === 'forecast'. */
+  estimatedTemp?: number;
+  condition?: string;
+  /** Obłożenie wyliczone z liczby opinii Google - tylko gdy udało się je pobrać. */
+  crowdLevel?: string;
   itinerary: TripDay[];
 }
 
@@ -52,12 +56,14 @@ export interface LiveDestination {
   isDayTrip?: boolean;
 }
 
-/** Pamięć ostatnich propozycji Eksploruj (v4: bez zdjęć zastępczych). */
-export const EXPLORE_CACHE_KEY = '@destivo_cached_explore_recommendations_v4';
+/** Pamięć ostatnich propozycji Eksploruj (v5: bez zdjęć zastępczych i bez zmyślonej pogody). */
+export const EXPLORE_CACHE_KEY = '@destivo_cached_explore_recommendations_v5';
 export const LEGACY_EXPLORE_CACHE_KEYS = [
   '@destivo_cached_explore_recommendations_v1',
   '@destivo_cached_explore_recommendations_v2',
   '@destivo_cached_explore_recommendations_v3',
+  // v4 mogła zawierać zmyślone temperatury z trybu bez prognozy
+  '@destivo_cached_explore_recommendations_v4',
 ];
 
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
@@ -900,9 +906,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
       shortDescriptionEn: 'The Eternal City, where ancient history meets some of the world\'s best cuisine.',
       transportCode: 'ROM',
-      temp: 22,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Koloseum i Forum Romanum', 'Watykan i Bazylika św. Piotra', 'Fontanna di Trevi i Panteon'],
     },
     {
@@ -915,9 +918,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Zjawiskowa architektura Gaudiego, relaks na plaży i tętniące życiem uliczki. Katalonia w pełnej krasie.',
       shortDescriptionEn: 'Gaudi architecture, relaxing beaches and lively streets in the heart of Catalonia.',
       transportCode: 'BCN',
-      temp: 20,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/02d@2x.png',
       attractions: ['Sagrada Família', 'Park Güell', 'Dzielnica Gotycka (Barri Gòtic)'],
     },
     {
@@ -930,9 +930,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Historyczna stolica Polski. Odkryj sekrety dawnych królów i poczuj niezwykły klimat Kazimierza.',
       shortDescriptionEn: 'Poland\'s historic capital, full of royal history and the unique atmosphere of Kazimierz.',
       transportCode: 'KRK',
-      temp: 18,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Rynek Główny i Sukiennice', 'Zamek Królewski na Wawelu', 'Kazimierz (Dzielnica Żydowska)'],
     },
     {
@@ -945,9 +942,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Światowa stolica miłości i sztuki. Miasto świateł zaprasza na spacery wzdłuż Sekwany i świeże rogaliki.',
       shortDescriptionEn: 'The city of lights and art, perfect for walks along the Seine and fresh croissants.',
       transportCode: 'PAR',
-      temp: 19,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/03d@2x.png',
       attractions: ['Wieża Eiffla', 'Muzeum Luwr', 'Katedra Notre-Dame'],
     },
     {
@@ -960,9 +954,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Katalońska perła Sardynii otoczona murami obronnymi, z widokiem na szmaragdowe morze i klify Capo Caccia.',
       shortDescriptionEn: 'Sardinia\'s Catalan gem with ancient sea walls, emerald waters and Capo Caccia cliffs.',
       transportCode: 'AHO',
-      temp: 23,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Stare Miasto z katalońskimi murami', 'Klify Capo Caccia', 'Grota Neptuna'],
       isOffTheBeatenPath: true,
     },
@@ -976,9 +967,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Zapierający dech w piersiach fiord południa (Boka Kotorska) ze średniowiecznymi murami pnącymi się po pionowych skałach.',
       shortDescriptionEn: 'Breathtaking southern fjord (Boka Kotorska) with medieval walls scaling dramatic limestone peaks.',
       transportCode: 'TIV',
-      temp: 21,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Starówka w Kotorze i Katedra św. Tryfona', 'Mury twierdzy San Giovanni', 'Zatoka Boka Kotorska'],
       isOffTheBeatenPath: true,
     },
@@ -992,9 +980,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Jedna z najbardziej zielonych stolic Europy – zamek na wzgórzu, smoczy most i zaledwie 40 minut od bajkowego jeziora Bled.',
       shortDescriptionEn: 'One of Europe\'s greenest capitals – castle on a hill, Dragon Bridge and 40 min from Lake Bled.',
       transportCode: 'LJU',
-      temp: 20,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/02d@2x.png',
       attractions: ['Zamek w Lublanie (Ljubljanski grad)', 'Potrójny Most i Smoczy Most', 'Park Tivoli'],
       isOffTheBeatenPath: true,
     },
@@ -1008,9 +993,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Mały Rzym na siedmiu lessowych wzgórzach z renesansowym rynkiem, tajemniczymi podziemiami i Wąwozem Królowej Jadwigi.',
       shortDescriptionEn: 'A picturesque historic town perched over the Vistula on seven loess hills with royal heritage.',
       transportCode: 'Sandomierz',
-      temp: 19,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Rynek i renesansowy Ratusz', 'Podziemna Trasa Turystyczna', 'Wąwóz Królowej Jadwigi'],
       isOffTheBeatenPath: true,
     },
@@ -1024,9 +1006,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Klimatyczne miasteczko artystów nad Wisłą – słynny rynek, Wąwóz Korzeniowy Dół, Góra Trzech Krzyży i pyszne koguty maślane.',
       shortDescriptionEn: 'An artistic historic town by the Vistula with a charming renaissance square, Root Loess Gorge and Three Crosses Hill.',
       transportCode: 'Kazimierz Dolny',
-      temp: 20,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Rynek i renesansowe kamienice Przybyłów', 'Wąwóz Korzeniowy Dół', 'Góra Trzech Krzyży', 'Ruiny Zamku Kazimierzowskiego i Baszta'],
       isDayTrip: true,
     },
@@ -1040,9 +1019,6 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       shortDescription: 'Zielony wypad pod Warszawę: zabytkowy dworek i park Fryderyka Chopina oraz dziewicze ścieżki Kampinoskiego Parku Narodowego.',
       shortDescriptionEn: 'A peaceful green getaway near Warsaw: birthplace and manor park of Frédéric Chopin and wilderness trails of Kampinos National Park.',
       transportCode: 'Żelazowa Wola',
-      temp: 21,
-      condition: 'Bez opadów, idealnie na zwiedzanie',
-      icon: 'https://openweathermap.org/img/wn/01d@2x.png',
       attractions: ['Dworek Chopina i park krajobrazowy', 'Kampinoski Park Narodowy - Szlak Puszczański', 'Ośrodek Edukacyjny w Granicy'],
       isDayTrip: true,
     },
@@ -1063,7 +1039,12 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
     }
   }
 
-  return citiesToUse.map((c) => {
+  // Bez prognozy sortujemy według odległości (najbliższe najpierw)
+  const byDistance = [...citiesToUse].sort(
+    (a, b) => calculateDistanceKm(userLat, userLon, a.lat, a.lon) - calculateDistanceKm(userLat, userLon, b.lat, b.lon)
+  );
+
+  return byDistance.map((c) => {
     const isDay = !!(c as any).isDayTrip;
     const distance = calculateDistanceKm(userLat, userLon, c.lat, c.lon);
     const recommendedTransport = isDay ? 'car' : determineTransport(distance);
@@ -1088,19 +1069,13 @@ export function getFallbackRecommendations(userLat: number, userLon: number): Li
       nearestAirport: 'WAW',
       flightDate: flightDateStr,
       isOffTheBeatenPath: (c as any).isOffTheBeatenPath || false,
-      weather: {
-        temp: c.temp,
-        condition: c.condition,
-        icon: c.icon,
-      },
+      // Brak prognozy: nie pokazujemy żadnej temperatury ani opisu pogody
       proposedTrip: {
         startDate: startStr,
         endDate: endDateStr,
         durationDays,
         isDayTrip: isDay,
-        estimatedTemp: c.temp,
-        condition: c.condition,
-        crowdLevel: isDay ? 'Idealne warunki na jednodniowy wypad' : 'Umiarkowany ruch turystyczny',
+        weatherSource: 'unavailable' as const,
         itinerary: buildOptimizedExploreItinerary(
           DEFAULT_ATTRACTIONS_BY_CITY[c.city] || c.attractions,
           durationDays,
@@ -1269,13 +1244,22 @@ export async function fetchCityWeather(
     const startStr = days[bestStartIdx];
     const endStr = isDayTrip ? startStr : days[bestStartIdx + finalDuration - 1];
 
-    let sumTemp = 0;
+    // Średnia z maksimów dni w oknie; dni bez pomiarów pomijamy (zamiast podstawiać stałą wartość).
+    // Gdy okno nie ma żadnych pomiarów, bierzemy średnią z całej dostępnej prognozy.
+    const dayMax = (day: string) => {
+      const temps = dailyForecasts[day]?.temps || [];
+      return temps.length > 0 ? Math.max(...temps) : null;
+    };
+    const average = (values: number[]) =>
+      values.length > 0 ? Math.round(values.reduce((acc, v) => acc + v, 0) / values.length) : undefined;
+    const windowMaxes: number[] = [];
     for (let i = 0; i < finalDuration; i++) {
-      const dayTemps = dailyForecasts[days[bestStartIdx + i]]?.temps || [];
-      const dayMaxTemp = dayTemps.length > 0 ? Math.max(...dayTemps) : 20;
-      sumTemp += dayMaxTemp;
+      const value = dayMax(days[bestStartIdx + i]);
+      if (value !== null) windowMaxes.push(value);
     }
-    const avgTemp = Math.round(sumTemp / finalDuration);
+    const avgTemp =
+      average(windowMaxes) ??
+      average(days.map(dayMax).filter((v): v is number => v !== null));
     const condition = foundPerfect ? 'Bez opadów, idealnie na zwiedzanie' : 'Mogą wystąpić opady - weź parasol';
 
     // ETAP 3: Weryfikacja bazy predefiniowanych szablonów wycieczek
@@ -1297,14 +1281,15 @@ export async function fetchCityWeather(
       endDate: formatDateStr(endStr),
       durationDays: finalDuration,
       isDayTrip,
+      weatherSource: avgTemp === undefined ? 'unavailable' : 'forecast',
       estimatedTemp: avgTemp,
-      condition,
-      crowdLevel: isDayTrip ? 'Idealne warunki na jednodniowy wypad' : 'Umiarkowany ruch turystyczny',
+      condition: avgTemp === undefined ? undefined : condition,
       itinerary,
     };
 
     const firstDayTemps = dailyForecasts[startStr]?.temps || [];
     const firstDayMaxTemp = firstDayTemps.length > 0 ? Math.max(...firstDayTemps) : avgTemp;
+    const hasFirstDayWeather = typeof firstDayMaxTemp === 'number';
 
     return {
       ...dest,
@@ -1316,11 +1301,13 @@ export async function fetchCityWeather(
       flightDate: isDayTrip ? `${formatDateStr(startStr)} (1 dzień)` : `${formatDateStr(startStr)} - ${formatDateStr(endStr)}`,
       isOffTheBeatenPath: dest.isOffTheBeatenPath,
       proposedTrip,
-      weather: {
-        temp: Math.round(firstDayMaxTemp),
-        condition: dailyForecasts[startStr]?.desc || 'Częściowo słonecznie',
-        icon: `https://openweathermap.org/img/wn/${dailyForecasts[startStr]?.icon || '01d'}@2x.png`,
-      },
+      weather: hasFirstDayWeather
+        ? {
+            temp: Math.round(firstDayMaxTemp as number),
+            condition: dailyForecasts[startStr]?.desc || condition,
+            icon: `https://openweathermap.org/img/wn/${dailyForecasts[startStr]?.icon || '01d'}@2x.png`,
+          }
+        : undefined,
     };
   } catch {
     clearTimeout(timeoutId);

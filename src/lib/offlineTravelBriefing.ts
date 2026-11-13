@@ -13,7 +13,8 @@ import { getEmergencyNumber } from '../screens/HomeScreen';
 import { translations } from '../i18n/translations';
 import {
   DEFAULT_EXCHANGE_RATES,
-  getCachedExchangeRates,
+  getCachedExchangeRatesInfo,
+  describeRatesSource,
   getDestinationCurrencyCode,
   getCurrencyInfoForDestination,
 } from './currencyService';
@@ -562,30 +563,14 @@ export const prepareVaultTickets = async (
       }
     }
 
-    // Awaryjny kod QR metadanych (jeśli w pliku nie ma odczytywalnego kodu)
-    let fallbackQrDataUrl = '';
-    const qrPayload = JSON.stringify({
-      destivo_vault_pass: true,
-      trip_id: tripId,
-      doc_id: file.id || file.name,
-      title: fileName,
-      type: fileType,
-      secured_at: file.createdAt || new Date().toISOString().split('T')[0],
-    });
-    try {
-      fallbackQrDataUrl = await QRCode.toDataURL(qrPayload, {
-        margin: 1,
-        width: 220,
-        color: { dark: '#0F172A', light: '#FFFFFF' },
-      });
-    } catch (e) {}
-
+    // Bez zastępczego QR: kod pochodzi wyłącznie z biletu (odczytany lub wycięty).
+    // Gdy w bilecie nie ma kodu, pole zostaje puste, a w PDF pokazujemy oryginalny plik.
     result.push({
       id: file.id || String(Math.random()),
       name: fileName,
       type: fileType,
       uri: file.uri,
-      qrCodeDataUrl: detectedQrDataUrl || croppedQrDataUrl || fallbackQrDataUrl,
+      qrCodeDataUrl: detectedQrDataUrl || croppedQrDataUrl || undefined,
       thumbnailDataUrl,
       detectedQrCode,
       detectedQrDataUrl,
@@ -724,11 +709,16 @@ export const generateBriefingHtml = async (
 
   // Pobieramy aktualne kursy walut ze zintegrowanego currencyService (opcje / pamięć podręczna AsyncStorage / domyślne)
   let activeRates = options?.exchangeRates;
+  // Opis pochodzenia kursu (P7): kurs z pamięci z datą albo kurs orientacyjny
+  let ratesSourceNote = '';
   if (!activeRates) {
     try {
-      activeRates = await getCachedExchangeRates();
+      const info = await getCachedExchangeRatesInfo();
+      activeRates = info.rates;
+      ratesSourceNote = describeRatesSource(info.source, info.lastUpdated, language);
     } catch {
       activeRates = DEFAULT_EXCHANGE_RATES;
+      ratesSourceNote = describeRatesSource('default', null, language);
     }
   }
   const currencyInfo = getCurrencyInfo(destination, activeRates);
@@ -1073,7 +1063,7 @@ export const generateBriefingHtml = async (
       ${masterQrDataUrl ? `
       <div class="header-qr-box">
         <img src="${masterQrDataUrl}" alt="Trip QR" />
-        <div class="header-qr-caption">${t.briefingPdfPassCaption || 'OFFLINE PASS'}</div>
+        <div class="header-qr-caption">${t.briefingPdfPassCaption || (isEn ? 'TRIP SUMMARY' : 'PODSUMOWANIE PODRÓŻY')}</div>
       </div>
       ` : ''}
     </div>
@@ -1104,7 +1094,7 @@ export const generateBriefingHtml = async (
       <div class="essential-card card-transport">
         <div class="card-title"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>${t.briefingPdfCurrencyTitle || (isEn ? 'Currency & Safety' : 'Waluta & Płatności')}</div>
         <div class="essential-desc">
-          <span class="essential-highlight">${currencyInfo.code}</span>${currencyInfo.code !== 'PLN' ? ` (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN)` : (isEn ? ' (Local currency)' : ' (Waluta krajowa)')}<br />
+          <span class="essential-highlight">${currencyInfo.code}</span>${currencyInfo.code !== 'PLN' ? ` (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN${ratesSourceNote ? `, ${ratesSourceNote}` : ''})` : (isEn ? ' (Local currency)' : ' (Waluta krajowa)')}<br />
           ${t.briefingPdfCurrencyTip || (isEn ? 'Keep paper copy in cabin baggage.' : 'Miej ten wydruk w bagażu podręcznym na wypadek rozładowania baterii.')}
         </div>
       </div>

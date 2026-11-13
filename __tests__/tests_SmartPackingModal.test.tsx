@@ -42,6 +42,14 @@ describe('SmartPackingModal Component', () => {
     });
   });
 
+  test('P8: pogoda spoza zasięgu prognozy jest opisana jako szacunek klimatyczny dla miesiąca podróży', async () => {
+    render(<SmartPackingModal {...defaultProps} />);
+
+    const source = await screen.findByTestId('packing-weather-source', {}, { timeout: 4000 });
+    expect(source.props.children).toMatch(/^Szacunek klimatyczny dla: wrzesień$/);
+    expect(screen.queryByText(/Prognoza \(/)).toBeNull();
+  });
+
   test('Kliknięcie checkboxa przedmiotu oznacza go jako spakowany i aktualizuje postęp', async () => {
     render(<SmartPackingModal {...defaultProps} />);
 

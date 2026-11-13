@@ -208,13 +208,28 @@ export const ExploreDetailsScreen: React.FC<{ route: any, navigation: any }> = (
             </View>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
-            <Ionicons name="partly-sunny-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.highlightText}>{t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip?.estimatedTemp || 0)).replace('{{condition}}', translateCondition(trip?.condition))}</Text>
+            {typeof trip?.estimatedTemp === 'number' ? (
+              <>
+                <Ionicons name="partly-sunny-outline" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+                <Text style={styles.highlightText} testID="explore-details-forecast">
+                  {t.forecast.replace('🌤️ ', '').replace('{{temp}}', String(trip.estimatedTemp)).replace('{{condition}}', translateCondition(trip?.condition))}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="cloud-offline-outline" size={14} color="#94A3B8" style={{ marginRight: 6 }} />
+                <Text style={styles.highlightText} testID="explore-details-no-forecast">
+                  {t.noForecast || 'Brak aktualnej prognozy dla tego terminu'}
+                </Text>
+              </>
+            )}
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
-            <Ionicons name="people-outline" size={14} color="#A7F3D0" style={{ marginRight: 6 }} />
-            <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
-          </View>
+          {trip?.crowdLevel ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 3 }}>
+              <Ionicons name="people-outline" size={14} color="#A7F3D0" style={{ marginRight: 6 }} />
+              <Text style={styles.highlightText}>{t.crowd.replace('👥 ', '').replace('{{level}}', translateCrowd(trip?.crowdLevel))}</Text>
+            </View>
+          ) : null}
         </View>
 
         <Text style={styles.description}>{description}</Text>

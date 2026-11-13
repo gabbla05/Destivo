@@ -176,7 +176,7 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
 
 
   describe('2. Przetwarzanie biletów z Sejfu i generowanie kodów QR offline', () => {
-    test('prepareVaultTickets wyciąga pliki z Sejfu i generuje dla nich kody QR (base64 data URL)', async () => {
+    test('prepareVaultTickets wyciąga pliki z Sejfu; bez kodu w bilecie nie tworzy zastępczego QR (P10)', async () => {
       const lodging = JSON.parse(sampleTrip.lodging_data);
       const transport = JSON.parse(sampleTrip.transport_data);
 
@@ -185,11 +185,12 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       expect(tickets.length).toBe(2);
       expect(tickets[0].name).toBe('Karta_pokladowa_Ryanair.pdf');
       expect(tickets[0].type).toBe('PDF');
-      expect(tickets[0].qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+      // Atrapy plików nie zawierają kodu QR - nie może pojawić się "bilet" z metadanymi Destivo
+      expect(tickets[0].qrCodeDataUrl).toBeUndefined();
 
       expect(tickets[1].name).toBe('Rezerwacja_Booking_Hotel.jpg');
       expect(tickets[1].type).toBe('IMAGE');
-      expect(tickets[1].qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+      expect(tickets[1].qrCodeDataUrl).toBeUndefined();
       expect(tickets[1].thumbnailDataUrl).toMatch(/^data:image\/jpeg;base64,/);
     });
 
@@ -209,7 +210,7 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       const tickets = await prepareVaultTickets(lodging, transport, 'trip-train');
       expect(tickets.length).toBe(1);
       expect(tickets[0].name).toBe('Bilet_PKP_Intercity.pdf');
-      expect(tickets[0].qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+      expect(tickets[0].qrCodeDataUrl).toBeUndefined();
     });
 
     test('extractQrFromImageBuffer wykrywa kod QR z bufora PNG', async () => {

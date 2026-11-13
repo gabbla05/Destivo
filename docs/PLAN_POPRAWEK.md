@@ -120,7 +120,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ## Etap 2: Atrapy i wartości zastępcze
 
-### P4. Stała plakietka „☀️ 24°C” ⬜ (decyzja D2)
+### P4. Stała plakietka „☀️ 24°C” ✅ (decyzja D2)
 
 **Jak działa teraz:** [HomeScreen.tsx:1368](../src/screens/HomeScreen.tsx#L1368) wyświetla `24°C` i ikonę słońca przy każdym punkcie „W TRAKCIE”, niezależnie od miejsca i pogody.
 
@@ -134,7 +134,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P5. Zmyślona pogoda w Eksploruj, gdy API nie odpowiada ⬜
+### P5. Zmyślona pogoda w Eksploruj, gdy API nie odpowiada ✅
 
 **Jak działa teraz**
 - [liveExplore.ts:894](../src/lib/liveExplore.ts#L894) (`getFallbackRecommendations`) zwraca 10 miast z wpisanymi temperaturami (np. Rzym 22°C) i opisem „Bez opadów, idealnie na zwiedzanie”. Interfejs pokazuje to jako prognozę.
@@ -152,7 +152,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P6. Krok 4 kreatora: zmyślona ocena 4.5 i atrakcje z Rzymu ⬜
+### P6. Krok 4 kreatora: zmyślona ocena 4.5 i atrakcje z Rzymu ✅
 
 **Jak działa teraz**
 - [Step4AttractionsScreen.tsx:209](../src/screens/TripCreator/Step4AttractionsScreen.tsx#L209): `rating: place.rating || 4.5`, czyli brak oceny w Google staje się oceną 4.5.
@@ -169,7 +169,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P7. Kursy walut „zaktualizowane teraz”, choć są domyślne ⬜
+### P7. Kursy walut „zaktualizowane teraz”, choć są domyślne ✅
 
 **Jak działa teraz:** [currencyService.ts:36](../src/lib/currencyService.ts#L36) ustawia `cachedDate = new Date()`. Bez sieci i bez zapisanych kursów kalkulator pokazuje wpisane na sztywno kursy z informacją, że są aktualne na teraz.
 
@@ -185,7 +185,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P8. Asystent pakowania nie oznacza szacunku klimatycznego ⬜
+### P8. Asystent pakowania nie oznacza szacunku klimatycznego ✅
 
 **Jak działa teraz:** gdy termin podróży jest poza zasięgiem prognozy, `getClimaticDefaultWeather` zwraca szacunek z flagą `isEstimated: true`. [SmartPackingModal.tsx:279](../src/components/SmartPackingModal.tsx#L279) pokazuje go jednak jak prognozę.
 
@@ -195,7 +195,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P9. Polityka prywatności: nieprawdziwe „szyfrowanie end-to-end” ⬜
+### P9. Polityka prywatności: nieprawdziwe „szyfrowanie end-to-end” ✅
 
 **Jak działa teraz:** tekst w [translations.ts](../src/i18n/translations.ts) (klucz `privacyData`, PL i EN) mówi, że dane są „szyfrowane end-to-end w module Sejfu”. Sejf szyfruje pliki lokalnie i nigdzie ich nie wysyła, więc to szyfrowanie danych w spoczynku, nie E2E.
 
@@ -203,7 +203,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P10. Kody QR w PDF sugerujące bilet ⬜
+### P10. Kody QR w PDF sugerujące bilet ✅
 
 **Jak działa teraz**
 - Nagłówek PDF zawiera kod QR z podsumowaniem podróży, podpisany **„OFFLINE PASS”** ([offlineTravelBriefing.ts:1076](../src/lib/offlineTravelBriefing.ts#L1076)). Wygląda jak bilet, a nim nie jest.

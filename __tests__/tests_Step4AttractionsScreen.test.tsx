@@ -338,4 +338,45 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
+  describe('P6: bez zmyślonych danych', () => {
+    test('10. gdy nie da się ustalić położenia, pokazuje błąd z ponowieniem zamiast atrakcji z Rzymu', async () => {
+      const geo = require('../src/lib/geoDatabase');
+      const geoSpy = jest.spyOn(geo, 'resolveCoordinates').mockResolvedValue(null);
+
+      render(<Step4AttractionsScreen />);
+
+      await waitFor(() => expect(screen.getByTestId('step4-location-error')).toBeTruthy());
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('maps.googleapis.com'))).toBe(false);
+
+      const callsBefore = geoSpy.mock.calls.length;
+      geoSpy.mockResolvedValue({ lat: 41.9028, lon: 12.4964 });
+      fireEvent.press(screen.getByTestId('step4-location-retry'));
+      await waitFor(() => expect(screen.queryByTestId('step4-location-error')).toBeNull());
+      expect(geoSpy.mock.calls.length).toBeGreaterThan(callsBefore);
+      geoSpy.mockRestore();
+    });
+
+    test('11. atrakcja bez oceny w Google nie dostaje zmyślonej oceny', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('maps.googleapis.com')) {
+          return {
+            json: async () => ({
+              status: 'OK',
+              results: [
+                { place_id: 'no_rating', name: 'Mały Kościół', vicinity: 'Roma', geometry: { location: { lat: 41.9, lng: 12.49 } } },
+                { place_id: 'rated', name: 'Koloseum', vicinity: 'Roma', geometry: { location: { lat: 41.8902, lng: 12.4922 } }, rating: 4.8 },
+              ],
+            }),
+          };
+        }
+        return { json: async () => [{ lat: '41.9028', lon: '12.4964' }] };
+      });
+
+      render(<Step4AttractionsScreen />);
+
+      await waitFor(() => expect(screen.getByTestId('rating-badge-rated')).toBeTruthy());
+      expect(screen.queryByTestId('rating-badge-no_rating')).toBeNull();
+      expect(screen.queryByText('4.5')).toBeNull();
+    });
+  });
 });

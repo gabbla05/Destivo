@@ -19,6 +19,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
+import { parseTripDate } from '../lib/tripCollision';
 import {
   loadPackingAssistant,
   togglePackingItem,
@@ -276,6 +277,22 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
     }
   };
 
+  /**
+   * Źródło danych pogodowych (P8): prognoza z API albo szacunek klimatyczny dla miesiąca podróży,
+   * gdy termin jest poza zasięgiem prognozy.
+   */
+  const getWeatherSourceText = (): string => {
+    const w = data?.weather;
+    if (!w) return '';
+    if (!w.isEstimated) {
+      return t.weatherSourceForecast.replace('{{source}}', w.source || 'Open-Meteo');
+    }
+    const tripStart = parseTripDate(startDate || '');
+    if (!tripStart) return t.weatherSourceEstimateNoMonth;
+    const month = tripStart.toLocaleDateString(language === 'en' ? 'en-GB' : 'pl-PL', { month: 'long' });
+    return t.weatherSourceEstimate.replace('{{month}}', month);
+  };
+
   const getWeatherBadgeText = () => {
     if (!data) return { label: '', rule: '', icon: 'sunny' };
     const w = data.weather;
@@ -438,13 +455,16 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
                   <TouchableOpacity
                     style={styles.conditionPill}
                     activeOpacity={0.7}
-                    onPress={() => Alert.alert(weatherBadge.label, weatherBadge.rule)}
+                    onPress={() => Alert.alert(weatherBadge.label, `${getWeatherSourceText()}\n\n${weatherBadge.rule}`)}
                   >
                     <View style={styles.pillIconBox}>
                       <Ionicons name={weatherBadge.icon as any} size={15} color="#10B981" />
                     </View>
                     <View style={styles.pillContent}>
                       <Text style={styles.pillMainText}>{weatherBadge.label}</Text>
+                      <Text style={styles.pillSubText} testID="packing-weather-source">
+                        {getWeatherSourceText()}
+                      </Text>
                       <Text style={styles.pillSubText}>
                         {weatherBadge.rule}
                       </Text>

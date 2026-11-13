@@ -129,8 +129,9 @@ jest.mock('./src/lib/currencyService', () => {
     ...actual,
     fetchLiveExchangeRates: jest.fn().mockResolvedValue({
       rates: actual.DEFAULT_EXCHANGE_RATES,
-      lastUpdated: new Date(),
-      fromCache: true,
+      lastUpdated: null,
+      isLive: false,
+      source: 'default',
     }),
   };
 });
