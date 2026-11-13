@@ -565,6 +565,15 @@ export interface StationInfo {
  * Weryfikuje obecność stacji kolejowej w miejscowości docelowej lub w jej pobliżu (do 20 km).
  * Zabezpiecza przed generowaniem fałszywych połączeń kolejowych do małych wsi bez infrastruktury.
  */
+/** Usuwa polskie i europejskie znaki diakrytyczne ("Kraków" -> "krakow", "Łódź" -> "lodz"). */
+function stripDiacritics(value: string): string {
+  return value
+    .replace(/ł/g, 'l')
+    .replace(/Ł/g, 'L')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 export async function checkDestinationStation(
   destination: string,
   destCoords?: Coordinates | null
@@ -574,8 +583,14 @@ export async function checkDestinationStation(
   }
 
   const normalized = normalizePlaceQuery(destination);
-  // 1. Sprawdzenie czy miejscowość znajduje się w głównym słowniku miast (wszystkie mają stacje)
-  if (KNOWN_CITIES[normalized]) {
+  // 1. Sprawdzenie czy miejscowość znajduje się w głównym słowniku miast (wszystkie mają stacje).
+  // Klucze słownika są bez polskich znaków ("krakow"), więc sprawdzamy też wersję bez diakrytyków
+  // - inaczej "Kraków" był traktowany jak wieś bez dworca i znikała propozycja pociągu.
+  const asciiForm = stripDiacritics(normalized);
+  const cityKey = [normalized, asciiForm, POLISH_DECLENSIONS[asciiForm]].find(
+    (key) => key && KNOWN_CITIES[key]
+  );
+  if (cityKey) {
     return { hasStation: true, stationName: destination };
   }
 
