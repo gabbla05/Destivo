@@ -988,6 +988,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       navigation?.navigate('Trips', {
         screen: 'Timeline',
         params: { trip: activeTrip },
+        // Lista podróży pod osią czasu, żeby strzałka wstecz wracała do "Moich podróży"
+        initial: false,
       });
       return;
     } catch {}

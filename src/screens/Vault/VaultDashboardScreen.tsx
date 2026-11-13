@@ -400,6 +400,42 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     return lodgingData.vaultFiles || [];
   };
 
+  /**
+   * Bilety dodane w kreatorze (krok 2) są zapisane w transport_data, a nie w lodging_data.vaultFiles.
+   * Pokazujemy je w Sejfie jako osobne pozycje (tylko podgląd i druk - zmienia się je w kreatorze).
+   */
+  const getTripTicketFiles = () => {
+    if (!selectedTrip) return [];
+    let transportData: any = {};
+    try {
+      transportData =
+        typeof selectedTrip.transport_data === 'string'
+          ? JSON.parse(selectedTrip.transport_data || '{}')
+          : selectedTrip.transport_data || {};
+    } catch {
+      return [];
+    }
+    const details = transportData.details || {};
+    const vaultUris = new Set(getFilesForSelectedTrip().map((file: any) => file?.uri));
+    const seen = new Set<string>();
+    const legs: Array<{ key: string; leg: 'outbound' | 'return' }> = [
+      { key: 'outboundTicketFile', leg: 'outbound' },
+      { key: 'ticketFile', leg: 'outbound' },
+      { key: 'returnTicketFile', leg: 'return' },
+    ];
+    return legs
+      .map(({ key, leg }) => ({ file: details[key] || transportData[key], leg }))
+      .filter(({ file }) => file?.uri && !vaultUris.has(file.uri) && !seen.has(file.uri) && seen.add(file.uri))
+      .map(({ file, leg }) => ({
+        ...file,
+        id: file.id || `trip-ticket-${leg}`,
+        fromTrip: true,
+        leg,
+      }));
+  };
+
+  const getAllFilesForSelectedTrip = () => [...getTripTicketFiles(), ...getFilesForSelectedTrip()];
+
   const isImageFile = (file: any) => {
     if (!file) return false;
     if (file.type === 'IMAGE') return true;
@@ -570,7 +606,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
               </View>
 
               <View style={styles.filesList}>
-                {getFilesForSelectedTrip().length === 0 && (
+                {getAllFilesForSelectedTrip().length === 0 && (
                   <View style={styles.emptyBox}>
                     <Ionicons name="shield-checkmark-outline" size={40} color="#334155" style={{ marginBottom: 12 }} />
                     <Text style={styles.emptyText}>{t.empty}</Text>
@@ -578,7 +614,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                   </View>
                 )}
 
-                {getFilesForSelectedTrip().map((file: any) => (
+                {getAllFilesForSelectedTrip().map((file: any) => (
                   <TouchableOpacity
                     key={file.id}
                     style={styles.fileCard}
@@ -595,7 +631,12 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                     <View style={styles.fileInfo}>
                       <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
                       <Text style={styles.fileType}>
-                        {file.type || (isImageFile(file) ? 'IMAGE' : 'PDF')} • {t.uploaded}
+                        {file.type || (isImageFile(file) ? 'IMAGE' : 'PDF')} •{' '}
+                        {file.fromTrip
+                          ? file.leg === 'return'
+                            ? language === 'en' ? 'Return ticket' : 'Bilet powrotny'
+                            : language === 'en' ? 'Outbound ticket' : 'Bilet tam'
+                          : t.uploaded}
                       </Text>
                     </View>
                     
@@ -612,7 +653,8 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                       <Ionicons name="print-outline" size={18} color="#38BDF8" />
                     </TouchableOpacity>
 
-                    {/* PRZYCISK ZMIANY NAZWY */}
+                    {/* PRZYCISK ZMIANY NAZWY (bilety z kreatora zmienia się w kreatorze) */}
+                    {!file.fromTrip && (
                     <TouchableOpacity
                       style={styles.fileActionBtn}
                       onPress={(e) => {
@@ -625,8 +667,10 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                     >
                       <Ionicons name="pencil-outline" size={18} color="#94A3B8" />
                     </TouchableOpacity>
+                    )}
 
                     {/* PRZYCISK USUNIĘCIA */}
+                    {!file.fromTrip && (
                     <TouchableOpacity
                       style={styles.fileActionBtn}
                       onPress={(e) => {
@@ -637,6 +681,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                     >
                       <Ionicons name="trash-outline" size={18} color="#EF4444" />
                     </TouchableOpacity>
+                    )}
 
                     <Ionicons name="chevron-forward" size={18} color="#64748B" style={{ marginLeft: 4 }} />
                   </TouchableOpacity>

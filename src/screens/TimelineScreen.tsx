@@ -36,6 +36,7 @@ import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
 import {
   cancelScheduledDepartureNotification,
+  findActiveTicketForTrip,
   ProximityCheckResult,
 } from '../lib/proximityAlertService';
 import { calculateTripDurationDays } from '../lib/smartPackingAssistant';
@@ -319,6 +320,37 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
   const handleOpenProximityPass = (result: ProximityCheckResult) => {
     setQuickPassResult(result);
     setIsQuickPassVisible(true);
+  };
+
+  // Bilety z kreatora (tam / powrót) - dostępne z osi czasu w każdej chwili, nie tylko z banera
+  const tripTicketData = useMemo(() => (tripData ? findActiveTicketForTrip(tripData) : null), [tripData]);
+  const hasTripTicket = Boolean(
+    tripTicketData && (tripTicketData.file || tripTicketData.outboundTicket || tripTicketData.returnTicket)
+  );
+
+  const handleOpenTripTicket = () => {
+    if (!tripData || !tripTicketData) return;
+    const isReturn = tripTicketData.activeLeg === 'return';
+    handleOpenProximityPass({
+      shouldAlert: false,
+      reason: 'NONE',
+      tripId: tripData.id,
+      minutesUntilDeparture: null,
+      distanceMeters: null,
+      stationName: tripTicketData.stationName || tripData.origin || '',
+      ticketFile:
+        (isReturn ? tripTicketData.returnTicket : tripTicketData.outboundTicket) || tripTicketData.file || null,
+      departureTime: tripTicketData.departureTime,
+      destination: tripData.destination || '',
+      transportType: tripData.transport_type || 'train',
+      activeLeg: tripTicketData.activeLeg,
+      outboundTicket: tripTicketData.outboundTicket || null,
+      returnTicket: tripTicketData.returnTicket || null,
+      outboundDepartureTime: tripTicketData.outboundDepartureTime,
+      returnDepartureTime: tripTicketData.returnDepartureTime,
+      outboundStation: tripTicketData.outboundStation,
+      returnStation: tripTicketData.returnStation,
+    });
   };
 
   const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
@@ -1368,12 +1400,27 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
             await cancelScheduledDepartureNotification(tripData.id);
           } catch {}
 
-          navigation.goBack();
+          goBackToTripsList();
         } catch (e) {
           Alert.alert(commonT.error, t.deleteTripError);
         }
       }}
     ]);
+  };
+
+  /**
+   * Oś czasu zawsze wraca do listy podróży. Gdy oś otwarto z ekranu "Dziś", pod nią nie ma
+   * listy, a zwykłe goBack() przenosiło użytkownika na dashboard.
+   */
+  const goBackToTripsList = () => {
+    const routes = navigation?.getState?.()?.routes;
+    if (Array.isArray(routes) && routes.some((r: any) => r?.name === 'TripsList') && navigation?.canGoBack?.()) {
+      navigation.goBack();
+    } else if (typeof navigation?.replace === 'function') {
+      navigation.replace('TripsList');
+    } else {
+      navigation?.navigate?.('MainTabs', { screen: 'Trips', params: { screen: 'TripsList' } });
+    }
   };
 
   const getTypeColor = (type: TimelineEventType) => {
@@ -1448,8 +1495,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         {/* ELEGANCKI PRZYCISK BACK JAK W EKRANIE LOGOWANIA */}
         <TouchableOpacity 
           onPress={() => {
-            if (navigation?.canGoBack()) navigation.goBack();
-            else navigation?.navigate('MainTabs', { screen: 'Explore' });
+            goBackToTripsList();
           }} 
           style={styles.backButton}
           activeOpacity={0.7}
@@ -1463,6 +1509,18 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           <Text style={styles.headerSubtitle} numberOfLines={1}>{tripData?.title || t.noTrip}</Text>
         </View>
         
+        {hasTripTicket && (
+          <TouchableOpacity
+            style={[styles.trashButton, { marginRight: 8, borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+            onPress={handleOpenTripTicket}
+            activeOpacity={0.7}
+            testID="timeline-open-ticket-btn"
+            accessibilityLabel={language === 'en' ? 'Show ticket' : 'Pokaż bilet'}
+          >
+            <Ionicons name="ticket-outline" size={18} color="#38BDF8" />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={styles.trashButton}
           onPress={deleteEntireTrip}

@@ -368,6 +368,36 @@ describe('Moduł Sejfu Offline (Vault)', () => {
       });
     });
 
+    test('Bilety z kreatora (tam i powrót) są widoczne w Sejfie, bez usuwania i zmiany nazwy', async () => {
+      const tripWithTickets = [{
+        ...mockTripsData[0],
+        lodging_data: JSON.stringify({
+          vaultFiles: [{ id: 'own-1', name: 'ubezpieczenie.pdf', type: 'PDF', uri: 'file://mock_docs/destivo_vault/own.vault', encryptionVersion: 1 }],
+        }),
+        transport_data: JSON.stringify({
+          details: {
+            outboundTicketFile: { id: 'out-1', name: 'Skan_2026-11-13.jpg', type: 'IMAGE', uri: 'file://mock_docs/destivo_vault/out.vault', encryptionVersion: 1 },
+            ticketFile: { id: 'out-1', name: 'Skan_2026-11-13.jpg', type: 'IMAGE', uri: 'file://mock_docs/destivo_vault/out.vault', encryptionVersion: 1 },
+            returnTicketFile: { id: 'ret-1', name: 'Bilet_powrot.pdf', type: 'PDF', uri: 'file://mock_docs/destivo_vault/ret.vault', encryptionVersion: 1 },
+          },
+        }),
+      }];
+      mockDbExecute.mockResolvedValue({ rows: { _array: tripWithTickets } });
+
+      render(<VaultDashboardScreen />);
+      await waitFor(() => expect(screen.getByText('Paryż 2026')).toBeTruthy());
+      fireEvent.press(screen.getByText('Paryż 2026'));
+
+      await waitFor(() => expect(screen.getByText('Bilet_powrot.pdf')).toBeTruthy());
+      // Bilet "tam" zapisany pod dwoma kluczami pokazuje się raz
+      expect(screen.getAllByText('Skan_2026-11-13.jpg')).toHaveLength(1);
+      expect(screen.getByText('ubezpieczenie.pdf')).toBeTruthy();
+      expect(screen.getByText(/Bilet powrotny/)).toBeTruthy();
+      expect(screen.getByText(/Bilet tam/)).toBeTruthy();
+      // Druk dostępny także dla biletu z kreatora
+      expect(screen.getByTestId('print-file-ret-1')).toBeTruthy();
+    });
+
     test('Powinien automatycznie otworzyć szufladkę podróży po przekazaniu tripId w parametrach route', async () => {
       mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
 
