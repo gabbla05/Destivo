@@ -1,5 +1,5 @@
 import { Buffer } from 'buffer';
-import QRCode from 'qrcode';
+import { qrToPngDataUrl } from './qrImage';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { VaultManager, VaultFileReference } from './vaultManager';
 import { detectAndCropQrFromImage, detectAndCropQrFromPdf } from './offlineTravelBriefing';
@@ -77,12 +77,7 @@ export async function detectTicketQr(file: TicketFileLike, readableUri?: string 
         ? await scanImage(readableUri)
         : null;
     if (detection?.source === 'decoded' && detection.qrData) {
-      const qrDataUrl = await QRCode.toDataURL(detection.qrData, {
-        margin: 2,
-        width: 600,
-        errorCorrectionLevel: 'M',
-        color: { dark: '#000000', light: '#FFFFFF' },
-      });
+      const qrDataUrl = qrToPngDataUrl(detection.qrData, { width: 600, margin: 2 });
       result = { qrDataUrl };
     }
   } catch (e) {

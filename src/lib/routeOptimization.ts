@@ -1,5 +1,5 @@
 // src/lib/routeOptimization.ts
-import { getGoogleApiKey, getOsrmBaseUrl } from './config';
+import { getGoogleApiKey, getOsrmBaseUrl, getOsrmBaseUrlCandidates, isPrivateNetworkUrl } from './config';
 
 export const isTestEnvironment = (): boolean =>
   typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
@@ -479,6 +479,29 @@ export const fetchOsrmRoadMatrix = async (
   points: GeoPoint[],
   options: FetchOsrmMatrixOptions = {}
 ): Promise<OsrmMatrixResult> => {
+  // Bez jawnie podanego serwera próbujemy kolejno: serwer skonfigurowany (np. lokalny), potem publiczne.
+  // Serwer w sieci lokalnej dostaje krótki limit czasu, żeby poza domowym Wi-Fi nie blokować wyniku.
+  if (!options.baseUrl && points.length >= 2) {
+    const candidates = getOsrmBaseUrlCandidates(options.profile ?? 'driving', points);
+    if (candidates.length > 1) {
+      let lastError: unknown = null;
+      for (const candidate of candidates) {
+        const isLocal = isPrivateNetworkUrl(candidate);
+        try {
+          return await fetchOsrmRoadMatrix(points, {
+            ...options,
+            baseUrl: candidate,
+            ...(isLocal ? { timeoutMs: Math.min(options.timeoutMs ?? 8000, 3000), maxRetries: 0 } : {}),
+          });
+        } catch (error) {
+          if (options.signal?.aborted) throw error;
+          lastError = error;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    }
+  }
+
   const {
     criterion = 'duration',
     profile = 'driving',

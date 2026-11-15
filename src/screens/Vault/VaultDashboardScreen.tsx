@@ -509,6 +509,9 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       id: `briefing_${selectedTrip.id}`,
       name: `Briefing_${selectedTrip.trip_name}.pdf`,
       uri: briefingResult.uri,
+      // Świeżo wygenerowany briefing nie jest szyfrowany - podgląd i "Otwórz w przeglądarce
+      // dokumentów" korzystają bezpośrednio z tego pliku (wcześniej brak previewUri dawał błąd).
+      previewUri: briefingResult.uri,
       type: 'PDF',
     });
   };

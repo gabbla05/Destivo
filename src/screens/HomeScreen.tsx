@@ -318,6 +318,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
   const [ratesLastUpdated, setRatesLastUpdated] = useState<Date | null>(null);
   const [ratesSource, setRatesSource] = useState<RatesSource>('default');
+  // Ręczne odświeżenie kursu (przycisk przy kalkulatorze) - zwiększenie licznika ponawia pobranie
+  const [ratesReloadKey, setRatesReloadKey] = useState(0);
+  const [ratesRefreshing, setRatesRefreshing] = useState(false);
   const [enrichedSuggestions, setEnrichedSuggestions] = useState<Array<{ id: string; name: string; subtitle?: string; imageUrl?: string }>>([]);
   const [fromCurrency, setFromCurrency] = useState('EUR');
   const [toCurrency, setToCurrency] = useState('PLN');
@@ -331,8 +334,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   // Pobieranie kursów walut na żywo z open.er-api.com
   useEffect(() => {
     let isMounted = true;
-    const loadRates = () =>
-      fetchLiveExchangeRates().then((data) => {
+    const loadRates = () => {
+      setRatesRefreshing(true);
+      return fetchLiveExchangeRates().then((data) => {
         if (isMounted) {
           setExchangeRates(data.rates);
           setRatesLastUpdated(data.lastUpdated);
@@ -341,7 +345,10 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
           }
         }
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => {
+        if (isMounted) setRatesRefreshing(false);
+      });
+    };
     loadRates();
     // Po powrocie do aplikacji pobieramy kurs ponownie - bez sieci opis zmieni się na "(offline)"
     const subscription = AppState.addEventListener('change', (state) => {
@@ -351,7 +358,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       isMounted = false;
       subscription.remove();
     };
-  }, []);
+  }, [ratesReloadKey]);
 
   const convertCurrency = useCallback((val: string, from: string, to: string) => {
     return convertCurrencyWithRates(val, from, to, exchangeRates);
@@ -1934,8 +1941,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               </View>
 
               {/* Informacja o kursie */}
-              <View style={styles.rateFooterBox}>
-                <Text style={styles.rateFooterLabel}>{rateFooterText}</Text>
+              <View style={[styles.rateFooterBox, styles.rateFooterRow]}>
+                <Text style={[styles.rateFooterLabel, { flexShrink: 1 }]} testID="rate-footer-text">{rateFooterText}</Text>
+                <TouchableOpacity
+                  onPress={() => setRatesReloadKey((k) => k + 1)}
+                  disabled={ratesRefreshing}
+                  style={styles.rateRefreshBtn}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel={language === 'en' ? 'Refresh exchange rate' : 'Odśwież kurs'}
+                  testID="rate-refresh-btn"
+                >
+                  {ratesRefreshing ? (
+                    <ActivityIndicator size="small" color="#38BDF8" />
+                  ) : (
+                    <Ionicons name="refresh" size={16} color="#38BDF8" />
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -2431,8 +2452,9 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                             <Text style={styles.weatherText} testID={`explore-weather-${dest.id}`}>
                               {typeof dest.proposedTrip.estimatedTemp === 'number'
                                 ? `~${dest.proposedTrip.estimatedTemp}°C • `
-                                : `${t.noForecast || 'Brak aktualnej prognozy'} • `}
-                              {dest.isDayTrip ? `${dest.proposedTrip.startDate.slice(0, 5)} (1 dzień)` : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
+                                : `${t.noForecastShort || 'Brak prognozy'} • `}
+                              {/* "1 dzień" jest już na sąsiednim badge'u - tu tylko data, żeby oba zmieściły się w jednym rzędzie */}
+                              {dest.isDayTrip ? dest.proposedTrip.startDate.slice(0, 5) : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
                             </Text>
                           </View>
                         </View>
@@ -2602,9 +2624,11 @@ const styles = StyleSheet.create({
   },
   cardTopBadgesRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
+    gap: 6,
   },
 
   filterChipsContainer: {
@@ -3094,6 +3118,8 @@ const styles = StyleSheet.create({
   converterTextInput: { backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#334155', borderRadius: 10, height: 44, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   swapCircleBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', marginTop: 22 },
   rateFooterBox: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1E293B' },
+  rateFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  rateRefreshBtn: { marginLeft: 8, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   rateFooterLabel: { color: '#CBD5E1', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
   // Emergency Support Widget

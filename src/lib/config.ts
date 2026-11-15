@@ -17,6 +17,40 @@ export const DEFAULT_OSRM_ROUTER_URL = 'https://router.project-osrm.org';
 export const DEFAULT_OSRM_FOOT_ROUTER_URL = 'https://routing.openstreetmap.de/routed-foot';
 
 /**
+ * Zapasowy publiczny serwer OSRM dla samochodu (używany, gdy główny serwer demonstracyjny nie odpowiada).
+ */
+export const OSRM_CAR_MIRROR_URL = 'https://routing.openstreetmap.de/routed-car';
+
+/** Czy adres wskazuje na serwer w sieci lokalnej (dostępny tylko w domowym Wi-Fi). */
+export function isPrivateNetworkUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url.trim());
+}
+
+/**
+ * Lista serwerów OSRM do odpytania po kolei. Najpierw serwer skonfigurowany (np. lokalny dla Krakowa),
+ * potem serwery publiczne - dzięki temu optymalizacja działa w każdej sieci (Wi-Fi i dane komórkowe).
+ */
+export function getOsrmBaseUrlCandidates(
+  profile: 'driving' | 'walking' = 'driving',
+  points?: Array<{ lat: number; lon: number }>,
+  extraConfig?: Record<string, unknown>
+): string[] {
+  const list = [
+    getOsrmBaseUrl(profile, points, extraConfig),
+    getOsrmBaseUrl(profile, undefined, extraConfig),
+  ];
+  if (profile === 'walking') {
+    list.push(DEFAULT_OSRM_FOOT_ROUTER_URL);
+  } else {
+    list.push(DEFAULT_OSRM_ROUTER_URL);
+    if (!(typeof process !== 'undefined' && process.env.NODE_ENV === 'test')) {
+      list.push(OSRM_CAR_MIRROR_URL);
+    }
+  }
+  return Array.from(new Set(list));
+}
+
+/**
  * Zwraca aktywny klucz Google API.
  * Kolejność priorytetów:
  * 1. Zmienna środowiskowa process.env.EXPO_PUBLIC_GOOGLE_API_KEY (EAS Build / .env)

@@ -2,7 +2,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
-import QRCode from 'qrcode';
+import { qrToPngDataUrl } from './qrImage';
 import { Buffer } from 'buffer';
 import jsQR from 'jsqr';
 import * as jpeg from 'jpeg-js';
@@ -580,11 +580,7 @@ export const prepareVaultTickets = async (
     // Generujemy duży, nieskazitelny, wektorowy kod QR w 100% offline
     if (detectedQrCode) {
       try {
-        detectedQrDataUrl = await QRCode.toDataURL(detectedQrCode, {
-          margin: 2,
-          width: 320,
-          color: { dark: '#0F172A', light: '#FFFFFF' },
-        });
+        detectedQrDataUrl = qrToPngDataUrl(detectedQrCode, { width: 320, margin: 2, dark: '#0F172A' });
       } catch (e) {
         console.warn('Błąd generowania wykrytego kodu QR:', e);
       }
@@ -781,11 +777,7 @@ export const generateBriefingHtml = async (
 
   let masterQrDataUrl = '';
   try {
-    masterQrDataUrl = await QRCode.toDataURL(masterQrPayload, {
-      margin: 1,
-      width: 240,
-      color: { dark: '#0F172A', light: '#FFFFFF' },
-    });
+    masterQrDataUrl = qrToPngDataUrl(masterQrPayload, { width: 240, margin: 1, dark: '#0F172A' });
   } catch (e) {
     console.warn('Master QR generation error:', e);
   }
