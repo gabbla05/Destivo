@@ -137,3 +137,15 @@ jest.mock('./src/lib/currencyService', () => {
 });
 
 
+
+// Moduł natywny (Android PdfRenderer) - w testach zwraca stronę "wyrenderowaną" do pliku JPEG
+jest.mock('react-native-pdf-thumbnail', () => ({
+  __esModule: true,
+  default: {
+    generate: jest.fn(async (_path, page) => {
+      if (page > 0) throw Object.assign(new Error('Page out of range'), { code: 'INVALID_PAGE' });
+      return { uri: 'file:///cache/pdf-page-0.jpg', width: 1600, height: 2263 };
+    }),
+    generateAllPages: jest.fn(async () => []),
+  },
+}));

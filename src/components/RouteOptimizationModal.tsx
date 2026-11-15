@@ -55,6 +55,17 @@ interface RouteOptimizationModalProps {
   transportProfile?: 'driving' | 'walking';
 }
 
+
+/** Krótka pauza przed zapytaniem OSRM (współrzędne dochodzą stopniowo); w testach od razu. */
+const scheduleOsrmFetch = (run: () => void): ReturnType<typeof setTimeout> | undefined => {
+  // Celowo NODE_ENV, a nie isTestEnvironment() - testy podmieniają tę funkcję, by sprawdzić tryb produkcyjny
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    run();
+    return undefined;
+  }
+  return setTimeout(run, 600);
+};
+
 export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   visible,
   onClose,
@@ -350,9 +361,11 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         }
       };
 
-      Promise.all(
-        Array.from({ length: Math.min(3, dayEntries.length) }, () => loadNextDayMatrix())
-      ).then(() => {
+      // Dni pobieramy po kolei (jedno zapytanie naraz) - publiczne serwery OSRM odrzucają równoległe
+      // zapytania kodem 429. Krótka pauza przed startem: współrzędne miejsc dochodzą stopniowo,
+      // a każda zmiana anulowałaby i wysyłała zapytania od nowa.
+      const startTimer = scheduleOsrmFetch(() => {
+      loadNextDayMatrix().then(() => {
         if (abortController.signal.aborted || currentReqId !== activeRequestIdRef.current) return;
         const successfulMatrices: Record<string, { matrix: number[][]; pointIds: string[] }> = {};
         const failures: Error[] = [];
@@ -370,8 +383,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         setDayRoadMatrices(successfulMatrices);
         setOsrmStatus(failures.length > 0 ? 'error' : 'success');
       });
+      });
 
       return () => {
+        clearTimeout(startTimer);
         abortController.abort();
         if (currentReqId === activeRequestIdRef.current) activeRequestIdRef.current++;
       };
@@ -398,6 +413,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     setRoadMatrix(null);
     setOsrmStatus('loading');
 
+    const startTimer = scheduleOsrmFetch(() => {
     fetchOsrmRoadMatrix(pointsForMatrix, {
       criterion: 'duration',
       profile: selectedTransportProfile,
@@ -423,8 +439,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
           }
         }
       });
+    });
 
     return () => {
+      clearTimeout(startTimer);
       abortController.abort();
       activeRequestIdRef.current++;
     };

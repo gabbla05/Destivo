@@ -17,11 +17,17 @@ jest.mock('../src/lib/vaultManager', () => ({
   VaultManager: {
     readFileAsBase64: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4').toString('base64')),
     deleteFile: jest.fn().mockResolvedValue(undefined),
+    createDecryptedTemporaryCopy: jest.fn().mockResolvedValue({ uri: 'file:///cache/dec-copy.pdf', isTemporary: true }),
   },
+}));
+
+jest.mock('expo-file-system/legacy', () => ({
+  readAsStringAsync: jest.fn().mockResolvedValue(Buffer.from('jpeg-page').toString('base64')),
 }));
 
 import { detectTicketQr, __resetTicketQrCacheForTests } from '../src/lib/ticketQr';
 import { VaultManager } from '../src/lib/vaultManager';
+import PdfThumbnail from 'react-native-pdf-thumbnail';
 
 describe('detectTicketQr', () => {
   beforeEach(() => {
@@ -41,6 +47,8 @@ describe('detectTicketQr', () => {
 
   test('link z tekstu PDF nie jest traktowany jak kod z biletu', async () => {
     mockDetectPdf.mockReturnValue({ qrData: 'https://booking.example/checkin', croppedQrDataUrl: null, source: 'text' });
+    // wyrenderowana strona też nie zawiera kodu QR
+    mockDetectImage.mockReturnValue({ qrData: null, croppedQrDataUrl: null });
     const res = await detectTicketQr({ uri: 'file:///vault/b.vault', name: 'Bilet.pdf', type: 'PDF', encryptionVersion: 1 });
     expect(res.qrDataUrl).toBeNull();
   });
@@ -56,5 +64,36 @@ describe('detectTicketQr', () => {
     await detectTicketQr({ uri: 'file:///vault/d.vault', name: 'Skan.jpg' }, 'file:///cache/dec.jpg');
     await detectTicketQr({ uri: 'file:///vault/d.vault', name: 'Skan.jpg' }, 'file:///cache/dec.jpg');
     expect(mockManipulate).toHaveBeenCalledTimes(1);
+  });
+
+  test('PDF z kodem rysowanym wektorowo: strona jest renderowana do obrazu i z niego odczytywany kod', async () => {
+    mockDetectPdf.mockReturnValue({ qrData: null, croppedQrDataUrl: null });
+    mockDetectImage.mockReturnValue({ qrData: 'FLIX-ORDER-998877', croppedQrDataUrl: null, source: 'decoded' });
+    const res = await detectTicketQr(
+      { uri: 'file:///vault/e.vault', name: 'Bilet.pdf', type: 'PDF', encryptionVersion: 1 },
+      'file:///cache/destivo-vault-1.pdf'
+    );
+    expect(res.qrDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(PdfThumbnail.generate).toHaveBeenCalledWith('file:///cache/destivo-vault-1.pdf', 0, expect.objectContaining({ maxWidth: 1600 }));
+    expect(mockManipulate).not.toHaveBeenCalled();
+    // obraz strony (odszyfrowana treść) jest usuwany
+    expect(VaultManager.deleteFile).toHaveBeenCalledWith('file:///cache/pdf-page-0.jpg');
+  });
+
+  test('PDF bez typu i rozszerzenia w nazwie rozpoznawany po odszyfrowanej kopii .pdf (błąd z telefonu)', async () => {
+    mockDetectPdf.mockReturnValue({ qrData: null, croppedQrDataUrl: null });
+    mockDetectImage.mockReturnValue({ qrData: 'PKP-KM-555', croppedQrDataUrl: null, source: 'decoded' });
+    const res = await detectTicketQr({ uri: 'file:///vault/f.vault', name: 'Bilet tam' }, 'file:///cache/destivo-vault-2.pdf');
+    expect(res.qrDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(mockManipulate).not.toHaveBeenCalled();
+  });
+
+  test('PDF dla briefingu (bez odszyfrowanej kopii): tymczasowa kopia jest tworzona i usuwana', async () => {
+    mockDetectPdf.mockReturnValue({ qrData: null, croppedQrDataUrl: null });
+    mockDetectImage.mockReturnValue({ qrData: 'BOARDING-1', croppedQrDataUrl: null, source: 'decoded' });
+    const res = await detectTicketQr({ uri: 'file:///vault/g.vault', name: 'Karta.pdf', type: 'PDF', encryptionVersion: 1 });
+    expect(res.qrDataUrl).not.toBeNull();
+    expect(VaultManager.createDecryptedTemporaryCopy).toHaveBeenCalled();
+    expect(VaultManager.deleteFile).toHaveBeenCalledWith('file:///cache/dec-copy.pdf');
   });
 });

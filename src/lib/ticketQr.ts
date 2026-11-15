@@ -1,6 +1,8 @@
 import { Buffer } from 'buffer';
 import { qrToPngDataUrl } from './qrImage';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
+import PdfThumbnail from 'react-native-pdf-thumbnail';
 import { VaultManager, VaultFileReference } from './vaultManager';
 import { detectAndCropQrFromImage, detectAndCropQrFromPdf } from './offlineTravelBriefing';
 
@@ -18,6 +20,10 @@ export interface TicketQrResult {
 
 /** Zdjęcie skalujemy przed analizą - dekodowanie 12 MP w JavaScript trwałoby zbyt długo. */
 const SCAN_WIDTH = 1200;
+/** Strona PDF renderowana do obrazu: A4 w tej szerokości daje ~5 px na moduł typowego kodu z biletu. */
+const PDF_RENDER_WIDTH = 1600;
+/** Kod jest zwykle na pierwszej stronie; drugą sprawdzamy dla biletów wielostronicowych. */
+const PDF_MAX_PAGES = 2;
 
 const cache = new Map<string, TicketQrResult>();
 
@@ -30,9 +36,17 @@ interface TicketFileLike {
   encryptionVersion?: number;
 }
 
-export const isPdfTicket = (file: TicketFileLike) => {
-  const name = (file.name || '').toLowerCase();
-  return file.type === 'PDF' || name.endsWith('.pdf');
+const looksLikePdfPath = (value?: string | null) => /\.pdf(\?|#|$)/i.test((value || '').trim());
+
+export const isPdfTicket = (file: TicketFileLike, readableUri?: string | null) => {
+  const type = (file.type || '').toLowerCase();
+  return (
+    type === 'pdf' ||
+    type.includes('application/pdf') ||
+    looksLikePdfPath(file.name) ||
+    looksLikePdfPath(file.uri) ||
+    looksLikePdfPath(readableUri)
+  );
 };
 
 async function scanImage(readableUri: string) {
@@ -47,7 +61,52 @@ async function scanImage(readableUri: string) {
   return detectAndCropQrFromImage(Buffer.from(resized.base64, 'base64'), false);
 }
 
-async function scanPdf(file: TicketFileLike) {
+/** Odczyt kodu z wyrenderowanych stron PDF (kody rysowane wektorowo lub zapisane jako bitmapa Flate). */
+async function scanPdfPages(readablePdfUri: string) {
+  for (let page = 0; page < PDF_MAX_PAGES; page++) {
+    let rendered: { uri: string } | null = null;
+    try {
+      rendered = await PdfThumbnail.generate(readablePdfUri, page, { maxWidth: PDF_RENDER_WIDTH, quality: 92 });
+    } catch {
+      // Strona poza zakresem (PDF jednostronicowy) albo nieczytelny plik
+      return null;
+    }
+    try {
+      const base64 = await FileSystem.readAsStringAsync(rendered.uri, { encoding: 'base64' });
+      const detection = detectAndCropQrFromImage(Buffer.from(base64, 'base64'), false);
+      if (detection?.source === 'decoded' && detection.qrData) return detection;
+    } finally {
+      // Obraz strony to odszyfrowana treść biletu - usuwamy od razu
+      VaultManager.deleteFile(rendered.uri).catch(() => undefined);
+    }
+  }
+  return null;
+}
+
+async function scanPdf(file: TicketFileLike, readableUri?: string | null) {
+  // 1. Szybka ścieżka: kod zapisany w PDF jako osadzony obraz JPEG
+  try {
+    const embedded = await scanPdfEmbedded(file);
+    if (embedded?.source === 'decoded' && embedded.qrData) return embedded;
+  } catch {
+    // przechodzimy do renderowania stron
+  }
+  // 2. Renderowanie stron do obrazu (większość e-biletów rysuje kod wektorowo)
+  let temporaryUri: string | null = null;
+  try {
+    let pdfUri = readableUri && looksLikePdfPath(readableUri) ? readableUri : null;
+    if (!pdfUri) {
+      const copy = await VaultManager.createDecryptedTemporaryCopy(file as VaultFileReference);
+      pdfUri = copy.uri;
+      if (copy.isTemporary) temporaryUri = copy.uri;
+    }
+    return await scanPdfPages(pdfUri);
+  } finally {
+    if (temporaryUri) VaultManager.deleteFile(temporaryUri).catch(() => undefined);
+  }
+}
+
+async function scanPdfEmbedded(file: TicketFileLike) {
   const base64 = await VaultManager.readFileAsBase64({
     id: file.id || file.uri || '',
     name: file.name || 'bilet.pdf',
@@ -71,10 +130,15 @@ export async function detectTicketQr(file: TicketFileLike, readableUri?: string 
 
   let result: TicketQrResult = { qrDataUrl: null };
   try {
-    const detection = isPdfTicket(file)
-      ? await scanPdf(file)
+    const detection = isPdfTicket(file, readableUri)
+      ? await scanPdf(file, readableUri)
       : readableUri
-        ? await scanImage(readableUri)
+        ? await scanImage(readableUri).catch(async (imageError) => {
+            // Plik bez rozpoznawalnego typu, który nie jest obrazem - próbujemy jako PDF
+            const asPdf = await scanPdf(file, null).catch(() => null);
+            if (asPdf) return asPdf;
+            throw imageError;
+          })
         : null;
     if (detection?.source === 'decoded' && detection.qrData) {
       const qrDataUrl = qrToPngDataUrl(detection.qrData, { width: 600, margin: 2 });
@@ -113,6 +177,7 @@ export async function collectTripTicketQrCodes(
     try {
       let readableUri: string | null = null;
       if (!isPdfTicket(file)) {
+        // Zdjęcie: odszyfrowana kopia do skalowania. PDF odszyfrowuje się w scanPdf.
         const copy = await VaultManager.createDecryptedTemporaryCopy(file as VaultFileReference);
         readableUri = copy.uri;
         if (copy.isTemporary) temporaryUri = copy.uri;

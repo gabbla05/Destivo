@@ -475,6 +475,16 @@ export const validateOsrmCacheMatrix = (
  * Gwarantuje porządek współrzędnych longitude,latitude oraz ścisłą walidację wymiarów.
  * Wartości null (brak przejezdnego połączenia) są jawnie wykrywane i rzucają wyjątek.
  */
+const waitWithAbort = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (ms <= 0 || signal?.aborted) return resolve();
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(id);
+      resolve();
+    }, { once: true });
+  });
+
 export const fetchOsrmRoadMatrix = async (
   points: GeoPoint[],
   options: FetchOsrmMatrixOptions = {}
@@ -491,7 +501,7 @@ export const fetchOsrmRoadMatrix = async (
           return await fetchOsrmRoadMatrix(points, {
             ...options,
             baseUrl: candidate,
-            ...(isLocal ? { timeoutMs: Math.min(options.timeoutMs ?? 8000, 3000), maxRetries: 0 } : {}),
+            ...(isLocal ? { timeoutMs: Math.min(options.timeoutMs ?? 15000, 3000), maxRetries: 0 } : {}),
           });
         } catch (error) {
           if (options.signal?.aborted) throw error;
@@ -505,7 +515,8 @@ export const fetchOsrmRoadMatrix = async (
   const {
     criterion = 'duration',
     profile = 'driving',
-    timeoutMs = 8000,
+    // Publiczny serwer pieszy (routing.openstreetmap.de) potrafi odpowiadać ~10 s przy większej liczbie punktów
+    timeoutMs = 15000,
     baseUrl = options.baseUrl || getOsrmBaseUrl(profile, points),
   } = options;
 
@@ -562,7 +573,8 @@ export const fetchOsrmRoadMatrix = async (
   let response: Response | undefined;
   let data: OsrmTableResponse | undefined;
   let parseError: any = null;
-  const maxRetries = options.maxRetries ?? (isTestEnvironment() ? 0 : 1);
+  // Publiczne serwery OSRM ograniczają liczbę zapytań (HTTP 429) - ponawiamy z odczekaniem
+  const maxRetries = options.maxRetries ?? (isTestEnvironment() ? 0 : 3);
   let attempt = 0;
   let fetchError: any = null;
   while (true) {
@@ -599,7 +611,16 @@ export const fetchOsrmRoadMatrix = async (
           break;
         }
       }
-      if (response.ok || response.status < 500 || attempt >= maxRetries) break;
+      const retryable = response.status === 429 || response.status >= 500;
+      if (response.ok || !retryable || attempt >= maxRetries) break;
+      const retryAfterSec = Number(response.headers?.get?.('retry-after'));
+      const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.min(retryAfterSec * 1000, 4000)
+        : 1200 * (attempt + 1);
+      await waitWithAbort(isTestEnvironment() ? 0 : waitMs, externalSignal);
+      if (externalSignal?.aborted) {
+        throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');
+      }
     } catch (err: any) {
       if (externalSignal?.aborted) {
         throw new Error('Żądanie OSRM zostało anulowane przez użytkownika.');

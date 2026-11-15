@@ -765,15 +765,15 @@ export const generateBriefingHtml = async (
   const days = prepareDayByDayPlan(trip, attractionsData, transportData, lodgingData, language);
 
   // Główny paszportowy kod QR podróży (zawiera wszystkie kluczowe dane w nagłówku)
-  const masterQrPayload = JSON.stringify({
-    app: 'DESTIVO_OFFLINE_BRIEFING',
-    trip: tripTitle,
-    route: `${origin} -> ${destination}`,
-    dates: `${startDate} - ${endDate}`,
-    hotel: lodgingAddress,
-    sos: emergencyNum,
-    generated: new Date().toISOString(),
-  });
+  // Czytelny tekst (bez JSON) - każdy skaner w telefonie pokaże go jako zwykłą notatkę,
+  // bez potrzeby instalowania Destivo.
+  const masterQrPayload = [
+    `DESTIVO - ${tripTitle}`,
+    `${isEn ? 'Route' : 'Trasa'}: ${origin} -> ${destination}`,
+    `${isEn ? 'Dates' : 'Termin'}: ${startDate} - ${endDate}`,
+    `${isEn ? 'Lodging' : 'Nocleg'}: ${lodgingAddress}`,
+    `${isEn ? 'Emergency' : 'Numer alarmowy'}: ${emergencyNum}`,
+  ].join('\n');
 
   let masterQrDataUrl = '';
   try {

@@ -52,6 +52,9 @@ const encryptedPdf = {
 
 const mockedVault = VaultManager as jest.Mocked<typeof VaultManager>;
 
+// Render modalu + analiza biletu trwa ~1,5 s; przy równoległym przebiegu całego zestawu bywa wolniej
+jest.setTimeout(20000);
+
 describe('QuickTicketPassModal - odszyfrowanie biletu z Sejfu', () => {
   beforeEach(() => {
     jest.clearAllMocks();
