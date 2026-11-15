@@ -403,3 +403,33 @@ describe('Dynamiczny Asystent Pakowania (Smart Packing Assistant)', () => {
     });
   });
 });
+
+describe('Pogoda do pakowania: szacunek klimatyczny (poprawka po testach P8)', () => {
+  const { estimateTempFromLatitude, isPackingWeatherStale, getClimaticDefaultWeather: climate } =
+    jest.requireActual('../src/lib/smartPackingAssistant');
+
+  test('szacunek z szerokości geograficznej daje realne wartości', () => {
+    // Rodos (36°N), koniec listopada: ok. 19-21°C, a nie 0°C
+    expect(estimateTempFromLatitude(36.1, 10)).toBeGreaterThanOrEqual(16);
+    expect(estimateTempFromLatitude(36.1, 10)).toBeLessThanOrEqual(23);
+    // Warszawa w styczniu: około zera, w lipcu: ok. 22-26°C
+    expect(Math.abs(estimateTempFromLatitude(52.2, 0))).toBeLessThanOrEqual(4);
+    expect(estimateTempFromLatitude(52.2, 6)).toBeGreaterThanOrEqual(21);
+    // Półkula południowa: styczeń jest latem
+    expect(estimateTempFromLatitude(-33.9, 0)).toBeGreaterThan(estimateTempFromLatitude(-33.9, 6));
+  });
+
+  test('Rodos / Lindos w listopadzie to klimat śródziemnomorski, nie kontynentalna zima', () => {
+    const w = climate('Lindos, Rodos', new Date('2026-11-30'));
+    expect(w.temp).toBeGreaterThanOrEqual(12);
+    expect(w.isEstimated).toBe(true);
+  });
+
+  test('zapisana pogoda bez daty pobrania lub starsza niż 6 h jest odświeżana', () => {
+    const now = Date.now();
+    expect(isPackingWeatherStale(undefined, now)).toBe(true);
+    expect(isPackingWeatherStale({ temp: 0, isRain: false, condition: '' }, now)).toBe(true);
+    expect(isPackingWeatherStale({ temp: 18, isRain: false, condition: '', fetchedAt: now - 7 * 3600000 }, now)).toBe(true);
+    expect(isPackingWeatherStale({ temp: 18, isRain: false, condition: '', fetchedAt: now - 3600000 }, now)).toBe(false);
+  });
+});

@@ -1,8 +1,5 @@
 import { TransportOption, TransportType } from '../store/tripCreatorStore';
 
-export type DataConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
-export type TransportBadge = 'SMART_CHOICE' | 'HIGH_COMFORT';
-
 export interface TransportRouteMetadata {
   distanceKm: number;
   notes?: string[];
@@ -62,6 +59,10 @@ export function buildCarRouteFromRoutingData(data: {
   };
 }
 
+/**
+ * Zamienia rekomendację z serwera (rodzaj transportu + linki do rezerwacji) na opcję w kreatorze.
+ * To rekomendacja środka transportu, a nie wyszukiwarka połączeń: brak godzin, cen i ocen.
+ */
 export function calculateSmartMetrics(raw: RawRouteInput): TransportOption {
   const id = `${raw.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   
@@ -100,12 +101,9 @@ export function calculateSmartMetrics(raw: RawRouteInput): TransportOption {
       source: '',
       purchasable: false,
     },
-    dataConfidence: 'MEDIUM',
     distanceKm: extractedDist,
-    stressScore: 3,
     bookingUrl: raw.bookingUrl,
     actionLinks: raw.actionLinks,
-    badges: ['SMART_CHOICE'],
   };
 }
 

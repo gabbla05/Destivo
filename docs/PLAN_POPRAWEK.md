@@ -218,7 +218,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ## Etap 3: Niepodłączone funkcje i drobne błędy
 
-### P11. Wykrywanie kodów QR z biletów: podłączenie do interfejsu ⬜ (po P2 i P10)
+### P11. Wykrywanie kodów QR z biletów: podłączenie do interfejsu ✅ (po P2 i P10)
 
 **Jak działa teraz:** moduł wykrywania QR (zdjęcia przez jsQR, PDF przez wyszukiwanie osadzonych obrazów i dekompresję strumieni) jest zaimplementowany i przetestowany, ale `prepareVaultTickets` **nie jest wywoływane nigdzie w aplikacji**.
 
@@ -235,7 +235,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P12. Benchmark algorytmów do pracy (poza aplikacją) ⬜ (decyzja D4)
+### P12. Benchmark algorytmów do pracy (poza aplikacją) ✅ (decyzja D4)
 
 **Jak działa teraz**
 - `optimizeSightseeingRoute` liczy wyniki czterech algorytmów (zachłanny, 2-opt, symulowane wyżarzanie, dokładny dla n ≤ 8) z czasem i liczbą iteracji, ale wyniki nie trafiają nigdzie poza testy.
@@ -260,7 +260,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P13. Geofencing w tle: włączenie ⬜ (decyzja D3)
+### P13. Geofencing w tle: włączenie ✅ (decyzja D3)
 
 **Jak działa teraz:** `setupGeofencingForTrip` i zadanie w tle w [proximityAlertService.ts:722-815](../src/lib/proximityAlertService.ts#L722) **nigdy nie są wywoływane**. Działa baner przy otwartej aplikacji i powiadomienie planowane według godziny odjazdu. W [app.json](../app.json) brakuje konfiguracji lokalizacji w tle.
 
@@ -282,7 +282,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P14. Transport: rekomendacja nazywana wyszukiwarką ⬜
+### P14. Transport: rekomendacja nazywana wyszukiwarką ✅
 
 **Jak działa teraz:** Edge Function `transport-search` dobiera rodzaj transportu według odległości w linii prostej i zwraca linki do Koleo, Skyscanner i Google Maps. Każda opcja dostaje stałe, nigdzie niewyświetlane pola: `badges: ['SMART_CHOICE']`, `stressScore: 3`, `dataConfidence: 'MEDIUM'` ([transportCalculator.ts:95-110](../src/lib/transportCalculator.ts#L95)).
 
@@ -295,7 +295,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ---
 
-### P15. Statystyki archiwum: zaniżona liczba dni ⬜
+### P15. Statystyki archiwum: zaniżona liczba dni ✅
 
 **Jak działa teraz:** [TripsListScreen.tsx:546](../src/screens/TripsListScreen.tsx#L546) liczy dni jako różnicę dat, więc wyjazd poniedziałek–środa to 2 dni.
 

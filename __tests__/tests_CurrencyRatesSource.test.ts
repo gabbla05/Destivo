@@ -33,11 +33,11 @@ describe('Źródło kursów walut', () => {
     expect(data.source).toBe('live');
     expect(data.rates.EUR).toBeCloseTo(4);
     expect(data.lastUpdated).toBeInstanceOf(Date);
-    expect(describeRatesSource(data.source, data.lastUpdated, 'pl')).toBe('kurs z przed chwilą');
+    expect(describeRatesSource(data.source, data.lastUpdated, 'pl')).toMatch(/^kurs z dzisiaj, \d\d:\d\d$/);
   });
 
   test('bez sieci, z zapisanym kursem: źródło "cache" z datą zapisu i dopiskiem offline', async () => {
-    const savedAt = new Date('2026-11-12T18:30:00');
+    const savedAt = new Date('2026-11-01T18:30:00');
     await AsyncStorage.setItem('@destivo_live_exchange_rates', JSON.stringify({ EUR: 4.25 }));
     await AsyncStorage.setItem('@destivo_rates_timestamp', String(savedAt.getTime()));
     global.fetch = jest.fn().mockRejectedValue(new Error('offline')) as any;
@@ -46,7 +46,7 @@ describe('Źródło kursów walut', () => {
     expect(data.source).toBe('cache');
     expect(data.rates.EUR).toBe(4.25);
     expect(data.lastUpdated?.getTime()).toBe(savedAt.getTime());
-    expect(describeRatesSource(data.source, data.lastUpdated, 'pl')).toMatch(/^kurs z 12\.11, 18:30 \(offline\)$/);
+    expect(describeRatesSource(data.source, data.lastUpdated, 'pl')).toBe('kurs z 01.11, 18:30 (offline)');
   });
 
   test('bez sieci i bez zapisanego kursu: kurs domyślny bez daty, opisany jako orientacyjny', async () => {
@@ -58,6 +58,15 @@ describe('Źródło kursów walut', () => {
     expect(data.rates).toEqual(DEFAULT_EXCHANGE_RATES);
     expect(describeRatesSource(data.source, data.lastUpdated, 'pl')).toBe('kurs orientacyjny, brak połączenia');
     expect(describeRatesSource(data.source, data.lastUpdated, 'en')).toBe('approximate rate, no connection');
+  });
+
+  test('czas kursu ma stałą formę: dzisiaj / wczoraj / data, zawsze z godziną', () => {
+    const { formatRatesUpdatedTime } = jest.requireActual('../src/lib/currencyService');
+    const now = new Date('2026-11-13T15:00:00');
+    expect(formatRatesUpdatedTime(new Date('2026-11-13T14:59:00'), 'pl', now)).toBe('dzisiaj, 14:59');
+    expect(formatRatesUpdatedTime(new Date('2026-11-12T18:30:00'), 'pl', now)).toBe('wczoraj, 18:30');
+    expect(formatRatesUpdatedTime(new Date('2026-11-10T09:05:00'), 'pl', now)).toBe('10.11, 09:05');
+    expect(formatRatesUpdatedTime(new Date('2026-11-12T18:30:00'), 'en', now)).toBe('yesterday, 18:30');
   });
 
   test('getCachedExchangeRatesInfo działa bez sieci', async () => {

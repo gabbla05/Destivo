@@ -17,6 +17,7 @@ export const USER_DATA_KEY_PREFIXES = [
   'destivo_packing_list_',
   '@destivo_proximity_notif_',
   '@destivo_proximity_geofence_',
+  '@destivo_geofence_notified_',
 ];
 
 interface LocalDatabase {

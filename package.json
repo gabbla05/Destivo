@@ -1,6 +1,6 @@
 {
   "name": "destivo",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "main": "index.ts",
   "private": true,
   "scripts": {
@@ -9,6 +9,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "check:env": "node scripts/check-env.js",
+    "benchmark": "jest --config scripts/benchmark/jest.benchmark.config.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:clear": "jest --clearCache"
@@ -31,6 +32,7 @@
     "expo-dev-client": "~6.0.21",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.24",
+    "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
     "expo-local-authentication": "~17.0.9",
     "expo-location": "~19.0.8",

@@ -26,7 +26,6 @@ import {
   isTestEnvironment,
   type GeoPoint,
   type OptimizationResult,
-  type AlgorithmBenchmark,
 } from '../lib/routeOptimization';
 
 interface TimelineEventLike {
@@ -501,16 +500,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       const isApproximate = isApproximateMode ||
         hasUnroutableDayLodging ||
         (requiredDays.length > 0 && !requiredDays.every((day) => Boolean(dayRoadMatrices[day])));
-      const benchmark: AlgorithmBenchmark = {
-        algorithmId: '2opt',
-        name: isApproximate ? 'Optymalizacja dzienna (szacunek)' : 'Optymalizacja dzienna (OSRM)',
-        distanceKm: 0,
-        timeMs: 1,
-        iterations: 1,
-        routeIndices: orderedByDay.map((_, index) => index),
-        cost: 0,
-        costUnit: isApproximate ? 'km' : 'seconds',
-      };
       return {
         orderedPoints: orderedByDay,
         originalDistanceKm: 0,
@@ -518,8 +507,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         savingsKm: 0,
         savingsPercent: 0,
         timeSavedMinutes: 0,
-        bestAlgorithm: benchmark,
-        benchmarks: [benchmark],
+        // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+        metricsAvailable: false,
         hasCollapsedCoordinates: false,
         isApproximate,
         criterion: isApproximate ? 'distance' : 'duration',
@@ -528,7 +517,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         costUnit: isApproximate ? 'km' : 'seconds',
         routeStatus: isApproximate ? 'straight_line_estimate' : 'road_confirmed',
         timeEstimateCategory: isApproximate ? 'none_in_approximate_mode' : 'osrm_road_duration',
-        metricsAvailable: false,
       };
     }
 
@@ -547,16 +535,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             criterion: 'duration',
             isApproximate: false,
           });
-          const benchmark: AlgorithmBenchmark = {
-            algorithmId: '2opt',
-            name: 'Optymalizacja ATSP z hotelem',
-            distanceKm: 0,
-            timeMs: 1,
-            iterations: 1,
-            routeIndices: dayRes.orderedAttractions.map((_, i) => i),
-            cost: dayRes.totalCost,
-            costUnit: 'seconds',
-          };
           return {
             orderedPoints: dayRes.orderedAttractions,
             originalDistanceKm: 0,
@@ -564,8 +542,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             savingsKm: 0,
             savingsPercent: 0,
             timeSavedMinutes: 0,
-            bestAlgorithm: benchmark,
-            benchmarks: [benchmark],
+            // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+            metricsAvailable: false,
             hasCollapsedCoordinates: false,
             isApproximate: false,
             criterion: 'duration',
@@ -583,16 +561,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       const approxRes = optimizeDayRouteWithHotel(hotelPoint, geoPoints, {
         isApproximate: true,
       });
-      const benchmark: AlgorithmBenchmark = {
-        algorithmId: '2opt',
-        name: 'Szacunek przybliżony z hotelem',
-        distanceKm: approxRes.totalCost,
-        timeMs: 1,
-        iterations: 1,
-        routeIndices: approxRes.orderedAttractions.map((_, i) => i),
-        cost: approxRes.totalCost,
-        costUnit: 'km',
-      };
       return {
         orderedPoints: approxRes.orderedAttractions,
         originalDistanceKm: approxRes.totalCost,
@@ -600,8 +568,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         savingsKm: 0,
         savingsPercent: 0,
         timeSavedMinutes: 0,
-        bestAlgorithm: benchmark,
-        benchmarks: [benchmark],
+        // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+        metricsAvailable: false,
         hasCollapsedCoordinates: false,
         isApproximate: true,
         criterion: 'distance',

@@ -48,8 +48,9 @@ export interface OptimizationResult {
   savingsKm: number;
   savingsPercent: number;
   timeSavedMinutes: number;
-  bestAlgorithm: AlgorithmBenchmark;
-  benchmarks: AlgorithmBenchmark[];
+  /** Pomiary algorytmów - tylko gdy faktycznie zmierzone (brak w trybie wielodniowym). */
+  bestAlgorithm?: AlgorithmBenchmark;
+  benchmarks?: AlgorithmBenchmark[];
   hasCollapsedCoordinates?: boolean;
   isApproximate?: boolean;
   criterion?: OptimizationCriterion;

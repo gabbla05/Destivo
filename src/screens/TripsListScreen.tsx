@@ -1,4 +1,5 @@
 // src/screens/TripsListScreen.tsx
+import { sumTripDays } from '../lib/tripStats';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -500,14 +501,8 @@ export const TripsListScreen = ({ navigation }: any) => {
 
   // Obliczanie statystyk dla archiwalnych podróży
   const uniquePlacesCount = new Set(pastTrips.map((t) => t.destination)).size;
-  const totalDaysTraveled = pastTrips.reduce((total, trip) => {
-    const start = parseTripDate(trip.start_date);
-    const end = parseTripDate(trip.end_date);
-    if (!start || !end) return total;
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-    return total + (diffDays > 0 ? diffDays : 1);
-  }, 0);
+  // Dni liczone włącznie (pn-śr = 3 dni)
+  const totalDaysTraveled = sumTripDays(pastTrips);
 
   return (
     <SafeAreaView style={styles.container}>

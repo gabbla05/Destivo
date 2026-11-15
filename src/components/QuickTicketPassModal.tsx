@@ -13,6 +13,8 @@ import {
   PanResponder,
   ActivityIndicator,
   Alert,
+  InteractionManager,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +22,7 @@ import * as Sharing from 'expo-sharing';
 import * as Brightness from 'expo-brightness';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
+import { detectTicketQr } from '../lib/ticketQr';
 import { VaultManager, VaultFileReference } from '../lib/vaultManager';
 
 type TicketFile = {
@@ -218,6 +221,35 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
 
   // Odszyfrowana (lub oryginalna, jeśli niezaszyfrowana) wersja biletu do podglądu i udostępnienia
   const readable = useReadableTicketUri(currentFile, visible);
+
+  // P11: kod QR odczytany z biletu (po zakończeniu animacji otwarcia, wynik zapamiętany per plik)
+  const [ticketQr, setTicketQr] = useState<{ loading: boolean; dataUrl: string | null }>({ loading: false, dataUrl: null });
+  const [showOriginalTicket, setShowOriginalTicket] = useState(false);
+  const currentFileUri = currentFile?.uri;
+  useEffect(() => {
+    setShowOriginalTicket(false);
+    if (!visible || !currentFile || !readable.uri) {
+      setTicketQr({ loading: false, dataUrl: null });
+      return;
+    }
+    let cancelled = false;
+    setTicketQr({ loading: true, dataUrl: null });
+    const task = InteractionManager.runAfterInteractions(() => {
+      detectTicketQr(currentFile, readable.uri)
+        .then((res) => {
+          if (!cancelled) setTicketQr({ loading: false, dataUrl: res.qrDataUrl });
+        })
+        .catch(() => {
+          if (!cancelled) setTicketQr({ loading: false, dataUrl: null });
+        });
+    });
+    return () => {
+      cancelled = true;
+      task?.cancel?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, currentFileUri, readable.uri]);
+  const showQrCode = Boolean(ticketQr.dataUrl) && !showOriginalTicket;
   const vaultT = translations[language]?.vault || translations.pl.vault;
 
   const currentDepartureTime =
@@ -548,7 +580,18 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
             {/* PODGLĄD BILETU / KODU QR */}
             {currentFile?.uri ? (
               <View style={styles.ticketPreviewSection}>
-                {isPdf ? (
+                {ticketQr.loading && (
+                  <View style={styles.qrScanHint} testID="quick-pass-qr-scanning">
+                    <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
+                    <Text style={styles.qrScanHintText}>{t.qrScanning || (language === 'en' ? 'Looking for a QR code…' : 'Szukam kodu QR w bilecie…')}</Text>
+                  </View>
+                )}
+                {showQrCode ? (
+                  <View style={styles.qrCard} testID="quick-pass-qr-view">
+                    <Image source={{ uri: ticketQr.dataUrl! }} style={styles.qrImage} resizeMode="contain" testID="quick-pass-qr-image" />
+                    <Text style={styles.qrCaption}>{t.qrFromTicket || (language === 'en' ? 'QR code read from your ticket' : 'Kod QR odczytany z Twojego biletu')}</Text>
+                  </View>
+                ) : isPdf ? (
                   <View style={styles.pdfCard}>
                     <View style={styles.pdfIconCircle}>
                       <Ionicons name="document-text" size={34} color="#EF4444" />
@@ -693,6 +736,21 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                     </TouchableOpacity>
                   </View>
                 )}
+                {ticketQr.dataUrl ? (
+                  <TouchableOpacity
+                    style={styles.qrToggleBtn}
+                    onPress={() => setShowOriginalTicket((v) => !v)}
+                    activeOpacity={0.8}
+                    testID="quick-pass-qr-toggle"
+                  >
+                    <Ionicons name={showOriginalTicket ? 'qr-code-outline' : 'document-outline'} size={16} color="#38BDF8" style={{ marginRight: 6 }} />
+                    <Text style={styles.qrToggleText}>
+                      {showOriginalTicket
+                        ? t.qrShowCode || (language === 'en' ? 'Show QR code' : 'Pokaż kod QR')
+                        : t.qrShowOriginal || (language === 'en' ? 'Show original' : 'Pokaż oryginał')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : (
               <View style={styles.noTicketCard}>
@@ -1186,4 +1244,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  qrScanHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  qrScanHintText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  qrCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, alignItems: 'center' },
+  qrImage: { width: 260, height: 260 },
+  qrCaption: { color: '#0F172A', fontSize: 12, fontWeight: '700', marginTop: 10, textAlign: 'center' },
+  qrToggleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.35)' },
+  qrToggleText: { color: '#38BDF8', fontSize: 13, fontWeight: '700' },
 });

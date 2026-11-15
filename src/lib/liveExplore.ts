@@ -48,7 +48,6 @@ export interface LiveDestination {
   proposedTrip?: ProposedTrip;
   weather?: { temp: number; condition: string; icon: string };
   // ETAP 1 & ETAP 3 (Notatki Inżynierskie):
-  flightPricePln?: number;
   nearestAirport?: string;
   hasPredefinedPlan: boolean;
   flightDate?: string;
@@ -67,7 +66,7 @@ export const LEGACY_EXPLORE_CACHE_KEYS = [
 ];
 
 // BAZA DANYCH - TYLKO LOKALIZACJE (Reszta dociągana na żywo z API)
-export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'flightPricePln' | 'nearestAirport' | 'flightDate'>[] = [
+export const DESTINATION_POOL: Omit<LiveDestination, 'proposedTrip' | 'weather' | 'distanceKm' | 'recommendedTransport' | 'hasPredefinedPlan' | 'nearestAirport' | 'flightDate'>[] = [
   // --- ORYGINALNE 7 MIAST ---
   { id: 'rome_01', city: 'Rzym', country: 'Włochy', lat: 41.9028, lon: 12.4964, coverImage: '', shortDescription: 'Wieczne Miasto. Idealne na wyjazd, gdzie historia antyczna przeplata się z najlepszą kuchnią świata.',
     shortDescriptionEn: 'The Eternal City, where ancient history meets some of the world\'s best cuisine.', transportCode: 'ROM' },

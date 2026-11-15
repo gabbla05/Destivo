@@ -21,6 +21,7 @@ export const translations = {
     },
     profile: {
       title: 'Twój Profil', userFallback: 'Zalogowany Odkrywca', synced: 'Zsynchronizowano',
+      departureAlerts: 'Powiadomienia o zbliżaniu się do odjazdu',
       appSettings: 'Ustawienia aplikacji', language: 'Język (Language)', vault: 'Zarządzaj Sejfem Offline',
       security: 'Konto i bezpieczeństwo', logout: 'Wyloguj się', version: 'Destivo v1.0.3 (Offline-First Build)',
       logoutTitle: 'Wylogowanie', logoutMessage: 'Czy na pewno chcesz się wylogować?', cancel: 'Anuluj', logoutConfirm: 'Wyloguj',
@@ -505,6 +506,16 @@ export const translations = {
       defaultStation: 'Stacja / Lotnisko',
       defaultReturn: 'Powrót',
       defaultDestination: 'Cel podróży',
+      qrScanning: 'Szukam kodu QR w bilecie…',
+      qrFromTicket: 'Kod QR odczytany z Twojego biletu',
+      qrShowOriginal: 'Pokaż oryginał',
+      qrShowCode: 'Pokaż kod QR',
+      bgLocationTitle: 'Bilet sam się pokaże na dworcu',
+      bgLocationMessage: 'Destivo może powiadomić Cię, gdy dotrzesz na dworzec lub lotnisko przed odjazdem - nawet gdy aplikacja jest zamknięta. Wymaga to dostępu do lokalizacji "Zawsze". Lokalizacja jest sprawdzana tylko przez system w okolicy miejsca odjazdu, w ciągu 48 godzin przed nim, i nie jest nigdzie wysyłana. W następnym kroku wybierz "Zezwalaj zawsze".',
+      bgLocationAllow: 'Dalej',
+      bgLocationLater: 'Nie teraz',
+      geofenceTitle: 'Jesteś w pobliżu miejsca odjazdu',
+      geofenceBody: '{{station}}: Twój bilet jest gotowy. Dotknij, aby go otworzyć.',
     },
 
     welcomeScreen: {
@@ -929,7 +940,6 @@ export const translations = {
         title: "Logistyka i transport",
         subtitle: "Wybierz środek transportu i uzupełnij szczegóły dla osi czasu.",
         calculating: "Wyliczanie tras i rekomendacji...",
-        stressScore: "Wskaźnik stresu:",
         detailsTitle: "Szczegóły połączenia",
         outbound: "W stronę celu",
         return: "Powrót",
@@ -1060,7 +1070,7 @@ export const translations = {
       cancel: 'Cancel',
     },
     profile: {
-      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.3 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutError: 'Could not log out correctly.',
+      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', departureAlerts: 'Departure proximity alerts', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.3 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutError: 'Could not log out correctly.',
     },
     accountSecurity: {
       title: 'Account and privacy', accountManagement: 'ACCOUNT MANAGEMENT', resetPassword: 'Reset password', resetSuccess: 'A password reset link was sent to your email address.', resetError: 'Could not send the link.',
@@ -1513,6 +1523,16 @@ export const translations = {
       defaultStation: 'Station / Airport',
       defaultReturn: 'Return',
       defaultDestination: 'Destination',
+      qrScanning: 'Looking for a QR code…',
+      qrFromTicket: 'QR code read from your ticket',
+      qrShowOriginal: 'Show original',
+      qrShowCode: 'Show QR code',
+      bgLocationTitle: 'Your ticket, ready at the station',
+      bgLocationMessage: 'Destivo can notify you when you reach the station or airport before departure - even when the app is closed. This needs location access "All the time". The system only checks your location around the departure point within 48 hours before it, and it is never sent anywhere. In the next step choose "Allow all the time".',
+      bgLocationAllow: 'Continue',
+      bgLocationLater: 'Not now',
+      geofenceTitle: 'You are near your departure point',
+      geofenceBody: '{{station}}: your ticket is ready. Tap to open it.',
     },
 
     welcomeScreen: {
@@ -1974,7 +1994,6 @@ export const translations = {
         title: "Logistics & Transport",
         subtitle: "Select your transport mode and fill in details for your timeline.",
         calculating: "Calculating routes and recommendations...",
-        stressScore: "Stress score:",
         detailsTitle: "Travel Details",
         outbound: "Outbound",
         return: "Return",

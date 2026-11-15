@@ -1,6 +1,7 @@
 // src/lib/smartPackingAssistant.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseTripDate } from './tripCollision';
+import { resolveCoordinates } from './geoDatabase';
 import { translations } from '../i18n/translations';
 
 export type PackingCategory =
@@ -31,7 +32,36 @@ export interface WeatherCondition {
   condition: string;
   isEstimated?: boolean;
   source?: string;
+  /** Kiedy pobrano dane (ms) - zapisana lista pakowania odświeża pogodę po 6 h. */
+  fetchedAt?: number;
 }
+
+/** Prognoza Open-Meteo sięga 16 dni naprzód; dalej korzystamy ze średnich z lat ubiegłych. */
+const FORECAST_HORIZON_DAYS = 15;
+const PACKING_WEATHER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+const toIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const addDays = (d: Date, days: number) => {
+  const copy = new Date(d.getTime());
+  copy.setDate(copy.getDate() + days);
+  return copy;
+};
+
+/**
+ * Szacunek offline na podstawie szerokości geograficznej i miesiąca (bez sieci).
+ * Średnia temperatura maksymalna maleje z szerokością, a amplituda roczna rośnie;
+ * maksimum przypada na lipiec (na półkuli południowej na styczeń).
+ * Przykłady: Rodos (36°N) w listopadzie ~19°C, Warszawa (52°N) w styczniu ~1°C.
+ */
+export const estimateTempFromLatitude = (lat: number, month: number): number => {
+  const absLat = Math.min(Math.abs(lat), 70);
+  const annualMeanMax = 30 - 0.5 * Math.max(absLat - 20, 0);
+  const amplitude = 4 + 0.25 * Math.max(absLat - 20, 0);
+  const seasonalMonth = lat >= 0 ? month : (month + 6) % 12;
+  return Math.round(annualMeanMax - amplitude * Math.cos((2 * Math.PI * seasonalMonth) / 12));
+};
 
 export interface PackingListParams {
   tripId?: string;
@@ -112,7 +142,11 @@ export const getClimaticDefaultWeather = (
   // Kraje i miasta śródziemnomorskie (Włochy, Hiszpania, Portugalia, Grecja)
   const isMediterranean = [
     'rzym', 'rome', 'barcelona', 'madryt', 'madrid', 'lizbona', 'lisbon',
-    'wenecja', 'venice', 'ateny', 'athens', 'włochy', 'italy', 'hiszpania', 'spain'
+    'wenecja', 'venice', 'ateny', 'athens', 'włochy', 'italy', 'hiszpania', 'spain',
+    'grecja', 'greece', 'rodos', 'rhodes', 'lindos', 'kreta', 'crete', 'korfu', 'corfu', 'zakynthos',
+    'santorini', 'cypr', 'cyprus', 'malta', 'sycylia', 'sicily', 'sardynia', 'majorka', 'mallorca',
+    'teneryfa', 'tenerife', 'kanary', 'portugalia', 'portugal', 'algarve', 'chorwacja', 'croatia',
+    'split', 'dubrownik', 'dubrovnik', 'nicea', 'nice', 'neapol', 'naples', 'turcja', 'antalya'
   ].some(k => d.includes(k));
 
   // Kraje deszczowe / wyspiarskie (Wielka Brytania, Irlandia, Holandia)
@@ -163,84 +197,162 @@ export const getClimaticDefaultWeather = (
   return { temp: 14, isRain: false, condition: t.weatherModerateTransitional || 'Umiarkowana pogoda przejściowa', isEstimated: true };
 };
 
+const describeWeather = (maxTemp: number, isRain: boolean, weatherCode = 0): string => {
+  if (weatherCode >= 95) return 'Burze z deszczem';
+  if (isRain) return 'Przelotne opady deszczu';
+  if (weatherCode >= 1 && weatherCode <= 3) return 'Częściowe zachmurzenie';
+  if (maxTemp < 10) return 'Chłodno, bez opadów';
+  if (maxTemp >= 24) return 'Słonecznie i ciepło';
+  return 'Słonecznie';
+};
+
+const average = (values: number[]) => values.reduce((acc, v) => acc + v, 0) / values.length;
+
+async function fetchJsonWithTimeout(url: string, ms: number): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Prognoza Open-Meteo dla dni podróży (średnia z maksimów, deszcz gdy w co najmniej 1/3 dni). */
+async function fetchForecastForDays(lat: number, lon: number, from: Date, to: Date): Promise<WeatherCondition | null> {
+  const data = await fetchJsonWithTimeout(
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&daily=weathercode,temperature_2m_max,precipitation_probability_max&timezone=auto` +
+      `&start_date=${toIsoDate(from)}&end_date=${toIsoDate(to)}`,
+    4000
+  );
+  const temps: number[] = (data?.daily?.temperature_2m_max || []).filter((v: any) => typeof v === 'number');
+  if (temps.length === 0) return null;
+  const codes: number[] = data.daily.weathercode || [];
+  const probs: number[] = data.daily.precipitation_probability_max || [];
+  const rainyDays = temps.filter((_, i) => {
+    const code = codes[i] || 0;
+    return (code >= 51 && code <= 67) || (code >= 80 && code <= 99) || (probs[i] || 0) >= 45;
+  }).length;
+  const maxTemp = Math.round(average(temps));
+  const isRain = rainyDays / temps.length >= 1 / 3;
+  return {
+    temp: maxTemp,
+    isRain,
+    condition: describeWeather(maxTemp, isRain, Math.max(...codes.slice(0, temps.length), 0)),
+    isEstimated: false,
+    source: 'Open-Meteo',
+    fetchedAt: Date.now(),
+  };
+}
+
 /**
- * Pobiera prognozę pogody dla wybranej destynacji (z timeoutem i automatycznym fallbackiem offline)
+ * Szacunek klimatyczny z danych historycznych: te same dni kalendarzowe w trzech poprzednich latach
+ * (archiwum Open-Meteo, reanaliza ERA5). Dużo dokładniejsze niż stałe tabele dla miast.
+ */
+async function fetchClimateFromHistory(lat: number, lon: number, from: Date, to: Date): Promise<WeatherCondition | null> {
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear - 1, thisYear - 2, thisYear - 3];
+  const results = await Promise.allSettled(
+    years.map((year) => {
+      const shift = year - from.getFullYear();
+      const yFrom = new Date(from.getFullYear() + shift, from.getMonth(), from.getDate());
+      const yTo = new Date(to.getFullYear() + shift, to.getMonth(), to.getDate());
+      return fetchJsonWithTimeout(
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
+          `&start_date=${toIsoDate(yFrom)}&end_date=${toIsoDate(yTo)}` +
+          `&daily=temperature_2m_max,precipitation_sum&timezone=auto`,
+        5000
+      );
+    })
+  );
+  const temps: number[] = [];
+  let rainyDays = 0;
+  let days = 0;
+  results.forEach((r) => {
+    if (r.status !== 'fulfilled') return;
+    const t: any[] = r.value?.daily?.temperature_2m_max || [];
+    const p: any[] = r.value?.daily?.precipitation_sum || [];
+    t.forEach((v, i) => {
+      if (typeof v !== 'number') return;
+      temps.push(v);
+      days += 1;
+      if (typeof p[i] === 'number' && p[i] >= 1) rainyDays += 1;
+    });
+  });
+  if (temps.length === 0) return null;
+  const maxTemp = Math.round(average(temps));
+  const isRain = rainyDays / days >= 0.35;
+  return {
+    temp: maxTemp,
+    isRain,
+    condition: describeWeather(maxTemp, isRain),
+    isEstimated: true,
+    source: `Open-Meteo ${years[2]}–${years[0]}`,
+    fetchedAt: Date.now(),
+  };
+}
+
+/**
+ * Pogoda do listy pakowania:
+ * 1. podróż w ciągu ~2 tygodni -> prognoza Open-Meteo dla dni podróży,
+ * 2. później -> średnia z tych samych dni w poprzednich latach (dane historyczne),
+ * 3. bez sieci -> szacunek z szerokości geograficznej (gdy znamy współrzędne) lub z nazwy miejsca.
  */
 export const fetchTripWeatherForecast = async (
   destination: string,
-  startDate?: string
+  startDate?: string,
+  endDate?: string
 ): Promise<WeatherCondition> => {
-  const targetDate = startDate ? parseTripDate(startDate) || new Date() : new Date();
-  const fallback = getClimaticDefaultWeather(destination, targetDate);
+  const from = (startDate && parseTripDate(startDate)) || new Date();
+  const parsedEnd = endDate ? parseTripDate(endDate) : null;
+  const to = parsedEnd && parsedEnd >= from ? parsedEnd : from;
+  // Okno do 14 dni wystarczy do oceny warunków i ogranicza ilość danych
+  const windowEnd = to.getTime() - from.getTime() > 13 * 86400000 ? addDays(from, 13) : to;
+  const fallback = getClimaticDefaultWeather(destination, from);
 
   if (!destination || !destination.trim() || process.env.NODE_ENV === 'test') {
     return fallback;
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2800);
+  let coords: { lat: number; lon: number } | null = null;
+  try {
+    coords = await resolveCoordinates(destination);
+  } catch {}
+  if (!coords) return fallback;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAhead = Math.floor((from.getTime() - today.getTime()) / 86400000);
 
   try {
-    // 1. Próba znalezienia współrzędnych przez darmowe geokodowanie Nominatim
-    const geoRes = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(destination)}&limit=1`,
-      {
-        headers: { 'User-Agent': 'DestivoApp-Packing/1.0' },
-        signal: controller.signal,
-      }
-    );
-    if (!geoRes.ok) throw new Error('Geocoding failed');
-    const geoData = await geoRes.json();
-
-    if (!Array.isArray(geoData) || geoData.length === 0) {
-      clearTimeout(timeoutId);
-      return fallback;
+    if (daysAhead <= FORECAST_HORIZON_DAYS) {
+      const forecastEnd = addDays(today, FORECAST_HORIZON_DAYS);
+      const effectiveFrom = from < today ? today : from;
+      const effectiveTo = windowEnd > forecastEnd ? forecastEnd : windowEnd;
+      const forecast = await fetchForecastForDays(coords.lat, coords.lon, effectiveFrom, effectiveTo);
+      if (forecast) return forecast;
     }
-
-    const lat = parseFloat(geoData[0].lat);
-    const lon = parseFloat(geoData[0].lon);
-
-    // 2. Pobranie prognozy z bezpłatnego Open-Meteo API (nie wymaga klucza, działa globalnie)
-    const weatherRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,precipitation_probability_max&timezone=auto`,
-      { signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
-
-    if (!weatherRes.ok) return fallback;
-    const weatherData = await weatherRes.json();
-
-    if (weatherData?.daily?.temperature_2m_max && weatherData.daily.temperature_2m_max.length > 0) {
-      const maxTemp = Math.round(weatherData.daily.temperature_2m_max[0]);
-      const precipProb = weatherData.daily.precipitation_probability_max?.[0] || 0;
-      const weatherCode = weatherData.daily.weathercode?.[0] || 0;
-
-      // Kody WMO: 51-67 (mżawka, deszcz), 80-82 (ulewa), 95-99 (burza)
-      const isRainyCode = (weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 99);
-      const isRain = isRainyCode || precipProb >= 45;
-
-      let condition = 'Słonecznie';
-      if (weatherCode >= 95) condition = 'Burze z deszczem';
-      else if (isRain) condition = 'Przelotne opady deszczu';
-      else if (weatherCode >= 1 && weatherCode <= 3) condition = 'Częściowe zachmurzenie';
-      else if (maxTemp < 10) condition = 'Chłodno, bez opadów';
-      else if (maxTemp >= 24) condition = 'Słonecznie i ciepło';
-
-      return {
-        temp: maxTemp,
-        isRain,
-        condition,
-        isEstimated: false,
-        source: 'Open-Meteo',
-      };
-    }
+    const climate = await fetchClimateFromHistory(coords.lat, coords.lon, from, windowEnd);
+    if (climate) return climate;
   } catch {
-    clearTimeout(timeoutId);
-    // W przypadku błędu sieci, braku internetu lub timeoutu - zwracamy inteligentny fallback klimatyczny
+    // brak sieci / timeout -> szacunek offline poniżej
   }
 
-  return fallback;
+  const latTemp = estimateTempFromLatitude(coords.lat, from.getMonth());
+  return {
+    ...fallback,
+    temp: latTemp,
+    condition: describeWeather(latTemp, fallback.isRain),
+    isEstimated: true,
+  };
 };
+
+/** Czy zapisana pogoda listy pakowania wymaga odświeżenia (stara lub zapisana przed poprawką). */
+export const isPackingWeatherStale = (weather?: WeatherCondition | null, now = Date.now()): boolean =>
+  !weather || typeof weather.fetchedAt !== 'number' || now - weather.fetchedAt > PACKING_WEATHER_MAX_AGE_MS;
 
 /**
  * Sprawdza, czy w danym kraju/mieście potrzebny jest adapter gniazdkowy
@@ -798,8 +910,16 @@ export const loadPackingAssistant = async (params: PackingListParams): Promise<P
         const packedCount = parsed.items.filter(i => i.checked).length;
         const totalCount = parsed.items.length;
         const progressPercent = totalCount > 0 ? Math.round((packedCount / totalCount) * 100) : 0;
+        let weather = parsed.weather;
+        if (!params.weather && isPackingWeatherStale(weather)) {
+          try {
+            weather = await fetchTripWeatherForecast(dest, params.startDate, params.endDate);
+            await AsyncStorage.setItem(storageKey, JSON.stringify({ ...parsed, weather }));
+          } catch {}
+        }
         return {
           ...parsed,
+          weather,
           packedCount,
           totalCount,
           progressPercent,
@@ -813,7 +933,7 @@ export const loadPackingAssistant = async (params: PackingListParams): Promise<P
   // 2. Jeśli brak zapisanego stanu, pobieramy pogodę i generujemy nową listę
   let weather = params.weather;
   if (!weather) {
-    weather = await fetchTripWeatherForecast(dest, params.startDate);
+    weather = await fetchTripWeatherForecast(dest, params.startDate, params.endDate);
   }
 
   const generatedItems = generatePackingList({

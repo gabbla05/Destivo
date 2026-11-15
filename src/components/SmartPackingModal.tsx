@@ -290,7 +290,9 @@ export const SmartPackingModal: React.FC<SmartPackingModalProps> = ({
     const tripStart = parseTripDate(startDate || '');
     if (!tripStart) return t.weatherSourceEstimateNoMonth;
     const month = tripStart.toLocaleDateString(language === 'en' ? 'en-GB' : 'pl-PL', { month: 'long' });
-    return t.weatherSourceEstimate.replace('{{month}}', month);
+    const estimate = t.weatherSourceEstimate.replace('{{month}}', month);
+    // Gdy szacunek pochodzi z danych historycznych, pokazujemy ich źródło i lata
+    return w.source ? `${estimate} (${w.source})` : estimate;
   };
 
   const getWeatherBadgeText = () => {

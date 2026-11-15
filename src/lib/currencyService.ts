@@ -234,37 +234,34 @@ export function getCurrencyInfoForDestination(
 }
 
 
-export function formatRatesUpdatedTime(date: Date | string | number, language: string = 'pl'): string {
+/**
+ * Czas pobrania kursu w stałej formie: "dzisiaj, 14:05", "wczoraj, 18:30" albo "12.11, 09:15".
+ * Celowo bez "przed chwilą" / "X min temu" - taki opis szybko się dezaktualizuje.
+ */
+export function formatRatesUpdatedTime(
+  date: Date | string | number,
+  language: string = 'pl',
+  now: Date = new Date()
+): string {
   const parsedDate = date instanceof Date ? date : new Date(date);
+  const isEn = language === 'en';
   if (!parsedDate || isNaN(parsedDate.getTime())) {
-    return language === 'pl' ? 'dzisiaj' : 'today';
+    return isEn ? 'unknown time' : 'nieznany czas';
   }
-
-  const now = new Date();
-  const diffMinutes = Math.floor((now.getTime() - parsedDate.getTime()) / (1000 * 60));
-
-  if (diffMinutes < 2) {
-    return language === 'pl' ? 'przed chwilą' : 'just now';
-  }
-  if (diffMinutes < 60) {
-    return language === 'pl' ? `${diffMinutes} min temu` : `${diffMinutes} min ago`;
-  }
-
-  const isToday =
-    now.getDate() === parsedDate.getDate() &&
-    now.getMonth() === parsedDate.getMonth() &&
-    now.getFullYear() === parsedDate.getFullYear();
 
   const hours = String(parsedDate.getHours()).padStart(2, '0');
   const minutes = String(parsedDate.getMinutes()).padStart(2, '0');
+  const time = `${hours}:${minutes}`;
 
-  if (isToday) {
-    return language === 'pl' ? `dzisiaj, ${hours}:${minutes}` : `today, ${hours}:${minutes}`;
-  }
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(parsedDate)) / (24 * 60 * 60 * 1000));
+
+  if (dayDiff === 0) return isEn ? `today, ${time}` : `dzisiaj, ${time}`;
+  if (dayDiff === 1) return isEn ? `yesterday, ${time}` : `wczoraj, ${time}`;
 
   const day = String(parsedDate.getDate()).padStart(2, '0');
   const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-  return `${day}.${month}, ${hours}:${minutes}`;
+  return `${day}.${month}, ${time}`;
 }
 
 

@@ -468,10 +468,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
       minTotalCost: 450,
       maxTotalCost: 450,
       price: { min: 450, max: 450, currency: 'PLN', status: 'LIVE', source: 'Skyscanner' },
-      dataConfidence: 'HIGH',
       distanceKm: 1800,
-      stressScore: 10,
-      badges: ['SMART_CHOICE'],
     });
     useTripCreatorStore.getState().setLodgingAddress('Hotel Sagrada, Barcelona');
 

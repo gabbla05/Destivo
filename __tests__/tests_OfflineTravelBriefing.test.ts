@@ -305,6 +305,29 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
   });
 
   describe('4. Generowanie czystego HTML i dokumentu PDF (expo-print)', () => {
+    test('P11: sekcja "Bilety" pojawia się tylko z kodami odczytanymi z biletów', async () => {
+      const without = await generateBriefingHtml(sampleTrip, { language: 'pl' });
+      expect(without).not.toContain('kody odczytane z Twoich biletów');
+
+      const html = await generateBriefingHtml(sampleTrip, {
+        language: 'pl',
+        ticketQrCodes: [
+          { leg: 'outbound', name: 'Bilet <PKP>.pdf', qrDataUrl: 'data:image/png;base64,QR1' },
+          { leg: 'return', name: 'fake', qrDataUrl: 'javascript:alert(1)' },
+        ],
+      });
+      expect(html).toContain('kody odczytane z Twoich biletów');
+      expect(html).toContain('data:image/png;base64,QR1');
+      expect(html).toContain('Bilet &lt;PKP&gt;.pdf');
+      expect(html).not.toContain('javascript:alert(1)');
+    });
+
+    test('P10: podpis kodu w nagłówku to "PODSUMOWANIE PODRÓŻY"', async () => {
+      const html = await generateBriefingHtml(sampleTrip, { language: 'pl' });
+      expect(html).toContain('PODSUMOWANIE PODRÓŻY');
+      expect(html).not.toContain('OFFLINE PASS');
+    });
+
     test('generateBriefingHtml generuje kompletny HTML ze wszystkimi danymi podróży', async () => {
       const html = await generateBriefingHtml(sampleTrip, { language: 'pl' });
 

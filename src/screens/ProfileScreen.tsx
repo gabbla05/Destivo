@@ -1,5 +1,5 @@
 // src/screens/ProfileScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   StatusBar,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,11 +16,21 @@ import { useAuthStore, type Language } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
+import { clearGeofencing, isDepartureGeofenceEnabled, setDepartureGeofenceEnabled } from '../lib/proximityAlertService';
 
 export const ProfileScreen = ({ navigation }: any) => {
   const { user, language, setLanguage, logout } = useAuthStore();
   const db = usePowerSync();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  // P13: powiadomienia o zbliżaniu się do miejsca odjazdu (geofencing w tle)
+  const [departureAlertsEnabled, setDepartureAlertsEnabled] = useState(true);
+  useEffect(() => {
+    isDepartureGeofenceEnabled().then(setDepartureAlertsEnabled).catch(() => undefined);
+  }, []);
+  const toggleDepartureAlerts = (value: boolean) => {
+    setDepartureAlertsEnabled(value);
+    setDepartureGeofenceEnabled(value).catch(() => undefined);
+  };
 
   const t = translations[language].profile;
   const commonT = translations[language].common;
@@ -84,6 +95,8 @@ export const ProfileScreen = ({ navigation }: any) => {
               await db.disconnectAndClear(); 
               
               // Zabijamy sesję w Supabase
+              // Strefa odjazdu nie może zostać aktywna po wylogowaniu
+              await clearGeofencing().catch(() => undefined);
               await supabase.auth.signOut();
               
               // Czyścimy stan lokalny (powrót do Welcome Screen)
@@ -159,6 +172,23 @@ export const ProfileScreen = ({ navigation }: any) => {
               <Text style={[styles.langText, language === 'en' && styles.langTextActive]}>EN</Text>
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* USTAWIENIA: POWIADOMIENIA O ZBLIŻANIU SIĘ DO ODJAZDU */}
+        <View style={styles.settingRow}>
+          <View style={[styles.settingLeft, { flex: 1, paddingRight: 8 }]}>
+            <View style={styles.iconBox}>
+              <Ionicons name="navigate-circle-outline" size={20} color="#10B981" />
+            </View>
+            <Text style={[styles.settingLabel, { flexShrink: 1 }]}>{t.departureAlerts}</Text>
+          </View>
+          <Switch
+            value={departureAlertsEnabled}
+            onValueChange={toggleDepartureAlerts}
+            trackColor={{ false: '#334155', true: '#10B981' }}
+            thumbColor="#F8FAFC"
+            testID="departure-alerts-switch"
+          />
         </View>
 
         {/* USTAWIENIA: SEJF OFFLINE */}

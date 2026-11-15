@@ -1,3 +1,4 @@
+import { collectTripTicketQrCodes } from '../../lib/ticketQr';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -448,7 +449,9 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     if (!selectedTrip) return;
     try {
       setGeneratingBriefing(true);
-      const result = await generateOfflineTravelBriefingPdf(selectedTrip, { language });
+      // P11: kody QR odczytane z biletów podróży trafiają do sekcji "Bilety" w PDF
+      const ticketQrCodes = await collectTripTicketQrCodes(selectedTrip.transport_data).catch(() => []);
+      const result = await generateOfflineTravelBriefingPdf(selectedTrip, { language, ticketQrCodes });
       setBriefingResult(result);
       setBriefingModalVisible(true);
     } catch (error) {

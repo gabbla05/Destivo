@@ -17,6 +17,7 @@ import {
   Keyboard,
   Platform,
   KeyboardAvoidingView,
+  AppState,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -48,6 +49,11 @@ import {
   ProximityCheckResult,
   findActiveTicketForTrip,
   scheduleLocalDepartureNotification,
+  cleanupExpiredGeofences,
+  getUpcomingDeparture,
+  isDepartureGeofenceEnabled,
+  requestBackgroundLocationConsent,
+  setupGeofencingForTrip,
   dismissExpiredDepartureNotifications,
 } from '../lib/proximityAlertService';
 import {
@@ -325,17 +331,26 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   // Pobieranie kursów walut na żywo z open.er-api.com
   useEffect(() => {
     let isMounted = true;
-    fetchLiveExchangeRates().then((data) => {
-      if (isMounted) {
-        setExchangeRates(data.rates);
-        setRatesLastUpdated(data.lastUpdated);
-        setRatesSource(data.source);
-        if (fromAmount) {
-          setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
+    const loadRates = () =>
+      fetchLiveExchangeRates().then((data) => {
+        if (isMounted) {
+          setExchangeRates(data.rates);
+          setRatesLastUpdated(data.lastUpdated);
+          setRatesSource(data.source);
+          if (fromAmount) {
+            setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
+          }
         }
-      }
-    }).catch(() => {});
-    return () => { isMounted = false; };
+      }).catch(() => {});
+    loadRates();
+    // Po powrocie do aplikacji pobieramy kurs ponownie - bez sieci opis zmieni się na "(offline)"
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadRates();
+    });
+    return () => {
+      isMounted = false;
+      subscription.remove();
+    };
   }, []);
 
   const convertCurrency = useCallback((val: string, from: string, to: string) => {
@@ -586,6 +601,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             setActiveTrip(null);
           }
 
+
+          // P13: geofencing w tle dla podróży z odjazdem (tam lub powrót) w ciągu 48 h
+          (async () => {
+            await cleanupExpiredGeofences();
+            if (!(await isDepartureGeofenceEnabled())) return;
+            const geofenceTrip = rows.find((trip: any) => getUpcomingDeparture(trip));
+            if (!geofenceTrip) return;
+            const t = translations[language]?.proximityAlert || translations.pl.proximityAlert;
+            await requestBackgroundLocationConsent(language, (title, message) =>
+              new Promise<boolean>((resolve) =>
+                Alert.alert(title, message, [
+                  { text: t.bgLocationLater, style: 'cancel', onPress: () => resolve(false) },
+                  { text: t.bgLocationAllow, onPress: () => resolve(true) },
+                ], { cancelable: false })
+              )
+            );
+            await setupGeofencingForTrip(geofenceTrip);
+          })().catch(() => {});
         } catch (error) {
           console.error('Błąd weryfikacji aktywnej podróży:', error);
         }

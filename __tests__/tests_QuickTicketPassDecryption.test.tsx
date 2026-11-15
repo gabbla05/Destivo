@@ -27,6 +27,11 @@ jest.mock('../src/lib/vaultManager', () => ({
   },
 }));
 
+const mockDetectTicketQr = jest.fn();
+jest.mock('../src/lib/ticketQr', () => ({
+  detectTicketQr: (...args: any[]) => mockDetectTicketQr(...args),
+}));
+
 const TEMP_URI = 'file:///cache/destivo-vault-123.jpg';
 
 const encryptedImage = {
@@ -51,6 +56,7 @@ describe('QuickTicketPassModal - odszyfrowanie biletu z Sejfu', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedVault.createDecryptedTemporaryCopy.mockResolvedValue({ uri: TEMP_URI, isTemporary: true });
+    mockDetectTicketQr.mockResolvedValue({ qrDataUrl: null });
   });
 
   test('isEncryptedTicket rozpoznaje pliki Sejfu', () => {
@@ -127,5 +133,35 @@ describe('QuickTicketPassModal - odszyfrowanie biletu z Sejfu', () => {
     const image = await findByTestId('quick-pass-ticket-image');
     expect(image.props.source).toEqual({ uri: legacy.uri });
     expect(mockedVault.createDecryptedTemporaryCopy).not.toHaveBeenCalled();
+  });
+  describe('P11: kod QR odczytany z biletu', () => {
+    const QR = 'data:image/png;base64,QRCODE';
+
+    test('gdy w bilecie jest kod, pokazuje duży kod QR z przełącznikiem "Pokaż oryginał"', async () => {
+      mockDetectTicketQr.mockResolvedValue({ qrDataUrl: QR });
+      const { findByTestId, getByTestId, queryByTestId } = render(
+        <QuickTicketPassModal visible onClose={jest.fn()} ticketFile={encryptedImage} />
+      );
+
+      const qr = await findByTestId('quick-pass-qr-image');
+      expect(qr.props.source).toEqual({ uri: QR });
+      expect(queryByTestId('quick-pass-ticket-image')).toBeNull();
+      expect(mockDetectTicketQr).toHaveBeenCalledWith(expect.objectContaining({ uri: encryptedImage.uri }), TEMP_URI);
+
+      fireEvent.press(getByTestId('quick-pass-qr-toggle'));
+      expect(getByTestId('quick-pass-ticket-image').props.source).toEqual({ uri: TEMP_URI });
+      expect(queryByTestId('quick-pass-qr-image')).toBeNull();
+    });
+
+    test('gdy kodu nie ma, pokazuje oryginalny bilet bez przełącznika', async () => {
+      const { findByTestId, queryByTestId } = render(
+        <QuickTicketPassModal visible onClose={jest.fn()} ticketFile={encryptedImage} />
+      );
+      await findByTestId('quick-pass-ticket-image');
+      await waitFor(() => expect(mockDetectTicketQr).toHaveBeenCalled());
+      await waitFor(() => expect(queryByTestId('quick-pass-qr-scanning')).toBeNull());
+      expect(queryByTestId('quick-pass-qr-view')).toBeNull();
+      expect(queryByTestId('quick-pass-qr-toggle')).toBeNull();
+    });
   });
 });

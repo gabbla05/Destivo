@@ -36,6 +36,7 @@ import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
 import {
   cancelScheduledDepartureNotification,
+  clearGeofencingForTrip,
   findActiveTicketForTrip,
   ProximityCheckResult,
 } from '../lib/proximityAlertService';
@@ -1398,6 +1399,7 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
 
           try {
             await cancelScheduledDepartureNotification(tripData.id);
+            await clearGeofencingForTrip(tripData.id);
           } catch {}
 
           goBackToTripsList();
