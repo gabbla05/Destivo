@@ -398,6 +398,31 @@ describe('Moduł Sejfu Offline (Vault)', () => {
       expect(screen.getByTestId('print-file-ret-1')).toBeTruthy();
     });
 
+    test('Bilet tam, który jest też zwykłym plikiem Sejfu, ma podpis "Bilet tam" (zgłoszenie z testów 1.0.8)', async () => {
+      const ticket = { id: 'out-2', name: 'eBilet_IC.pdf', type: 'PDF', uri: 'file://mock_docs/destivo_vault/out2.vault', encryptionVersion: 1 };
+      const tripWithTickets = [{
+        ...mockTripsData[0],
+        lodging_data: JSON.stringify({ vaultFiles: [ticket] }),
+        transport_data: JSON.stringify({
+          details: {
+            outboundTicketFile: ticket,
+            ticketFile: ticket,
+            returnTicketFile: { id: 'ret-2', name: 'Powrot.jpg', type: 'IMAGE', uri: 'file://mock_docs/destivo_vault/ret2.vault', encryptionVersion: 1 },
+          },
+        }),
+      }];
+      mockDbExecute.mockResolvedValue({ rows: { _array: tripWithTickets } });
+
+      render(<VaultDashboardScreen />);
+      await waitFor(() => expect(screen.getByText('Paryż 2026')).toBeTruthy());
+      fireEvent.press(screen.getByText('Paryż 2026'));
+
+      await waitFor(() => expect(screen.getByText('eBilet_IC.pdf')).toBeTruthy());
+      expect(screen.getAllByText('eBilet_IC.pdf')).toHaveLength(1);
+      expect(screen.getByText(/Bilet tam/)).toBeTruthy();
+      expect(screen.getByText(/Bilet powrotny/)).toBeTruthy();
+    });
+
     test('Powinien automatycznie otworzyć szufladkę podróży po przekazaniu tripId w parametrach route', async () => {
       mockDbExecute.mockResolvedValueOnce({ rows: { _array: mockTripsData } });
 

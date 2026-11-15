@@ -437,6 +437,35 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
 
   const getAllFilesForSelectedTrip = () => [...getTripTicketFiles(), ...getFilesForSelectedTrip()];
 
+  /**
+   * Odcinek (tam / powrót) dla pliku - także gdy ten sam bilet jest jednocześnie zwykłym plikiem
+   * Sejfu (wtedy getTripTicketFiles go pomija, a podpis "Bilet tam" znikał).
+   */
+  const getTicketLegForFile = (file: any): 'outbound' | 'return' | null => {
+    if (file?.fromTrip) return file.leg;
+    if (!selectedTrip || !file) return null;
+    let transportData: any = {};
+    try {
+      transportData =
+        typeof selectedTrip.transport_data === 'string'
+          ? JSON.parse(selectedTrip.transport_data || '{}')
+          : selectedTrip.transport_data || {};
+    } catch {
+      return null;
+    }
+    const details = transportData.details || {};
+    const same = (ticket: any) =>
+      Boolean(ticket) && ((ticket.uri && ticket.uri === file.uri) || (ticket.id && ticket.id === file.id));
+    if (same(details.returnTicketFile || transportData.returnTicketFile)) return 'return';
+    if (
+      same(details.outboundTicketFile || transportData.outboundTicketFile) ||
+      same(details.ticketFile || transportData.ticketFile)
+    ) {
+      return 'outbound';
+    }
+    return null;
+  };
+
   const isImageFile = (file: any) => {
     if (!file) return false;
     if (file.type === 'IMAGE') return true;
@@ -638,11 +667,12 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
                       <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
                       <Text style={styles.fileType}>
                         {file.type || (isImageFile(file) ? 'IMAGE' : 'PDF')} •{' '}
-                        {file.fromTrip
-                          ? file.leg === 'return'
-                            ? language === 'en' ? 'Return ticket' : 'Bilet powrotny'
-                            : language === 'en' ? 'Outbound ticket' : 'Bilet tam'
-                          : t.uploaded}
+                        {(() => {
+                          const leg = getTicketLegForFile(file);
+                          if (leg === 'return') return language === 'en' ? 'Return ticket' : 'Bilet powrotny';
+                          if (leg === 'outbound') return language === 'en' ? 'Outbound ticket' : 'Bilet tam';
+                          return t.uploaded;
+                        })()}
                       </Text>
                     </View>
                     

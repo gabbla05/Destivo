@@ -1,6 +1,6 @@
 {
   "name": "destivo",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "main": "index.ts",
   "private": true,
   "scripts": {
@@ -83,6 +83,8 @@
     ],
     "moduleNameMapper": {
       "^@react-native-async-storage/async-storage$": "<rootDir>/__mocks__/@react-native-async-storage/async-storage.js"
-    }
+    },
+    "testTimeout": 15000,
+    "maxWorkers": "50%"
   }
 }

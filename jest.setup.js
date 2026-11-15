@@ -149,3 +149,4 @@ jest.mock('react-native-pdf-thumbnail', () => ({
     generateAllPages: jest.fn(async () => []),
   },
 }));
+
