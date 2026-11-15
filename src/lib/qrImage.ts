@@ -27,9 +27,15 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 };
 
-export function qrToPngDataUrl(text: string, options: QrPngOptions = {}): string {
+/**
+ * @param content tekst albo surowe bajty odczytane z biletu (bajty są kodowane 1:1 w trybie "byte")
+ */
+export function qrToPngDataUrl(content: string | number[] | Uint8Array, options: QrPngOptions = {}): string {
   const { width = 600, margin = 2, errorCorrectionLevel = 'M', dark = '#000000', light = '#FFFFFF' } = options;
-  const qr = QRCode.create(text, { errorCorrectionLevel });
+  const qr =
+    typeof content === 'string'
+      ? QRCode.create(content, { errorCorrectionLevel })
+      : QRCode.create([{ data: Uint8Array.from(content), mode: 'byte' }] as any, { errorCorrectionLevel });
   const size: number = qr.modules.size;
   const modules: ArrayLike<number | boolean> = qr.modules.data;
   const total = size + margin * 2;

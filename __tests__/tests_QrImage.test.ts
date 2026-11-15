@@ -23,6 +23,22 @@ describe('qrToPngDataUrl - kod QR bez canvas (działa w React Native)', () => {
     expect(width).toBeLessThanOrEqual(600);
   });
 
+  it('kod z biletu z danymi binarnymi jest odtwarzany bajt w bajt (wierna kopia oryginału)', () => {
+    // dane jak w biletach z podpisem cyfrowym: bajty spoza ASCII i zera
+    const original = Uint8Array.from([0x23, 0x55, 0x54, 0x01, 0x00, 0xff, 0xfe, 0x80, 0x9c, 0x41, 0x42, 0x00, 0x10, 0xc3, 0x28]);
+    const { qr } = decode(qrToPngDataUrl(Array.from(original), { width: 600 }));
+    expect(qr).not.toBeNull();
+    expect(Array.from(qr!.binaryData)).toEqual(Array.from(original));
+  });
+
+  it('ścieżka biletu: odczyt jsQR -> bajty -> nowy kod daje identyczną treść', () => {
+    const ticketPayload = 'IC|20261120|WAW-KRK|Wagon 7, miejsce 45|Zażółć';
+    const first = decode(qrToPngDataUrl(ticketPayload, { width: 500 })).qr!;
+    const regenerated = decode(qrToPngDataUrl(Array.from(first.binaryData), { width: 600 })).qr!;
+    expect(Array.from(regenerated.binaryData)).toEqual(Array.from(first.binaryData));
+    expect(regenerated.data).toBe(ticketPayload);
+  });
+
   it('obsługuje własny kolor modułów', () => {
     const { qr } = decode(qrToPngDataUrl('https://destivo.app', { width: 240, margin: 1, dark: '#0F172A' }));
     expect(qr?.data).toBe('https://destivo.app');

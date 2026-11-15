@@ -322,9 +322,10 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       expect(html).not.toContain('javascript:alert(1)');
     });
 
-    test('P10: podpis kodu w nagłówku to "PODSUMOWANIE PODRÓŻY"', async () => {
+    test('PDF nie ma kodu QR z podsumowaniem w nagłówku (usunięty po testach 1.0.9)', async () => {
       const html = await generateBriefingHtml(sampleTrip, { language: 'pl' });
-      expect(html).toContain('PODSUMOWANIE PODRÓŻY');
+      expect(html).not.toContain('PODSUMOWANIE PODRÓŻY');
+      expect(html).not.toContain('header-qr-box');
       expect(html).not.toContain('OFFLINE PASS');
     });
 

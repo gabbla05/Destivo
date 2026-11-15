@@ -324,7 +324,16 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 | PDF | Podpis „Podsumowanie podróży”, sekcja biletów (P11), źródło kursu |
 
 ✅ **4.3** Aktualizacja [README.md](../README.md): usunięcie naprawionych punktów z „Znanych ograniczeń” i opis nowych elementów (QR w podglądzie biletu, geofencing w tle, dwie opcje usuwania, `npm run benchmark`).
-⬜ **4.4** Commity: po jednym na etap, z czytelnym opisem. Scalenie `fix/audit-cleanup` do `main` po Twojej akceptacji.
+✅ **4.4** Commity: po jednym na etap, z czytelnym opisem. Scalenie `fix/audit-cleanup` do `main` po Twojej akceptacji (15.11.2026).
+
+### Poprawki po testach na telefonie (wersje 1.0.7–1.0.10)
+
+- Kody QR generowane bez `<canvas>` (`src/lib/qrImage.ts`). `QRCode.toDataURL` na telefonie zawsze zawodził, dlatego nie było kodów w podglądzie biletu ani w PDF.
+- Kod QR z biletu PDF: strony renderowane do obrazu (`react-native-pdf-thumbnail`), kod generowany na nowo z surowych bajtów (wierna kopia).
+- Optymalizacja trasy: najpierw serwer lokalny (3 s), potem publiczne; ponawianie po HTTP 429, limit 15 s, dni pobierane po kolei.
+- Sejf: podpis „Bilet tam / powrotny” także dla biletów będących zwykłym plikiem Sejfu; podgląd świeżego briefingu otwiera się w przeglądarce PDF.
+- Kalkulator walut: przycisk odświeżenia kursu. Eksploruj: krótszy znacznik „Brak prognozy”.
+- Usunięty kod QR z podsumowaniem w nagłówku PDF (powtarzał treść dokumentu).
 
 ---
 

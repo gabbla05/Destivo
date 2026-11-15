@@ -52,7 +52,7 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | **Bezpieczeństwo** | Pliki szyfrowane AES-256-GCM, klucz w Android Keystore, PIN przechowywany jako solony skrót z limitem prób, biometria |
 | **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu i kodem QR odczytanym z biletu, alert w pobliżu dworca lub lotniska (także przy zamkniętej aplikacji), powiadomienie przed odjazdem |
 | **Bez internetu** | PDF z planem dnia, transportem, biletami, adresem noclegu, kursem waluty (z datą kursu) i numerami alarmowymi |
-| **Jakość** | 48 zestawów, 611 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
+| **Jakość** | 51 zestawów, 625 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
 
 ---
 
@@ -353,8 +353,8 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 
 **Kod QR z biletu** (`src/lib/ticketQr.ts`, wykrywanie w `src/lib/offlineTravelBriefing.ts`):
 - **Zdjęcia:** po zakończeniu animacji otwarcia zdjęcie jest pomniejszane do 1200 px (`expo-image-manipulator`), dekodowane do pikseli (`jpeg-js`) i skanowane przez `jsQR` (całe, sekcjami i w pomniejszeniu).
-- **PDF:** przeszukiwanie pliku w poszukiwaniu osadzonych obrazów JPEG i skompresowanych strumieni (`pako`), każdy kandydat jest skanowany.
-- Gdy kod zostanie **odczytany**, jest generowany na nowo (`qrcode`) duży i ostry, na białym tle, z przyciskiem „Pokaż oryginał”. Wycinki „podobne do kodu” i linki znalezione w tekście PDF **nie są** zamieniane na QR, żeby aplikacja nigdy nie pokazała zmyślonego kodu. Bez odczytanego kodu widać oryginalny bilet. Wynik jest zapamiętany dla pliku tylko w pamięci (treść kodu nie jest zapisywana na dysku).
+- **PDF:** najpierw szybkie przeszukanie osadzonych obrazów JPEG. Gdy to nie wystarczy, pierwsze dwie strony są renderowane do obrazu 1600 px systemowym `PdfRenderer` Androida (`react-native-pdf-thumbnail`, z łatką `patches/` pozwalającą na powiększenie) i skanowane jak zdjęcie. Obrazy stron są od razu usuwane.
+- Gdy kod zostanie **odczytany**, jest generowany na nowo z **surowych bajtów** odczytanych przez jsQR (identyczna treść jak w oryginale, także dla danych binarnych), duży i ostry, na białym tle, z przyciskiem „Pokaż oryginał”. Wycinki „podobne do kodu” i linki znalezione w tekście PDF **nie są** zamieniane na QR, żeby aplikacja nigdy nie pokazała zmyślonego kodu. Bez odczytanego kodu widać oryginalny bilet. Wynik jest zapamiętany dla pliku tylko w pamięci (treść kodu nie jest zapisywana na dysku).
 
 **Dlaczego to fajne.** Nie trzeba szukać biletu w mailu ani rozjaśniać ekranu ręcznie przy bramce, a odczytany kod skanuje się łatwiej niż zdjęcie biletu.
 
@@ -372,8 +372,6 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 - **waluta** celu podróży z kursem względem PLN i źródłem kursu (np. „kurs z 13.11, 14:20 (offline)” albo „kurs orientacyjny, brak połączenia”),
 - sekcja **„Bilety”** z kodami QR odczytanymi z biletów tej podróży (tylko gdy kod udało się odczytać),
 - **numery alarmowe** kraju docelowego i informacja, że numer 112 działa bez karty SIM i roamingu.
-
-W nagłówku jest kod QR z podsumowaniem podróży (trasa, daty, adres noclegu, numer alarmowy), podpisany „PODSUMOWANIE PODRÓŻY”, żeby nie udawał biletu.
 
 **Jak działa.** Dokument jest renderowany jako HTML/CSS i drukowany do PDF przez `expo-print`. Gotowy PDF można udostępnić, wydrukować, podejrzeć w aplikacji albo **zapisać jako zaszyfrowaną kopię w sejfie**.
 
@@ -476,13 +474,13 @@ npm run check:env      # sprawdzenie kluczy
 npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 ```
 
-**48 zestawów, 611 testów**, m.in.:
+**51 zestawów, 625 testów**, m.in.:
 
 | Obszar | Pliki testów |
 |---|---|
 | Optymalizacja trasy | `tests_RouteOptimization`, `tests_RouteOptimization_17Scenarios`, `tests_RouteOptimizationModal`, `intelligentInsertion` |
 | Sejf i bezpieczeństwo | `tests_VaultEncryption`, `tests_Vault`, `tests_VaultPinScreen`, `tests_Stores`, `tests_AccountSecurityScreen`, `tests_LocalDataWipe`, `tests_PrivacyText`, `tests_EnvAccess` |
-| Bilety i QR | `tests_QuickTicketPassDecryption`, `tests_TicketQr` |
+| Bilety i QR | `tests_QuickTicketPassDecryption`, `tests_TicketQr`, `tests_QrImage`, `tests_QrFromRenderedPage` |
 | Geofencing | `tests_BackgroundGeofence`, `tests_ProximityAlertService` |
 | Pogoda i waluty | `tests_CurrentWeather`, `tests_CurrencyRatesSource` |
 | Strażnicy jakości danych | `tests_NoHardcodedPhotos` (brak zdjęć wpisanych na sztywno), `tests_TransportNoFakeMetrics` |
@@ -555,7 +553,7 @@ Destivo/
 │   └── i18n/translations.ts    # PL / EN
 ├── supabase/functions/transport-search/   # Edge Function: rekomendacja transportu (Deno)
 ├── supabase/functions/delete-account/     # Edge Function: trwałe usunięcie konta
-├── __tests__/                  # 48 zestawów testów
+├── __tests__/                  # 51 zestawów testów
 └── test-shims/                 # Pomocniki testowe
 ```
 
@@ -566,7 +564,7 @@ Destivo/
 Lista dla przejrzystości. Część punktów to świadome uproszczenia, część to rzeczy do poprawy.
 
 - **Transport to rekomendacja, a nie wyszukiwarka połączeń.** Funkcja `transport-search` dobiera rodzaj transportu według odległości w linii prostej i przekierowuje do Koleo lub Skyscanner. Nie pobiera rzeczywistych rozkładów ani cen. Nazwa funkcji została bez zmian, żeby nie wymagać ponownego wdrożenia.
-- **Wykrywanie kodów QR** działa dla kodów QR na zdjęciach i w obrazach osadzonych w PDF. Kody Aztec (np. część biletów PKP) i kody rysowane wektorowo w PDF nie są odczytywane. Wtedy widać oryginalny bilet.
+- **Wykrywanie kodów QR** działa dla kodów QR na zdjęciach i w biletach PDF (także rysowanych wektorowo). Kody Aztec i PDF417 (np. część biletów PKP Intercity i kart pokładowych) nie są odczytywane. Wtedy widać oryginalny bilet.
 - **Geofencing w tle** obsługuje jedną strefę naraz (najbliższy odjazd w ciągu 48 h). System Android może opóźnić zdarzenie wejścia w strefę o kilka minut, zwłaszcza w trybie oszczędzania baterii.
 - **Szacunek pogody bez sieci** (asystent pakowania) to prosty model zależny od szerokości geograficznej i miesiąca, więc nie uwzględnia klimatu morskiego ani gór. Z siecią używane są dane historyczne.
 - **Benchmark TSP** używa macierzy odległości w linii prostej. Porównanie z czasami przejazdu z serwera OSRM wymaga działającego serwera i nie jest częścią pomiaru.

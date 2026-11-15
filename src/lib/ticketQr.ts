@@ -141,7 +141,7 @@ export async function detectTicketQr(file: TicketFileLike, readableUri?: string 
           })
         : null;
     if (detection?.source === 'decoded' && detection.qrData) {
-      const qrDataUrl = qrToPngDataUrl(detection.qrData, { width: 600, margin: 2 });
+      const qrDataUrl = qrToPngDataUrl(detection.qrBytes?.length ? detection.qrBytes : detection.qrData, { width: 600, margin: 2 });
       result = { qrDataUrl };
     }
   } catch (e) {

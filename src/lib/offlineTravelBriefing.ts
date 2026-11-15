@@ -128,6 +128,11 @@ export interface ExtractedQrResult {
    * - 'text': link znaleziony w tekście PDF - to NIE jest kod z biletu i nie wolno z niego generować QR.
    */
   source?: 'decoded' | 'crop' | 'text';
+  /**
+   * Surowe bajty z kodu (jsQR binaryData). Kod generujemy na nowo z bajtów, a nie z tekstu,
+   * żeby bilety z danymi binarnymi (np. podpis cyfrowy przewoźnika) dały identyczną treść.
+   */
+  qrBytes?: number[];
 }
 
 /**
@@ -212,7 +217,7 @@ export const detectAndCropQrFromRgba = (
       const minY = Math.min(...pts.map((p: any) => p.y));
       const maxY = Math.max(...pts.map((p: any) => p.y));
       const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-      return { qrData: qr.data || null, croppedQrDataUrl: cropped, source: 'decoded' };
+      return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
     }
   } catch (e) {}
 
@@ -245,7 +250,7 @@ export const detectAndCropQrFromRgba = (
           const minY = Math.min(...pts.map((p: any) => p.y + win.y0));
           const maxY = Math.max(...pts.map((p: any) => p.y + win.y0));
           const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-          return { qrData: qr.data || null, croppedQrDataUrl: cropped, source: 'decoded' };
+          return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
         }
       } catch (e) {}
     }
@@ -282,7 +287,7 @@ export const detectAndCropQrFromRgba = (
         const minY = Math.min(...pts.map((p: any) => p.y * 2));
         const maxY = Math.max(...pts.map((p: any) => p.y * 2));
         const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-        return { qrData: qr.data || null, croppedQrDataUrl: cropped, source: 'decoded' };
+        return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
       }
     } catch (e) {}
   }
@@ -764,23 +769,6 @@ export const generateBriefingHtml = async (
   // Plan dzień po dniu
   const days = prepareDayByDayPlan(trip, attractionsData, transportData, lodgingData, language);
 
-  // Główny paszportowy kod QR podróży (zawiera wszystkie kluczowe dane w nagłówku)
-  // Czytelny tekst (bez JSON) - każdy skaner w telefonie pokaże go jako zwykłą notatkę,
-  // bez potrzeby instalowania Destivo.
-  const masterQrPayload = [
-    `DESTIVO - ${tripTitle}`,
-    `${isEn ? 'Route' : 'Trasa'}: ${origin} -> ${destination}`,
-    `${isEn ? 'Dates' : 'Termin'}: ${startDate} - ${endDate}`,
-    `${isEn ? 'Lodging' : 'Nocleg'}: ${lodgingAddress}`,
-    `${isEn ? 'Emergency' : 'Numer alarmowy'}: ${emergencyNum}`,
-  ].join('\n');
-
-  let masterQrDataUrl = '';
-  try {
-    masterQrDataUrl = qrToPngDataUrl(masterQrPayload, { width: 240, margin: 1, dark: '#0F172A' });
-  } catch (e) {
-    console.warn('Master QR generation error:', e);
-  }
 
   const generatedDateStr = new Date().toLocaleString(isEn ? 'en-US' : 'pl-PL', {
     year: 'numeric',
@@ -863,27 +851,7 @@ export const generateBriefingHtml = async (
       color: #475569;
       font-weight: 500;
     }
-    .header-qr-box {
-      text-align: center;
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 8px;
-      padding: 6px 8px;
-      width: 105px;
-    }
-    .header-qr-box img {
-      width: 80px;
-      height: 80px;
-      display: block;
-      margin: 0 auto 3px auto;
-    }
-    .header-qr-caption {
-      font-size: 7.5px;
-      font-weight: 700;
-      color: #64748B;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+
 
     /* EMERGENCY & ESSENTIALS GRID */
     .essentials-grid {
@@ -1080,12 +1048,6 @@ export const generateBriefingHtml = async (
         <div class="trip-route"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>${origin} ➔ ${destination}</div>
         <div class="trip-dates">${startDate} – ${endDate} • ${t.briefingPdfSubtitle || (isEn ? 'Emergency Survival Document' : 'Awaryjny dokument podróżny bez roamingu')}</div>
       </div>
-      ${masterQrDataUrl ? `
-      <div class="header-qr-box">
-        <img src="${masterQrDataUrl}" alt="Trip QR" />
-        <div class="header-qr-caption">${t.briefingPdfPassCaption || (isEn ? 'TRIP SUMMARY' : 'PODSUMOWANIE PODRÓŻY')}</div>
-      </div>
-      ` : ''}
     </div>
 
     <!-- ESSENTIALS & EMERGENCY (RED & BLUE HIGHLIGHTS) -->
