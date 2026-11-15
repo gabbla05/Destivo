@@ -24,7 +24,7 @@ export const translations = {
       departureAlerts: 'Powiadomienia o zbliżaniu się do odjazdu',
       appSettings: 'Ustawienia aplikacji', language: 'Język (Language)', vault: 'Zarządzaj Sejfem Offline',
       security: 'Konto i bezpieczeństwo', logout: 'Wyloguj się', version: 'Destivo v1.0.3 (Offline-First Build)',
-      logoutTitle: 'Wylogowanie', logoutMessage: 'Czy na pewno chcesz się wylogować?', cancel: 'Anuluj', logoutConfirm: 'Wyloguj',
+      logoutTitle: 'Wylogowanie', logoutMessage: 'Czy na pewno chcesz się wylogować?', cancel: 'Anuluj', logoutConfirm: 'Wyloguj', logoutUnsyncedTitle: 'Niewysłane zmiany', logoutUnsyncedMessage: 'Część zmian nie dotarła jeszcze do chmury (brak internetu). Po wylogowaniu zostaną utracone. Połącz się z internetem i spróbuj ponownie.', logoutAnyway: 'Wyloguj mimo to',
       logoutError: 'Nie udało się poprawnie wylogować.',
     },
     accountSecurity: {
@@ -69,7 +69,7 @@ export const translations = {
       deleteTripError: 'Nie udało się usunąć podróży.',
       cloudLoadError: 'Nie udało się pobrać podróży z chmury. Sprawdź połączenie i konto, a następnie spróbuj ponownie.',
       cloudEmptyWarning: 'Chmura nie zwróciła żadnych podróży. Jeśli wiesz, że podróż istnieje, sprawdź aktywne konto, projekt Supabase i uprawnienia odczytu (RLS).',
-      cloudSaveWarning: 'Podróż jest zapisana tylko na tym urządzeniu — nie udało się wykonać kopii w chmurze. Nie odinstalowuj aplikacji; sprawdź połączenie i spróbuj ponownie.',
+      cloudSaveWarning: 'Brak połączenia z chmurą — zmiany są zapisane na telefonie i zostaną wysłane automatycznie, gdy wróci internet.',
       guestSaveWarning: 'Podróż jest zapisana tylko na tym urządzeniu. Tryb gościa nie tworzy kopii w chmurze, więc odinstalowanie aplikacji może ją usunąć.',
     },
     timeline: {
@@ -77,7 +77,7 @@ export const translations = {
       departure: 'Rozpoczęcie podróży', returnTrip: 'Zakończenie podróży', transport: 'Transport', lodging: 'Zakwaterowanie', lodgingNightTitle: 'Nocleg', sightseeing: 'Zwiedzanie',
       nowNext: 'TERAZ / NASTĘPNE', deletePointTitle: 'Usuń punkt', deletePointMessage: 'Czy na pewno chcesz usunąć ten element z osi czasu?',
       delete: 'Usuń', cancel: 'Anuluj', dateRequired: 'Data jest wymagana (np. 15-08-2026)', saveSuccess: 'Oś czasu została zaktualizowana.', saveError: 'Nie udało się zapisać zmian.',
-      cloudSaveError: 'Zmiany zapisano lokalnie, ale nie potwierdzono ich synchronizacji z chmurą. Pozostaw tę stronę otwartą i spróbuj zapisać ponownie.',
+      cloudSaveError: 'Zmiany zapisano lokalnie. Brak połączenia z chmurą — zostaną wysłane automatycznie, gdy wróci internet.',
       localSaveWarning: 'Zmiany zapisano tylko na tym urządzeniu. Tryb gościa nie synchronizuje ich z chmurą.',
       deleteTripTitle: 'Usuwanie podróży', deleteTripMessage: 'Czy na pewno chcesz bezpowrotnie usunąć tę podróż i wszystkie jej dane?', deleteTrip: 'Usuń podróż', deleteTripError: 'Nie udało się usunąć podróży.',
       addTitle: 'Dodaj punkt w trasie', suggestions: 'Propozycje z okolicy', suggestionsHint: 'Kliknij, aby błyskawicznie dodać do planu.', noSuggestions: 'Brak więcej propozycji w okolicy.', manual: 'Dodaj ręcznie',
@@ -1070,7 +1070,7 @@ export const translations = {
       cancel: 'Cancel',
     },
     profile: {
-      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', departureAlerts: 'Departure proximity alerts', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.3 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutError: 'Could not log out correctly.',
+      title: 'Your Profile', userFallback: 'Logged-in Explorer', synced: 'Synchronized', departureAlerts: 'Departure proximity alerts', appSettings: 'App settings', language: 'Language', vault: 'Manage Offline Vault', security: 'Account & Security', logout: 'Log out', version: 'Destivo v1.0.3 (Offline-First Build)', logoutTitle: 'Log out', logoutMessage: 'Are you sure you want to log out?', cancel: 'Cancel', logoutConfirm: 'Log out', logoutUnsyncedTitle: 'Unsynced changes', logoutUnsyncedMessage: 'Some changes have not reached the cloud yet (no internet). They will be lost after logging out. Connect to the internet and try again.', logoutAnyway: 'Log out anyway', logoutError: 'Could not log out correctly.',
     },
     accountSecurity: {
       title: 'Account and privacy', accountManagement: 'ACCOUNT MANAGEMENT', resetPassword: 'Reset password', resetSuccess: 'A password reset link was sent to your email address.', resetError: 'Could not send the link.',
@@ -1097,11 +1097,11 @@ export const translations = {
       deleteTripError: 'Could not delete the trip.',
       cloudLoadError: 'Could not load trips from the cloud. Check your connection and account, then try again.',
       cloudEmptyWarning: 'The cloud returned no trips. If you expect one here, check the active account, Supabase project, and read permissions (RLS).',
-      cloudSaveWarning: 'This trip is saved only on this device — its cloud backup failed. Do not uninstall the app; check your connection and try again.',
+      cloudSaveWarning: 'No connection to the cloud — your changes are saved on this phone and will be uploaded automatically when you are back online.',
       guestSaveWarning: 'This trip is saved only on this device. Guest mode does not create a cloud backup, so uninstalling the app may remove it.',
     },
     timeline: {
-      back: '← Back', title: 'Timeline', noTrip: 'No trip', empty: 'You have no planned trip yet.', departure: 'Trip start', returnTrip: 'Trip end', transport: 'Transport', lodging: 'Accommodation', lodgingNightTitle: 'Overnight stay', sightseeing: 'Sightseeing', nowNext: 'NOW / NEXT', deletePointTitle: 'Delete point', deletePointMessage: 'Are you sure you want to remove this timeline item?', delete: 'Delete', cancel: 'Cancel', dateRequired: 'Date is required (e.g. 15-08-2026)', saveSuccess: 'Timeline updated.', saveError: 'Could not save changes.', cloudSaveError: 'Changes were saved locally, but cloud synchronization was not confirmed. Keep this page open and try saving again.', localSaveWarning: 'Changes were saved only on this device. Guest mode does not sync them to the cloud.', deleteTripTitle: 'Delete trip', deleteTripMessage: 'Are you sure you want to permanently delete this trip and all its data?', deleteTrip: 'Delete trip', deleteTripError: 'Could not delete the trip.', addTitle: 'Add a route point', suggestions: 'Nearby suggestions', suggestionsHint: 'Tap to add instantly to your plan.', noSuggestions: 'No more nearby suggestions.', manual: 'Add manually', titleLabel: 'Title *', titlePlaceholder: 'e.g. Dinner at a restaurant', dateLabel: 'Date (DD-MM-YYYY) *', datePlaceholder: '15-08-2026', timeLabel: 'Time (HH:MM)', timePlaceholder: '12:00', add: 'ADD', saveLayout: 'Save timeline layout',
+      back: '← Back', title: 'Timeline', noTrip: 'No trip', empty: 'You have no planned trip yet.', departure: 'Trip start', returnTrip: 'Trip end', transport: 'Transport', lodging: 'Accommodation', lodgingNightTitle: 'Overnight stay', sightseeing: 'Sightseeing', nowNext: 'NOW / NEXT', deletePointTitle: 'Delete point', deletePointMessage: 'Are you sure you want to remove this timeline item?', delete: 'Delete', cancel: 'Cancel', dateRequired: 'Date is required (e.g. 15-08-2026)', saveSuccess: 'Timeline updated.', saveError: 'Could not save changes.', cloudSaveError: 'Changes were saved locally. No connection to the cloud — they will be uploaded automatically when you are back online.', localSaveWarning: 'Changes were saved only on this device. Guest mode does not sync them to the cloud.', deleteTripTitle: 'Delete trip', deleteTripMessage: 'Are you sure you want to permanently delete this trip and all its data?', deleteTrip: 'Delete trip', deleteTripError: 'Could not delete the trip.', addTitle: 'Add a route point', suggestions: 'Nearby suggestions', suggestionsHint: 'Tap to add instantly to your plan.', noSuggestions: 'No more nearby suggestions.', manual: 'Add manually', titleLabel: 'Title *', titlePlaceholder: 'e.g. Dinner at a restaurant', dateLabel: 'Date (DD-MM-YYYY) *', datePlaceholder: '15-08-2026', timeLabel: 'Time (HH:MM)', timePlaceholder: '12:00', add: 'ADD', saveLayout: 'Save timeline layout',
       dateLabelWithFormat: 'Date (DD-MM-YYYY)', timeLabelWithFormat: 'Time (HH:MM)', eventTitleLabel: 'Event title', eventSubtitleLabel: 'Description',
       departurePrefix: 'Departure: {{origin}} ➔ {{destination}}', arrivalPrefix: 'Arrival: {{destination}}', returnPrefix: 'Return: {{destination}} ➔ {{origin}}', transportLabel: 'Transport: {{type}}',
       home: 'Home', newEvent: 'New event', recommendedPlace: 'Recommended place', addedManually: 'Added manually', noDate: 'No date',

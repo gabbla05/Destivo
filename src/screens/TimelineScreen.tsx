@@ -25,6 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { usePowerSync } from '@powersync/react-native';
 import { supabase } from '../lib/supabase';
+import { pushTripToCloud, deleteTripFromCloud } from '../lib/tripSync';
 import { useAuthStore } from '../store/authStore';
 import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -893,14 +894,9 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           db.execute('UPDATE trips SET attractions_data = ? WHERE id = ?', [
             serialized,
             trip.id,
-          ]).catch(() => {});
-          if (!isUserGuest) {
-            supabase
-              .from('trips')
-              .update({ attractions_data: serialized })
-              .eq('id', trip.id)
-              .then(() => {}, () => {});
-          }
+          ])
+            .then(() => (isUserGuest ? undefined : pushTripToCloud(db, trip.id, user?.id)))
+            .catch(() => {});
         }
       };
     }, [user?.id])
@@ -1185,16 +1181,11 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
         return 'localOnly';
       }
 
-      // 3. Potwierdzamy, że RLS nie odfiltrował aktualizowanego rekordu.
+      // 3. Cały wiersz do Supabase (upsert z potwierdzeniem - RLS nie może go po cichu odfiltrować).
+      //    Bez sieci zmiana zostaje w kolejce i zostanie wysłana automatycznie.
       cloudSyncStarted = true;
-      const { data, error } = await supabase
-        .from('trips')
-        .update({ attractions_data: serialized })
-        .eq('id', currentTrip.id)
-        .select('id')
-        .maybeSingle();
-      if (error || !data) {
-        console.warn('Supabase update warning:', error || 'No trip row was updated.');
+      const cloudSaved = await pushTripToCloud(db, currentTrip.id, user?.id);
+      if (!cloudSaved) {
         setHasUnsavedChanges(true);
         hasUnsavedChangesRef.current = true;
         return 'cloudFailed';
@@ -1381,7 +1372,8 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
           const isUserGuest = user?.isGuest || !user;
           await db.execute('DELETE FROM trips WHERE id = ?', [tripData.id]);
           if (!isUserGuest) {
-            await supabase.from('trips').delete().eq('id', tripData.id);
+            // Bez sieci usunięcie z chmury zostaje zapamiętane i wykonane później
+            await deleteTripFromCloud(tripData.id, user?.id);
           }
 
           try {
@@ -1628,6 +1620,21 @@ export const TimelineScreen = ({ navigation: propNavigation, route }: any) => {
               </Text>
               {/* Ukryty element dla kompatybilności z testami */}
               <Text style={styles.hiddenTestText}>Dynamiczny Asystent Pakowania</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.actionGridRow}>
+            {/* 5. TRANSPORT, BILETY I NOCLEG (także dla podróży z szybkiego kreatora) */}
+            <TouchableOpacity
+              style={styles.actionGridBtn}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('TripDetailsEdit', { tripId: tripData.id })}
+              testID="timeline-edit-transport-btn"
+            >
+              <Ionicons name="train-outline" size={14} color="#A78BFA" style={{ marginRight: 6 }} />
+              <Text style={styles.actionGridBtnText} numberOfLines={1} ellipsizeMode="tail">
+                {language === 'en' ? 'Transport, tickets & stay' : 'Transport, bilety i nocleg'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

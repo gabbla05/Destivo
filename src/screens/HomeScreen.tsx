@@ -35,6 +35,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase'; // DODANE: Do dual-write przy zapisywaniu wycieczki na osi
+import { pushTripToCloud, flushPendingTrips } from '../lib/tripSync';
 import { parseTripDate } from './TripsListScreen';
 import {
   insertTimelineEventIntelligently,
@@ -507,6 +508,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   useFocusEffect(
     React.useCallback(() => {
       const fetchActiveTrip = async () => {
+        // Zaległe zmiany (zrobione offline) wysyłamy do chmury w tle przy każdym wejściu na ekran
+        if (user && !user.isGuest && user.id) flushPendingTrips(db, user.id).catch(() => {});
         try {
           const userId = user?.id || 'guest';
           const result = await db.execute(`SELECT * FROM trips WHERE user_id = ?`, [userId]);
@@ -934,13 +937,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         console.warn('HomeScreen AsyncStorage cache warning:', cacheErr);
       }
 
-      // 3. Zapis do Supabase dla zalogowanego
-      if (!isUserGuest) {
-        await supabase
-          .from('trips')
-          .update({ attractions_data: serialized })
-          .eq('id', activeTrip.id);
-      }
+      // 3. Zapis do Supabase dla zalogowanego (bez sieci zmiana czeka w kolejce)
+      if (!isUserGuest) await pushTripToCloud(db, activeTrip.id, user?.id);
 
       setActiveTrip((prev: any) => ({
         ...prev,
@@ -1003,12 +1001,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         }
       } catch {}
 
-      if (!isUserGuest) {
-        await supabase
-          .from('trips')
-          .update({ attractions_data: serialized })
-          .eq('id', activeTrip.id);
-      }
+      if (!isUserGuest) await pushTripToCloud(db, activeTrip.id, user?.id);
     } catch (err) {
       console.warn('Błąd zapisu własnej atrakcji:', err);
     }
@@ -1028,12 +1021,7 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         JSON.stringify(updatedAttractions),
         activeTrip.id,
       ]);
-      if (!isUserGuest) {
-        await supabase
-          .from('trips')
-          .update({ attractions_data: JSON.stringify(updatedAttractions) })
-          .eq('id', activeTrip.id);
-      }
+      if (!isUserGuest) await pushTripToCloud(db, activeTrip.id, user?.id);
       setActiveTrip((prev: any) => ({
         ...prev,
         attractions_data: JSON.stringify(updatedAttractions),
@@ -1159,25 +1147,18 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         customTimeline: activeTimeline
       };
 
-      if (isUserGuest) {
-        await db.execute(
-          'UPDATE trips SET attractions_data = ? WHERE id = ?',
-          [JSON.stringify(updatedAttractions), activeTrip.id]
-        );
-      } else {
-        await db.execute(
-          'UPDATE trips SET attractions_data = ? WHERE id = ?',
-          [JSON.stringify(updatedAttractions), activeTrip.id]
-        );
-        const { error } = await supabase
-          .from('trips')
-          .update({ attractions_data: JSON.stringify(updatedAttractions) })
-          .eq('id', activeTrip.id);
-        if (error) throw error;
-      }
-      
+      await db.execute(
+        'UPDATE trips SET attractions_data = ? WHERE id = ?',
+        [JSON.stringify(updatedAttractions), activeTrip.id]
+      );
+      // Zapis lokalny jest zawsze; do chmury od razu, a bez sieci zmiana czeka w kolejce
+      const cloudSaved = isUserGuest ? true : await pushTripToCloud(db, activeTrip.id, user?.id);
+
       setHasUnsavedChanges(false);
-      Alert.alert(commonT.saveSuccess, t.saveSuccess);
+      Alert.alert(
+        commonT.saveSuccess,
+        cloudSaved ? t.saveSuccess : translations[language].trips.cloudSaveWarning
+      );
     } catch (e) {
       console.error(e);
       Alert.alert(commonT.label_error, t.saveError);

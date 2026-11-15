@@ -22,6 +22,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { usePowerSync } from '@powersync/react-native';
 import { useAuthStore } from '../../store/authStore';
 import { supabase } from '../../lib/supabase';
+import { pushTripToCloud } from '../../lib/tripSync';
 import { VaultManager } from '../../lib/vaultManager';
 import { translations } from '../../i18n/translations';
 import * as Sharing from 'expo-sharing';
@@ -147,12 +148,8 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
     // Zapis lokalny PowerSync
     await db.execute('UPDATE trips SET lodging_data = ? WHERE id = ?', [newLodgingData, selectedTrip.id]);
 
-    // Zapis do chmury Supabase (opcjonalny, odporny na brak kolumny w schemacie)
-    if (!isUserGuest) {
-      try {
-        await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
-      } catch {}
-    }
+    // Zapis do chmury: cały wiersz podróży (bez sieci czeka w kolejce)
+    if (!isUserGuest) await pushTripToCloud(db, selectedTrip.id, user?.id);
 
     setSelectedTrip({ ...selectedTrip, lodging_data: newLodgingData });
   };
@@ -218,15 +215,7 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
         currentTrips.map((trip) => trip.id === selectedTrip.id ? updatedTrip : trip)
       );
 
-      if (user && !user.isGuest) {
-        const { error } = await supabase
-          .from('trips')
-          .update({ lodging_data: updatedLodgingData })
-          .eq('id', selectedTrip.id);
-        if (error) {
-          console.warn('Vault file encryption metadata could not be synced to Supabase:', error);
-        }
-      }
+      if (user && !user.isGuest) await pushTripToCloud(db, selectedTrip.id, user.id);
 
       await Promise.all(legacyFiles
         .filter((file: any) => file.uri.includes('/destivo_vault/'))
@@ -266,12 +255,8 @@ export const VaultDashboardScreen = ({ route, navigation }: any) => {
       // Zapis lokalny PowerSync
       await db.execute('UPDATE trips SET lodging_data = ? WHERE id = ?', [newLodgingData, selectedTrip.id]);
 
-      // Zapis do chmury Supabase (opcjonalny, odporny na brak kolumny w schemacie)
-      if (!isUserGuest) {
-        try {
-          await supabase.from('trips').update({ lodging_data: newLodgingData }).eq('id', selectedTrip.id);
-        } catch {}
-      }
+      // Zapis do chmury: cały wiersz podróży (bez sieci czeka w kolejce)
+      if (!isUserGuest) await pushTripToCloud(db, selectedTrip.id, user?.id);
 
       // Aktualizacja widoku
       setSelectedTrip({ ...selectedTrip, lodging_data: newLodgingData });

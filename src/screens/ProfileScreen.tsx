@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore, type Language } from '../store/authStore';
 import { supabase } from '../lib/supabase';
+import { pushAllLocalTrips, flushPendingTrips } from '../lib/tripSync';
 import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
 import { clearGeofencing, isDepartureGeofenceEnabled, setDepartureGeofenceEnabled } from '../lib/proximityAlertService';
@@ -39,74 +40,57 @@ export const ProfileScreen = ({ navigation }: any) => {
     setLanguage(nextLanguage);
   };
 
+  // Właściwe wylogowanie: czyści lokalną kopię, strefę geofencingu i sesję
+  const finishLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      // Odłączamy PowerSync, by przerwać synchronizację w tle
+      await db.disconnectAndClear();
+      // Strefa odjazdu nie może zostać aktywna po wylogowaniu
+      await clearGeofencing().catch(() => undefined);
+      await supabase.auth.signOut();
+      // Czyścimy stan lokalny (powrót do Welcome Screen)
+      logout();
+    } catch (error) {
+      Alert.alert(commonT.label_error, t.logoutError);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   const handleLogout = async () => {
     Alert.alert(
       t.logoutTitle,
       t.logoutMessage,
       [
         { text: t.cancel, style: "cancel" },
-        { 
-          text: t.logoutConfirm, 
-          style: "destructive", 
+        {
+          text: t.logoutConfirm,
+          style: "destructive",
           onPress: async () => {
-            try {
+            // Przed wyczyszczeniem lokalnej kopii wysyłamy wszystko do Supabase. Jeśli coś nie dotarło
+            // (brak internetu), ostrzegamy - po wylogowaniu te zmiany by przepadły.
+            let remaining = 0;
+            if (user && !user.isGuest && user.id) {
               setIsLoggingOut(true);
-              
-              // Przed wyczyszczeniem bazy wykonujemy bezpieczną synchronizację do Supabase,
-              // aby żadna podróż użytkownika nie przepadła przy wylogowaniu
-              if (user && !user.isGuest && user.id) {
-                try {
-                  const result = await db.execute('SELECT * FROM trips WHERE user_id = ?', [user.id]);
-                  const localRows = (((result as any)?.array?.length > 0 ? (result as any).array : (result as any)?.rows?._array || (result as any)?.rows || [])) as any[];
-                  for (const lt of localRows) {
-                    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lt.id);
-                    if (isValidUUID) {
-                      let transportType = 'flight';
-                      try {
-                        const raw = typeof lt.transport_data === 'string' ? JSON.parse(lt.transport_data || '{}') : (lt.transport_data || {});
-                        transportType = raw?.selectedOption?.type || lt.transport_type || 'flight';
-                      } catch {}
-                      let accommodationAddress = '';
-                      try {
-                        const raw = typeof lt.lodging_data === 'string' ? JSON.parse(lt.lodging_data || '{}') : (lt.lodging_data || {});
-                        accommodationAddress = raw?.lodgingAddress || lt.accommodation_address || '';
-                      } catch {}
-
-                      await supabase.from('trips').upsert([{
-                        id: lt.id,
-                        user_id: user.id,
-                        title: lt.trip_name || lt.title || 'Podróż',
-                        origin: lt.origin || '',
-                        destination: lt.destination || '',
-                        start_date: lt.start_date || null,
-                        end_date: lt.end_date || null,
-                        transport_type: transportType,
-                        accommodation_address: accommodationAddress,
-                        attractions_data: lt.attractions_data || '{}',
-                      }]);
-                    }
-                  }
-                } catch (syncErr) {
-                  console.warn('Profile logout sync warning:', syncErr);
-                }
+              try {
+                await pushAllLocalTrips(db, user.id);
+                remaining = await flushPendingTrips(db, user.id);
+              } catch (syncErr) {
+                console.warn('Profile logout sync warning:', syncErr);
+              } finally {
+                setIsLoggingOut(false);
               }
-
-              // Odłączamy PowerSync, by przerwać synchronizację w tle
-              await db.disconnectAndClear(); 
-              
-              // Zabijamy sesję w Supabase
-              // Strefa odjazdu nie może zostać aktywna po wylogowaniu
-              await clearGeofencing().catch(() => undefined);
-              await supabase.auth.signOut();
-              
-              // Czyścimy stan lokalny (powrót do Welcome Screen)
-              logout();
-            } catch (error) {
-              Alert.alert(commonT.label_error, t.logoutError);
-            } finally {
-              setIsLoggingOut(false);
             }
-          } 
+            if (remaining > 0) {
+              Alert.alert(t.logoutUnsyncedTitle, t.logoutUnsyncedMessage, [
+                { text: t.cancel, style: 'cancel' },
+                { text: t.logoutAnyway, style: 'destructive', onPress: () => { finishLogout(); } },
+              ]);
+              return;
+            }
+            await finishLogout();
+          }
         }
       ]
     );

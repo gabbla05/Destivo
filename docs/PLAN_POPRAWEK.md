@@ -341,6 +341,12 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 - Geofencing: promień strefy liczony z `transport_data.selectedOption.type` (wiersz bazy nie ma `transport_type`) — lotnisko ma 1,5 km zamiast 600 m.
 - README: poprawiony opis kolumn tabeli w Supabase (szczegóły transportu i lista plików Sejfu są tylko lokalne).
 
+### Wersje 1.0.13–1.0.14
+
+- Supabase jako główne miejsce danych (`src/lib/tripSync.ts`): pełny wiersz podróży (upsert), kolejka zmian i usunięć offline, ostrzeżenie przy wylogowaniu z niewysłanymi zmianami. Migracja `supabase/migrations/20261115_trips_full_sync.sql` (kolumny `transport_data`, `lodging_data`, `updated_at`; reguły RLS — wcześniej nie było reguły UPDATE, więc edycje planu nie trafiały do chmury).
+- Ekran „Transport, bilety i nocleg” dla każdej podróży (także z szybkiego kreatora).
+- Wybór dworca / lotniska / przystanku z listy miejsc w pobliżu (kreator i ekran edycji).
+
 ---
 
 ## Zależności między punktami

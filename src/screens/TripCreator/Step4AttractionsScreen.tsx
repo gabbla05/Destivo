@@ -29,6 +29,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
 import { translations } from '../../i18n/translations';
 import { supabase } from '../../lib/supabase';
+import { pushTripToCloud } from '../../lib/tripSync';
 import { generateSmartMultiDayTimeline } from '../../lib/routeOptimization';
 
 import * as Crypto from 'expo-crypto';
@@ -483,33 +484,8 @@ export const Step4AttractionsScreen = () => {
 
       let cloudSyncFailed = false;
       if (user && !isGuest && !user.isGuest) {
-        let targetUserId = user.id;
-        try {
-          const sessionRes = await supabase.auth.getSession();
-          if (sessionRes?.data?.session?.user?.id) {
-            targetUserId = sessionRes.data.session.user.id;
-          }
-        } catch {}
-
-        const { error: supabaseError } = await supabase
-          .from('trips')
-          .insert([{
-            id: tripId,
-            user_id: targetUserId,
-            title: tripName || t.defaultTripName.replace('{{destination}}', destination),
-            origin: origin || '',
-            destination,
-            start_date: dbStartDate,
-            end_date: dbEndDate,
-            transport_type: transport?.selectedOption?.type || 'flight',
-            accommodation_address: lodgingAddress || '',
-            attractions_data: attractionsJson,
-          }]);
-
-        if (supabaseError) {
-          cloudSyncFailed = true;
-          console.warn('Błąd bezpośredniego zapisu do Supabase w Step4:', supabaseError);
-        }
+        // Pełny wiersz (z transportem, noclegiem i biletami) do Supabase; bez sieci podróż czeka w kolejce
+        cloudSyncFailed = !(await pushTripToCloud(db, tripId, user.id));
       }
 
       const saveNotice = isGuest || user?.isGuest || !user

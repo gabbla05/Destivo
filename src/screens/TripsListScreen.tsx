@@ -22,6 +22,7 @@ import { usePowerSync } from '@powersync/react-native';
 import { useAuthStore } from '../store/authStore';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { pushTripToCloud, deleteTripFromCloud, flushPendingTrips, getPendingTripIds } from '../lib/tripSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations } from '../i18n/translations';
 import { Ionicons } from '@expo/vector-icons';
@@ -181,6 +182,10 @@ export const TripsListScreen = ({ navigation }: any) => {
             }
           } catch {}
 
+          // Najpierw wysyłamy zaległe zmiany zrobione offline - dopiero potem chmura jest aktualna
+          await flushPendingTrips(db, queryUserId).catch(() => 0);
+          const pendingIds = new Set(await getPendingTripIds(queryUserId).catch(() => [] as string[]));
+
           const { data, error } = await supabase
             .from('trips')
             .select('*')
@@ -212,8 +217,9 @@ export const TripsListScreen = ({ navigation }: any) => {
                 transport_type: transportType,
               });
 
-              // Zapisujemy podróż z chmury do lokalnej bazy PowerSync, by była trwale dostępna,
-              // zachowując lokalne dane biletów i transportu (które nie są synchronizowane do Supabase)
+              // Supabase jest źródłem prawdy, a lokalna baza kopią na czas braku sieci.
+              // Wyjątek: podróż ze zmianami czekającymi na wysłanie - wtedy zostaje wersja lokalna.
+              if (pendingIds.has(trip.id)) continue;
               try {
                 let existingLocal: any = null;
                 try {
@@ -224,13 +230,20 @@ export const TripsListScreen = ({ navigation }: any) => {
                   }
                 } catch {}
 
-                const finalTransportData = (trip.transport_data && trip.transport_data !== '{}')
+                // Wiersze sprzed dodania kolumn transport_data / lodging_data mają je puste -
+                // wtedy zostawiamy dane lokalne i uzupełniamy nimi chmurę.
+                const cloudHasTransport = Boolean(trip.transport_data && trip.transport_data !== '{}');
+                const cloudHasLodging = Boolean(trip.lodging_data && trip.lodging_data !== '{}');
+                let needsBackfill = false;
+                const finalTransportData = cloudHasTransport
                   ? trip.transport_data
                   : (existingLocal?.transport_data || JSON.stringify({ selectedOption: { type: trip.transport_type || 'flight' } }));
+                if (!cloudHasTransport && existingLocal?.transport_data && existingLocal.transport_data !== '{}') needsBackfill = true;
 
-                const finalLodgingData = (trip.lodging_data && trip.lodging_data !== '{}')
+                const finalLodgingData = cloudHasLodging
                   ? trip.lodging_data
                   : (existingLocal?.lodging_data || JSON.stringify({ lodgingAddress: trip.accommodation_address || '' }));
+                if (!cloudHasLodging && existingLocal?.lodging_data && existingLocal.lodging_data !== '{}') needsBackfill = true;
 
                 let finalAttractionsData = (trip.attractions_data && trip.attractions_data !== '{}')
                   ? trip.attractions_data
@@ -244,13 +257,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                     const remoteCount = remoteParsed?.customTimeline?.length || 0;
                     if (localCount >= remoteCount) {
                       finalAttractionsData = existingLocal.attractions_data;
-                      if (localCount > remoteCount) {
-                        supabase
-                          .from('trips')
-                          .update({ attractions_data: finalAttractionsData })
-                          .eq('id', trip.id)
-                          .then(() => {}, () => {});
-                      }
+                      if (localCount > remoteCount) needsBackfill = true;
                     }
                   } catch {}
                 }
@@ -283,6 +290,7 @@ export const TripsListScreen = ({ navigation }: any) => {
                     trip.created_at || new Date().toISOString(),
                   ]
                 );
+                if (needsBackfill) pushTripToCloud(db, trip.id, queryUserId).catch(() => false);
               } catch {}
             }
 
@@ -292,50 +300,13 @@ export const TripsListScreen = ({ navigation }: any) => {
             for (const localTrip of localFullTrips) {
               const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(localTrip.id);
               if (isValidUUID && !remoteIds.has(localTrip.id)) {
-                let transportType = 'flight';
+                // Podróż utworzona offline albo jako gość przed zalogowaniem: przypisujemy ją do konta
+                // i wysyłamy cały wiersz (z transportem, noclegiem i planem)
                 try {
-                  const raw = typeof localTrip.transport_data === 'string' ? JSON.parse(localTrip.transport_data || '{}') : (localTrip.transport_data || {});
-                  transportType = raw?.selectedOption?.type || localTrip.transport_type || 'flight';
+                  await db.execute('UPDATE trips SET user_id = ? WHERE id = ?', [queryUserId, localTrip.id]);
                 } catch {}
-
-                let accommodationAddress = '';
-                try {
-                  const raw = typeof localTrip.lodging_data === 'string' ? JSON.parse(localTrip.lodging_data || '{}') : (localTrip.lodging_data || {});
-                  accommodationAddress = raw?.lodgingAddress || localTrip.accommodation_address || '';
-                } catch {}
-
-                const formatToDBDate = (dateStr?: string | null): string | null => {
-                  if (!dateStr || !dateStr.trim()) return null;
-                  const normalized = dateStr.trim().replace(/[./]/g, '-');
-                  const parts = normalized.split('-');
-                  if (parts.length === 3) {
-                    if (parts[0].length === 4) return normalized;
-                    return `${parts[2]}-${parts[1]}-${parts[0]}`;
-                  }
-                  return null;
-                };
-
-                const syncPayload = {
-                  id: localTrip.id,
-                  user_id: queryUserId,
-                  title: localTrip.trip_name || localTrip.title || t.untitled,
-                  origin: localTrip.origin || '',
-                  destination: localTrip.destination || '',
-                  start_date: formatToDBDate(localTrip.start_date),
-                  end_date: formatToDBDate(localTrip.end_date),
-                  transport_type: transportType,
-                  accommodation_address: accommodationAddress,
-                  attractions_data: localTrip.attractions_data || '{}',
-                };
-
-                const { error: syncError } = await supabase.from('trips').insert([syncPayload]);
-                if (!syncError) {
+                if (await pushTripToCloud(db, localTrip.id, queryUserId)) {
                   remoteIds.add(localTrip.id);
-                  try {
-                    await db.execute('UPDATE trips SET user_id = ? WHERE id = ?', [queryUserId, localTrip.id]);
-                  } catch {}
-                } else {
-                  console.warn('TripsList: błąd synchronizacji lokalnej podróży do Supabase:', syncError);
                 }
               }
             }
@@ -449,7 +420,8 @@ export const TripsListScreen = ({ navigation }: any) => {
               await db.execute('DELETE FROM trips WHERE id = ?', [tripId]);
 
               if (user && !user.isGuest) {
-                await supabase.from('trips').delete().eq('id', tripId);
+                // Bez sieci usunięcie z chmury zostaje zapamiętane i wykonane później
+                await deleteTripFromCloud(tripId, user.id);
               }
 
               setTrips((prev) => {

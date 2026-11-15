@@ -102,6 +102,17 @@ jest.mock('../src/lib/supabase', () => ({
   },
 }));
 
+// Moduł synchronizacji z Supabase ma własne testy (tests_TripSync); tu sprawdzamy, że ekran go wywołuje
+const mockPushTrip = jest.fn().mockResolvedValue(true);
+const mockDeleteTrip = jest.fn().mockResolvedValue(true);
+jest.mock('../src/lib/tripSync', () => ({
+  pushTripToCloud: (...args: any[]) => mockPushTrip(...args),
+  deleteTripFromCloud: (...args: any[]) => mockDeleteTrip(...args),
+  flushPendingTrips: jest.fn().mockResolvedValue(0),
+  getPendingTripIds: jest.fn().mockResolvedValue([]),
+  pushAllLocalTrips: jest.fn().mockResolvedValue(undefined),
+}));
+
 // 5. Mock React Navigation
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -566,16 +577,14 @@ describe('Aplikacja Destivo - Kompleksowe Testy Osi Czasu i Listy Podróży', ()
       fireEvent.press(screen.getByText('Zapisz układ osi czasu'));
 
       await waitFor(() => {
-        expect(mockSupabaseUpdate).toHaveBeenCalled();
+        expect(mockPushTrip).toHaveBeenCalled();
         expect(Alert.alert).toHaveBeenCalledWith("Sukces", "Oś czasu została zaktualizowana.");
       });
     });
 
     test('nie zgłasza sukcesu ani nie czyści zmian, gdy chmura nie potwierdzi zapisu', async () => {
-      mockSupabaseUpdateMaybeSingle.mockResolvedValueOnce({
-        data: null,
-        error: { message: 'row filtered by RLS' },
-      });
+      // Chmura nie potwierdziła zapisu (np. brak sieci albo odrzucenie przez RLS)
+      mockPushTrip.mockResolvedValueOnce(false);
       render(<TimelineScreen route={{ params: { tripId: 'trip-upcoming' } }} />);
 
       await waitFor(() => expect(screen.getByText('Panteon')).toBeTruthy());

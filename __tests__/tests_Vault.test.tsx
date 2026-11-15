@@ -47,6 +47,17 @@ jest.mock('../src/lib/supabase', () => ({
   },
 }));
 
+// Moduł synchronizacji z Supabase ma własne testy (tests_TripSync); tu sprawdzamy, że ekran go wywołuje
+const mockPushTrip = jest.fn().mockResolvedValue(true);
+const mockDeleteTrip = jest.fn().mockResolvedValue(true);
+jest.mock('../src/lib/tripSync', () => ({
+  pushTripToCloud: (...args: any[]) => mockPushTrip(...args),
+  deleteTripFromCloud: (...args: any[]) => mockDeleteTrip(...args),
+  flushPendingTrips: jest.fn().mockResolvedValue(0),
+  getPendingTripIds: jest.fn().mockResolvedValue([]),
+  pushAllLocalTrips: jest.fn().mockResolvedValue(undefined),
+}));
+
 // 4. Mock Local Authentication (Biometria)
 jest.mock('expo-local-authentication', () => ({
   hasHardwareAsync: jest.fn().mockResolvedValue(true),
@@ -296,9 +307,8 @@ describe('Moduł Sejfu Offline (Vault)', () => {
           expect.any(Array) // Oczekujemy zaktualizowanego stringa JSON i ID trip-1
         );
 
-        // 2. Zapis do Supabase
-        expect(mockSupabaseUpdate).toHaveBeenCalled();
-        expect(mockSupabaseUpdateEq).toHaveBeenCalledWith('id', 'trip-1');
+        // 2. Zapis do Supabase (cały wiersz podróży przez moduł synchronizacji)
+        expect(mockPushTrip).toHaveBeenCalledWith(expect.anything(), 'trip-1', expect.anything());
 
         // Weryfikacja interfejsu
         expect(screen.getByText('ticket.pdf')).toBeTruthy();

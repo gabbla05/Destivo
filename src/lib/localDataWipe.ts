@@ -18,6 +18,8 @@ export const USER_DATA_KEY_PREFIXES = [
   '@destivo_proximity_notif_',
   '@destivo_proximity_geofence_',
   '@destivo_geofence_notified_',
+  // kolejka synchronizacji z Supabase (zmiany i usunięcia czekające na sieć)
+  'destivo_sync_pending_',
 ];
 
 interface LocalDatabase {

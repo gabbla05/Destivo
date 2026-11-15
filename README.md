@@ -52,7 +52,7 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | **Bezpieczeństwo** | Pliki szyfrowane AES-256-GCM, klucz w Android Keystore, PIN przechowywany jako solony skrót z limitem prób, biometria |
 | **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu i kodem QR odczytanym z biletu, alert w pobliżu dworca lub lotniska (także przy zamkniętej aplikacji), powiadomienie przed odjazdem |
 | **Bez internetu** | PDF z planem dnia, transportem, biletami, adresem noclegu, kursem waluty (z datą kursu) i numerami alarmowymi |
-| **Jakość** | 51 zestawów, 626 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
+| **Jakość** | 54 zestawy, 638 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
 
 ---
 
@@ -197,7 +197,7 @@ Pełny kreator (`src/screens/TripCreator`) prowadzi przez cztery kroki z paskiem
 - Każda opcja ma linki: do rezerwacji (Koleo, Skyscanner), do pokazania dworca lub lotniska w Google Maps i do nawigacji.
 - **Dojazd do węzła:** aplikacja liczy, ile kilometrów dzieli miasto użytkownika od wybranego lotniska lub dworca.
 - **Stacja w miejscu docelowym:** miasta ze słownika (także zapisane z polskimi znakami, np. „Kraków”, „Łódź”) mają dworzec; dla mniejszych miejscowości aplikacja sprawdza najbliższą stację w Google Places i nie proponuje bezpośredniego pociągu do wsi bez stacji.
-- Formularz szczegółów: godziny i miejsca odjazdu i przyjazdu dla trasy tam i z powrotem.
+- Formularz szczegółów: godziny i miejsca odjazdu i przyjazdu dla trasy tam i z powrotem. **Miejsce można wybrać z listy** dworców, lotnisk albo przystanków w pobliżu miejscowości (Google Places Nearby Search, rodzaj zależny od transportu; lotniska sortowane po popularności, dworce od najbliższego — `src/lib/transportHubs.ts`, `src/components/HubPickerField.tsx`) albo wpisać ręcznie.
 - **Wgrywanie biletów** (osobno na trasę tam i z powrotem) prosto do zaszyfrowanego sejfu. Bilety są potem widoczne w Sejfie w folderze podróży jako „Bilet tam” i „Bilet powrotny”.
 
 #### Krok 3: Nocleg
@@ -250,7 +250,7 @@ Gdy użytkownik ma podróż w toku albo najbliższą nadchodzącą, zakładka g�
 - **Propozycje atrakcji:** trzy kafelki z atrakcjami jeszcze niedodanymi do planu. Najpierw z puli zapisanej przy tworzeniu podróży, a gdy się wyczerpie, na żywo z Google Places (`nearbysearch` wokół noclegu). Zdjęcia są dociągane asynchronicznie z Google Places.
 - **Współrzędne punktów** są dociągane w tle z Google Places (wyszukiwanie po nazwie w kontekście miasta), żeby optymalizacja trasy pracowała na prawdziwych położeniach.
 - **Zapis w trzech miejscach:** lokalna baza SQLite, kopia w AsyncStorage i Supabase. Aplikacja potwierdza, czy aktualizacja w chmurze faktycznie dotknęła rekordu (ochrona przed cichym odrzuceniem przez reguły RLS) i informuje, jeśli zapis w chmurze się nie powiódł.
-- Skróty do **optymalizacji trasy**, **sejfu** i **listy pakowania**, a w nagłówku ikona **biletu** (gdy podróż ma bilet), która otwiera „Bilet w zasięgu ręki”.
+- Skróty do **optymalizacji trasy**, **sejfu**, **listy pakowania** oraz ekranu **„Transport, bilety i nocleg”** (`TripDetailsEditScreen`): dla każdej podróży, także utworzonej szybkim kreatorem, można tam zmienić środek transportu, miejsca (z listą stacji w pobliżu) i godziny odjazdów, wgrać lub wymienić bilety tam i z powrotem oraz zmienić adres noclegu. Zapis aktualizuje też godziny i opis wyjazdu i powrotu na osi czasu, a w nagłówku ikona **biletu** (gdy podróż ma bilet), która otwiera „Bilet w zasięgu ręki”.
 - Strzałka wstecz zawsze wraca do listy „Moje podróże”, także gdy oś otwarto z ekranu „Dziś”.
 - **Usunięcie podróży** czyści ją lokalnie i w chmurze, anuluje zaplanowane powiadomienia i usuwa strefę geofencingu.
 
@@ -431,9 +431,9 @@ Cały interfejs jest dostępny po polsku i angielsku, z przełącznikiem w profi
 
 Schemat lokalnej tabeli `trips` (SQLite): `id`, `user_id`, `trip_name`, `origin`, `destination`, `start_date`, `end_date`, `transport_data`, `lodging_data`, `attractions_data`, `created_at`.
 
-Wiersz w Supabase ma inny zestaw kolumn: `id`, `user_id`, `title`, `origin`, `destination`, `start_date`, `end_date`, `transport_type`, `accommodation_address`, `attractions_data`. Szczegóły transportu (godziny, stacje, odwołania do biletów) i lista plików Sejfu zostają tylko na telefonie; przy pobieraniu z chmury aplikacja odtwarza z tych pól minimalne `transport_data` i `lodging_data`.
+Tabela `trips` w Supabase: `id`, `user_id`, `title`, `origin`, `destination`, `start_date`, `end_date`, `transport_type`, `accommodation_address`, `attractions_data`, `transport_data`, `lodging_data`, `created_at`, `updated_at` (migracja: `supabase/migrations/20261115_trips_full_sync.sql`, razem z regułami RLS).
 
-**Model zapisu.** Aplikacja stosuje zapis podwójny (*dual-write*): najpierw lokalnie, potem do Supabase. SDK PowerSync służy jako lokalna baza SQLite. Synchronizacja z chmurą odbywa się bezpośrednimi zapytaniami Supabase, a nie mechanizmem replikacji PowerSync.
+**Model zapisu.** Dla zalogowanego użytkownika **Supabase jest głównym miejscem danych**, a lokalna baza SQLite (SDK PowerSync) to kopia na czas braku sieci. Każda zmiana jest zapisywana lokalnie, a potem cały wiersz podróży trafia do Supabase (`upsert`, moduł `src/lib/tripSync.ts`). Bez internetu zmiana (albo usunięcie) trafia do kolejki i jest wysyłana automatycznie przy następnym wejściu na ekran „Dziś” lub „Moje podróże”. Przy pobieraniu z chmury wersja z Supabase zastępuje lokalną, chyba że podróż ma zmiany czekające na wysłanie. Wylogowanie z niewysłanymi zmianami wymaga potwierdzenia. Pliki Sejfu zostają na telefonie (klucz nie opuszcza urządzenia); w chmurze jest tylko ich lista.
 
 ---
 
@@ -476,7 +476,7 @@ npm run check:env      # sprawdzenie kluczy
 npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 ```
 
-**51 zestawów, 626 testów**, m.in.:
+**54 zestawy, 638 testów**, m.in.:
 
 | Obszar | Pliki testów |
 |---|---|
@@ -492,6 +492,7 @@ npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 | Dokumenty i pakowanie | `tests_OfflineTravelBriefing`, `tests_SmartPackingAssistant`, `tests_SmartPackingModal` |
 | Geodane i transport | `tests_GeoDatabaseAndTransport`, `tests_StationPolishNames`, `tests_placesPhotoService`, `config` |
 | Statystyki | `tests_TripStats` |
+| Synchronizacja i transport | `tests_TripSync`, `tests_TransportHubs`, `tests_TripDetailsEditScreen`, `tests_Step2TransportScreen` |
 | Scenariusze E2E | `e2e_critical_journeys` (pełne ścieżki użytkownika) |
 
 Testy kryptografii używają prawdziwego SHA-256 i prawdziwych losowych bajtów (Node `crypto`), a nie atrap.
@@ -556,7 +557,7 @@ Destivo/
 │   └── i18n/translations.ts    # PL / EN
 ├── supabase/functions/transport-search/   # Edge Function: rekomendacja transportu (Deno)
 ├── supabase/functions/delete-account/     # Edge Function: trwałe usunięcie konta
-├── __tests__/                  # 51 zestawów testów
+├── __tests__/                  # 54 zestawy testów
 └── test-shims/                 # Pomocniki testowe
 ```
 
@@ -573,4 +574,4 @@ Lista dla przejrzystości. Część punktów to świadome uproszczenia, część
 - **Benchmark TSP** używa macierzy odległości w linii prostej. Porównanie z czasami przejazdu z serwera OSRM wymaga działającego serwera i nie jest częścią pomiaru.
 - **Gość nie ma dostępu do profilu**, więc nie widzi opcji „Usuń moje dane”. Jego dane znikają po odinstalowaniu aplikacji.
 - **Duże pliki ekranów.** `TimelineScreen.tsx` (~3400 linii) i `HomeScreen.tsx` (~3200 linii) łączą wiele odpowiedzialności. Zapytania do Supabase są rozproszone po ekranach zamiast w jednym module repozytorium.
-- **Synchronizacja.** Zapis do chmury to bezpośrednie zapytania (dual-write), a nie pełna replikacja z rozwiązywaniem konfliktów. Szczegóły transportu i lista plików Sejfu nie są wysyłane do Supabase (inne kolumny w chmurze), więc po zmianie telefonu godziny odjazdów trzeba wpisać ponownie.
+- **Synchronizacja.** Konflikty rozstrzyga zasada „ostatni zapis wygrywa” (cały wiersz). Przy jednoczesnej edycji tej samej podróży na dwóch telefonach offline zostanie wersja wysłana później. Pliki Sejfu (bilety) nie przechodzą na nowy telefon — w chmurze jest tylko ich lista.

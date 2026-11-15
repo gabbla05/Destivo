@@ -147,6 +147,8 @@ describe('ProfileScreen - Profil Użytkownika i Ustawienia', () => {
     act(() => {
       confirmBtn.onPress();
     });
+    // Najpierw wysyłka do chmury, potem czyszczenie lokalnej kopii
+    await waitFor(() => expect(mockDisconnectAndClear).toHaveBeenCalled());
 
     // Wskaźnik ładowania powinien być widoczny
     expect(screen.queryByText(t.logout)).toBeNull();

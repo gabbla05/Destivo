@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePowerSync } from '@powersync/react-native';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '../lib/supabase';
+import { pushTripToCloud } from '../lib/tripSync';
 import { useAuthStore } from '../store/authStore';
 import { LiveDestination } from '../lib/liveExplore';
 import { translations } from '../i18n/translations';
@@ -289,33 +290,8 @@ export const QuickSetupScreen: React.FC<{ route: any, navigation: any }> = ({ ro
 
       let cloudSyncFailed = false;
       if (user && !isGuest && !user.isGuest) {
-        let targetUserId = user.id;
-        try {
-          const sessionRes = await supabase.auth.getSession();
-          if (sessionRes?.data?.session?.user?.id) {
-            targetUserId = sessionRes.data.session.user.id;
-          }
-        } catch {}
-
-        const { error: supabaseError } = await supabase
-          .from('trips')
-          .insert([{
-            id: tripId,
-            user_id: targetUserId,
-            title: tripTitle,
-            origin: origin || '',
-            destination: destData.city,
-            start_date: dbStartDate || null,
-            end_date: dbEndDate || null,
-            transport_type: destData.recommendedTransport || 'flight',
-            accommodation_address: cleanLodging || '',
-            attractions_data: attractionsJson,
-          }]);
-
-        if (supabaseError) {
-          cloudSyncFailed = true;
-          console.warn('QuickSetupScreen: Błąd zapisu do Supabase:', supabaseError);
-        }
+        // Pełny wiersz (z transportem i noclegiem) do Supabase; bez sieci podróż czeka w kolejce
+        cloudSyncFailed = !(await pushTripToCloud(db, tripId, user.id));
       }
       
       // Kopia zapasowa w AsyncStorage

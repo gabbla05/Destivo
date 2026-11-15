@@ -157,7 +157,7 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
     
     await waitFor(() => expect(screen.getByText('Szczegóły połączenia')).toBeTruthy());
     
-    const depInput = screen.getAllByPlaceholderText('...')[0];
+    const depInput = screen.getByTestId('step2-outbound-departure');
     
     // Wpisujemy tekst w pole
     fireEvent.changeText(depInput, 'Lotnisko Modlin');
@@ -267,7 +267,7 @@ describe('Step2TransportScreen - Testy wyboru transportu', () => {
     
     // Pobranie inputów na podstawie placeholderów użytych w komponencie
     const timeInputs = screen.getAllByPlaceholderText('HH:MM');
-    const locationInputs = screen.getAllByPlaceholderText('...');
+    const locationInputs = [screen.getByTestId('step2-outbound-departure')];
     
     // Wprowadzanie danych dla trasy "W stronę celu"
     fireEvent.changeText(timeInputs[0], '08:30'); // outboundDepartureTime

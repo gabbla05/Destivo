@@ -15,6 +15,7 @@ import {
   Keyboard,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { HubPickerField } from '../../components/HubPickerField';
 import { Ionicons } from '@expo/vector-icons';
 import {
   useTripCreatorStore,
@@ -625,20 +626,17 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                       </Text>
 
                       <View style={styles.fullWidthInputGroup}>
-                        <Text style={styles.label}>{t.departureLocation}</Text>
-                        <View style={styles.inputContainer}>
-                          <Ionicons name="location-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
-                          <TextInput
-                            style={styles.input}
-                            placeholder="..."
-                            placeholderTextColor="#94A3B8"
-                            value={transportDetails.outboundDepartureLocation}
-                            onChangeText={(txt) => setTransportDetails({ outboundDepartureLocation: txt })}
-                            onBlur={() =>
-                              handleCheckCommute(origin, transportDetails.outboundDepartureLocation, setOutboundDepDist)
-                            }
-                          />
-                        </View>
+                        <HubPickerField
+                          label={t.departureLocation}
+                          value={transportDetails.outboundDepartureLocation || ''}
+                          onChange={(txt) => setTransportDetails({ outboundDepartureLocation: txt })}
+                          onBlur={(v) => handleCheckCommute(origin, v, setOutboundDepDist)}
+                          place={origin}
+                          transportType={transport.selectedOption?.type}
+                          icon="location-outline"
+                          language={language}
+                          testID="step2-outbound-departure"
+                        />
                         {outboundDepDist !== null && outboundDepDist > 2 && (
                           <View style={styles.commuteWarningRow}>
                             <Ionicons name="warning-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -650,20 +648,17 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                       </View>
 
                       <View style={styles.fullWidthInputGroup}>
-                        <Text style={styles.label}>{t.arrivalLocation}</Text>
-                        <View style={styles.inputContainer}>
-                          <Ionicons name="pin-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
-                          <TextInput
-                            style={styles.input}
-                            placeholder="..."
-                            placeholderTextColor="#94A3B8"
-                            value={transportDetails.outboundArrivalLocation}
-                            onChangeText={(txt) => setTransportDetails({ outboundArrivalLocation: txt })}
-                            onBlur={() =>
-                              handleCheckCommute(destination, transportDetails.outboundArrivalLocation, setOutboundArrDist)
-                            }
-                          />
-                        </View>
+                        <HubPickerField
+                          label={t.arrivalLocation}
+                          value={transportDetails.outboundArrivalLocation || ''}
+                          onChange={(txt) => setTransportDetails({ outboundArrivalLocation: txt })}
+                          onBlur={(v) => handleCheckCommute(destination, v, setOutboundArrDist)}
+                          place={destination}
+                          transportType={transport.selectedOption?.type}
+                          icon="pin-outline"
+                          language={language}
+                          testID="step2-outbound-arrival"
+                        />
                         {outboundArrDist !== null && outboundArrDist > 2 && (
                           <View style={styles.commuteWarningRow}>
                             <Ionicons name="warning-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -739,20 +734,17 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                           <Text style={styles.detailsSectionTitle}>{t.return} ({endDate})</Text>
 
                           <View style={styles.fullWidthInputGroup}>
-                            <Text style={styles.label}>{t.departureLocation}</Text>
-                            <View style={styles.inputContainer}>
-                              <Ionicons name="location-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
-                              <TextInput
-                                style={styles.input}
-                                placeholder="..."
-                                placeholderTextColor="#94A3B8"
-                                value={transportDetails.returnDepartureLocation}
-                                onChangeText={(txt) => setTransportDetails({ returnDepartureLocation: txt })}
-                                onBlur={() =>
-                                  handleCheckCommute(destination, transportDetails.returnDepartureLocation, setReturnDepDist)
-                                }
-                              />
-                            </View>
+                            <HubPickerField
+                              label={t.departureLocation}
+                              value={transportDetails.returnDepartureLocation || ''}
+                              onChange={(txt) => setTransportDetails({ returnDepartureLocation: txt })}
+                              onBlur={(v) => handleCheckCommute(destination, v, setReturnDepDist)}
+                              place={destination}
+                              transportType={transport.selectedOption?.type}
+                              icon="location-outline"
+                              language={language}
+                              testID="step2-return-departure"
+                            />
                             {returnDepDist !== null && returnDepDist > 2 && (
                               <View style={styles.commuteWarningRow}>
                                 <Ionicons name="warning-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -764,20 +756,17 @@ export const Step2TransportScreen: React.FC<Step2TransportScreenProps> = ({
                           </View>
 
                           <View style={styles.fullWidthInputGroup}>
-                            <Text style={styles.label}>{t.arrivalLocation}</Text>
-                            <View style={styles.inputContainer}>
-                              <Ionicons name="pin-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
-                              <TextInput
-                                style={styles.input}
-                                placeholder="..."
-                                placeholderTextColor="#94A3B8"
-                                value={transportDetails.returnArrivalLocation}
-                                onChangeText={(txt) => setTransportDetails({ returnArrivalLocation: txt })}
-                                onBlur={() =>
-                                  handleCheckCommute(origin, transportDetails.returnArrivalLocation, setReturnArrDist)
-                                }
-                              />
-                            </View>
+                            <HubPickerField
+                              label={t.arrivalLocation}
+                              value={transportDetails.returnArrivalLocation || ''}
+                              onChange={(txt) => setTransportDetails({ returnArrivalLocation: txt })}
+                              onBlur={(v) => handleCheckCommute(origin, v, setReturnArrDist)}
+                              place={origin}
+                              transportType={transport.selectedOption?.type}
+                              icon="pin-outline"
+                              language={language}
+                              testID="step2-return-arrival"
+                            />
                             {returnArrDist !== null && returnArrDist > 2 && (
                               <View style={styles.commuteWarningRow}>
                                 <Ionicons name="warning-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />

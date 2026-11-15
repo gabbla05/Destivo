@@ -56,6 +56,18 @@ jest.mock('../src/lib/supabase', () => ({
   },
 }));
 
+// Moduł synchronizacji z Supabase ma własne testy (tests_TripSync); tu sprawdzamy, że ekran go wywołuje
+const mockPushTrip = jest.fn().mockResolvedValue(true);
+const mockDeleteTrip = jest.fn().mockResolvedValue(true);
+jest.mock('../src/lib/tripSync', () => ({
+  pushTripToCloud: (...args: any[]) => mockPushTrip(...args),
+  deleteTripFromCloud: (...args: any[]) => mockDeleteTrip(...args),
+  flushPendingTrips: jest.fn().mockResolvedValue(0),
+  getPendingTripIds: jest.fn().mockResolvedValue([]),
+  pushAllLocalTrips: jest.fn().mockResolvedValue(undefined),
+}));
+
+
 // 4. MOCKOWANIE BIBLIOTEK ZEWNĘTRZNYCH (Kryptografia, Nawigacja, Mapy, Slider)
 jest.mock('expo-crypto', () => ({
   randomUUID: () => 'mock-uuid-1234',
@@ -221,7 +233,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
       expect(Alert.alert).toHaveBeenCalledWith('DESTIVO', 'Podróż została pomyślnie zapisana!');
       expect(mockReset).toHaveBeenCalledTimes(1);
       expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Trips' });
-      expect(mockSupabaseInsert).toHaveBeenCalled();
+      expect(mockPushTrip).toHaveBeenCalledWith(expect.anything(), 'mock-uuid-1234', 'test-user-123');
     });
   });
 
@@ -239,7 +251,7 @@ describe('Step4AttractionsScreen - Testy integracji z Google i zapisu wycieczki'
         expect.stringContaining('INSERT INTO trips'),
         expect.any(Array)
       );
-      expect(mockSupabaseInsert).not.toHaveBeenCalled();
+      expect(mockPushTrip).not.toHaveBeenCalled();
     });
   });
 
