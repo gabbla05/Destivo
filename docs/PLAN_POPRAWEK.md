@@ -305,8 +305,8 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 
 ## Etap 4: Domknięcie
 
-⬜ **4.1** `npm test`, `npx tsc --noEmit`, próbna paczka `npx expo export --platform android`.
-⬜ **4.2** Lista kontrolna na telefonie:
+✅ **4.1** `npm test`, `npx tsc --noEmit`, próbna paczka `npx expo export --platform android`.
+✅ **4.2** Lista kontrolna na telefonie:
 
 | Ekran | Co sprawdzić |
 |---|---|
@@ -323,7 +323,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 | Pakowanie | Etykieta prognozy lub szacunku |
 | PDF | Podpis „Podsumowanie podróży”, sekcja biletów (P11), źródło kursu |
 
-⬜ **4.3** Aktualizacja [README.md](../README.md): usunięcie naprawionych punktów z „Znanych ograniczeń” i opis nowych elementów (QR w podglądzie biletu, geofencing w tle, dwie opcje usuwania, `npm run benchmark`).
+✅ **4.3** Aktualizacja [README.md](../README.md): usunięcie naprawionych punktów z „Znanych ograniczeń” i opis nowych elementów (QR w podglądzie biletu, geofencing w tle, dwie opcje usuwania, `npm run benchmark`).
 ⬜ **4.4** Commity: po jednym na etap, z czytelnym opisem. Scalenie `fix/audit-cleanup` do `main` po Twojej akceptacji.
 
 ---

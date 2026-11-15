@@ -25,9 +25,9 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
    - 4.9 [Moje podróże i statystyki](#49-moje-podróże-i-statystyki)
    - 4.10 [Dynamiczny asystent pakowania](#410-dynamiczny-asystent-pakowania)
    - 4.11 [Sejf: szyfrowane bilety i dokumenty](#411-sejf-szyfrowane-bilety-i-dokumenty)
-   - 4.12 [„Bilet w zasięgu ręki”: wykrywanie kodów QR](#412-bilet-w-zasięgu-ręki-wykrywanie-kodów-qr)
+   - 4.12 [„Bilet w zasięgu ręki”: szybki podgląd biletu](#412-bilet-w-zasięgu-ręki-szybki-podgląd-biletu)
    - 4.13 [Offline Travel Briefing (PDF)](#413-offline-travel-briefing-pdf)
-   - 4.14 [Alerty bliskości i powiadomienia o odjeździe](#414-alerty-bliskości-i-powiadomienia-o-odjeździe)
+   - 4.14 [Alerty bliskości, powiadomienia i geofencing w tle](#414-alerty-bliskości-powiadomienia-i-geofencing-w-tle)
    - 4.15 [Kalkulator walut i numery alarmowe](#415-kalkulator-walut-i-numery-alarmowe)
    - 4.16 [Dwujęzyczność (PL / EN)](#416-dwujęzyczność-pl--en)
    - 4.17 [Profil, prywatność i usuwanie konta](#417-profil-prywatność-i-usuwanie-konta)
@@ -50,9 +50,9 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | **Plan dnia** | Oś czasu z podziałem na dni, edycją, przesuwaniem punktów i propozycjami atrakcji |
 | **Algorytmy** | Optymalizacja kolejności zwiedzania: zachłanny, 2-opt, relokacja, symulowane wyżarzanie i metoda dokładna, na macierzy czasów przejazdu z OSRM |
 | **Bezpieczeństwo** | Pliki szyfrowane AES-256-GCM, klucz w Android Keystore, PIN przechowywany jako solony skrót z limitem prób, biometria |
-| **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu, alert w pobliżu dworca lub lotniska, powiadomienie przed odjazdem |
-| **Bez internetu** | PDF z planem dnia, transportem, adresem noclegu, kursem waluty i numerami alarmowymi |
-| **Jakość** | 36 zestawów, 535 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów |
+| **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu i kodem QR odczytanym z biletu, alert w pobliżu dworca lub lotniska (także przy zamkniętej aplikacji), powiadomienie przed odjazdem |
+| **Bez internetu** | PDF z planem dnia, transportem, biletami, adresem noclegu, kursem waluty (z datą kursu) i numerami alarmowymi |
+| **Jakość** | 48 zestawów, 611 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
 
 ---
 
@@ -65,11 +65,11 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | Nawigacja | React Navigation 7 (dolne zakładki + stosy) |
 | Stan aplikacji | Zustand 5 (z `persist` do AsyncStorage) |
 | Lokalna baza danych | SQLite przez SDK PowerSync (`@powersync/react-native`) |
-| Backend / konta | Supabase (Auth + Postgres) oraz Supabase Edge Function (Deno) |
+| Backend / konta | Supabase (Auth + Postgres) oraz dwie Supabase Edge Functions (Deno): `transport-search`, `delete-account` |
 | Mapy | `react-native-maps` (Google Maps SDK for Android) |
 | Kryptografia | `@noble/ciphers` (AES-256-GCM), `expo-crypto`, `expo-secure-store` |
 | Kody QR | `jsqr` (odczyt), `qrcode` (generowanie), `jpeg-js`, `upng-js`, `pako` (dekodowanie obrazów i strumieni PDF) |
-| Funkcje urządzenia | `expo-location`, `expo-task-manager`, `expo-notifications`, `expo-local-authentication`, `expo-brightness`, `expo-print`, `expo-sharing`, `expo-document-picker`, `expo-image-picker` |
+| Funkcje urządzenia | `expo-location`, `expo-task-manager`, `expo-notifications`, `expo-local-authentication`, `expo-brightness`, `expo-print`, `expo-sharing`, `expo-document-picker`, `expo-image-picker`, `expo-image-manipulator` |
 | Stylowanie | NativeWind / Tailwind oraz `StyleSheet` |
 | Testy | Jest 29 + `jest-expo` + React Native Testing Library |
 
@@ -109,7 +109,7 @@ flowchart TB
 
     subgraph Cloud["Usługi zewnętrzne"]
         Supa[Supabase Auth + Postgres]
-        Edge[Edge Function transport-search]
+        Edge[Edge Functions transport-search, delete-account]
         OSRM[OSRM: publiczny + własny serwer Kraków]
         Google[Google Places / Maps]
         OWM[OpenWeatherMap]
@@ -156,9 +156,11 @@ flowchart TB
 1. Pobiera położenie użytkownika (`expo-location`) i wyznacza najbliższe polskie lotnisko (WAW, KRK, GDN, KTW, WRO, POZ i inne).
 2. Dla każdego miejsca z puli (europejskie stolice, polskie miasta, ukryte perełki, jednodniówki) liczy odległość wzorem haversine'a i dobiera transport: samolot dla dalekich tras, pociąg dla średnich, samochód dla bliskich i jednodniówek. Pomija miejsce, w którym użytkownik już jest (mniej niż 20 km).
 3. Równolegle (z limitem czasu) pobiera **5-dniową prognozę OpenWeatherMap** i szuka w niej najlepszego okna o długości dopasowanej do transportu (np. 3–4 dni dla lotu, 1 dzień dla jednodniówki). Za idealne okno uznaje dni bez opadów.
-4. Sortuje miejsca według pogody (brak opadów + temperatura) i dobiera zróżnicowaną listę 16 propozycji z różnych kategorii.
-5. Dla miast z gotowym planem buduje wstępny plan dnia z listy atrakcji, uporządkowany geograficznie.
-6. Zdjęcia miast pobiera na żywo z **Google Places** (wyszukiwanie miejsca + zdjęcie) i zapamiętuje w pamięci podręcznej.
+4. Sortuje miejsca według pogody (brak opadów + temperatura) i dobiera zróżnicowaną listę 16 propozycji z różnych kategorii. Dni bez pomiarów w oknie prognozy są pomijane przy liczeniu średniej, zamiast podstawiać stałą wartość.
+5. **Bez prognozy** (brak sieci lub API nie odpowiada) karty pokazują miejsce, odległość, transport i termin, ale **bez temperatury**, z etykietą „Brak aktualnej prognozy”. Lista jest wtedy sortowana według odległości.
+6. Dla miast z gotowym planem buduje wstępny plan dnia z listy atrakcji, uporządkowany geograficznie.
+7. Zdjęcia miast pobiera **wyłącznie na żywo z Google Places** (wyszukiwanie miejsca + zdjęcie). W kodzie nie ma żadnych zdjęć wpisanych na sztywno, a pilnuje tego osobny test. Pamięć podręczna przechowuje samo odwołanie do zdjęcia (7 dni, brak zdjęcia: 1 dzień), a adres budowany jest przy odczycie, więc zmiana klucza API nie psuje zapamiętanych zdjęć. Gdy Google nie ma zdjęcia, karta pokazuje neutralny placeholder.
+8. Informacja o tłumie jest pokazywana tylko wtedy, gdy udało się ją wyliczyć z liczby opinii w Google Places.
 
 **Dlaczego to fajne.** Zamiast pytać „gdzie chcesz jechać?”, aplikacja sama podpowiada, gdzie w najbliższych dniach będzie ładnie i jak tam dojechać z miejsca, w którym jesteś.
 
@@ -166,7 +168,7 @@ flowchart TB
 
 ### 4.3 Szczegóły destynacji i szybki kreator
 
-**Co robi.** Po wybraniu karty widać opis miejsca, prognozę na proponowany termin, rekomendowany transport i, jeśli istnieje, gotowy plan zwiedzania z podziałem na dni. Przyciski otwierają:
+**Co robi.** Po wybraniu karty widać opis miejsca, prognozę na proponowany termin (albo etykietę „Brak aktualnej prognozy dla tego terminu”), rekomendowany transport i, jeśli istnieje, gotowy plan zwiedzania z podziałem na dni. Przyciski otwierają:
 - **Skyscanner** z wypełnioną trasą (kod najbliższego lotniska → kod lotniska docelowego), **Koleo** dla pociągu lub **Google Maps** z nawigacją dla samochodu,
 - **Booking.com** z wyszukiwaniem noclegów w danym mieście,
 - **Google Maps** z wyszukiwaniem restauracji w okolicy.
@@ -187,23 +189,24 @@ Pełny kreator (`src/screens/TripCreator`) prowadzi przez cztery kroki z paskiem
 - **Kolizja terminów:** przed przejściem dalej aplikacja sprawdza, czy nowe daty nie nakładają się na inną podróż użytkownika.
 
 #### Krok 2: Transport
-- Supabase Edge Function `transport-search` geokoduje obie miejscowości i na podstawie odległości proponuje sensowne środki transportu:
+- Supabase Edge Function `transport-search` geokoduje obie miejscowości i na podstawie odległości **rekomenduje** środek transportu (to nie jest wyszukiwarka połączeń: nie pobiera rozkładów ani cen):
   - poniżej 120 km: samochód,
   - 120–500 km: pociąg i samochód,
   - 500–800 km: samolot, pociąg i samochód,
   - powyżej 800 km: samolot i samochód.
 - Każda opcja ma linki: do rezerwacji (Koleo, Skyscanner), do pokazania dworca lub lotniska w Google Maps i do nawigacji.
 - **Dojazd do węzła:** aplikacja liczy, ile kilometrów dzieli miasto użytkownika od wybranego lotniska lub dworca.
+- **Stacja w miejscu docelowym:** miasta ze słownika (także zapisane z polskimi znakami, np. „Kraków”, „Łódź”) mają dworzec; dla mniejszych miejscowości aplikacja sprawdza najbliższą stację w Google Places i nie proponuje bezpośredniego pociągu do wsi bez stacji.
 - Formularz szczegółów: godziny i miejsca odjazdu i przyjazdu dla trasy tam i z powrotem.
-- **Wgrywanie biletów** (osobno na trasę tam i z powrotem) prosto do zaszyfrowanego sejfu.
+- **Wgrywanie biletów** (osobno na trasę tam i z powrotem) prosto do zaszyfrowanego sejfu. Bilety są potem widoczne w Sejfie w folderze podróży jako „Bilet tam” i „Bilet powrotny”.
 
 #### Krok 3: Nocleg
 - Karta Booking.com z wyszukiwaniem dla celu podróży oraz pole adresu noclegu (opcjonalne, można pominąć).
 - Adres noclegu jest później punktem startu i końca każdego dnia w optymalizacji trasy.
 
 #### Krok 4: Atrakcje
-- **Mapa** wycentrowana na noclegu (geokodowanie Nominatim) z markerami atrakcji.
-- Atrakcje pobierane z **Google Places Nearby Search** (`tourist_attraction`) w wybranym promieniu (do 50 km), ze zdjęciami, ocenami i odległością od noclegu.
+- **Mapa** wycentrowana na noclegu z markerami atrakcji. Położenie ustalane jest najpierw z adresu noclegu, potem z celu podróży (lokalny słownik miast działa bez sieci, dalej Nominatim). Gdy oba zawiodą, zamiast atrakcji pojawia się komunikat „Nie udało się ustalić położenia” z przyciskiem „Spróbuj ponownie”.
+- Atrakcje pobierane z **Google Places Nearby Search** (`tourist_attraction`) w wybranym promieniu (do 50 km), ze zdjęciami i odległością od noclegu. **Ocena jest pokazywana tylko wtedy, gdy zwraca ją Google**.
 - Karuzela kafelków zsynchronizowana z mapą: kliknięcie markera przewija do kafelka, a przewinięcie kafelka centruje mapę.
 - Sortowanie po odległości, zakładki „Odkrywaj” i „Zaplanowane”.
 - Po zakończeniu powstaje kompletna oś czasu podróży zapisana lokalnie i w chmurze.
@@ -227,7 +230,7 @@ Gdy użytkownik ma podróż w toku albo najbliższą nadchodzącą, zakładka g�
 **Co robi i jak działa:**
 - **Plan na dziś:** aplikacja ustala „dzisiejszy” dzień planu (dzień z dzisiejszą datą, pierwszy dzień przed wyjazdem albo ostatni po powrocie). Oznacza punkt **„W TRAKCIE”** (punkt trwający lub rozpoczęty w ciągu ostatnich 90 minut) i **„NASTĘPNIE”**.
 - **Minione punkty** są ukryte i można je rozwinąć na dole listy.
-- Przy punkcie w trakcie są przyciski **„Trasa”** (nawigacja Google Maps) i **„Bilety”** (sejf).
+- Przy punkcie w trakcie są przyciski **„Trasa”** (nawigacja Google Maps) i **„Bilety”** (sejf) oraz **plakietka bieżącej pogody** w miejscu podróży (OpenWeatherMap, pamięć 30 minut, współrzędne noclegu albo celu). Bez danych plakietki nie ma wcale.
 - **Karta obiadowa** pojawia się między 12:00 a 15:00 i otwiera wyszukiwanie restauracji w okolicy w Google Maps.
 - **Dodawanie atrakcji:** modal z propozycjami z okolicy (lokalna baza popularnych atrakcji, a dla innych miast Google Places) lub z ręcznym wpisem.
 - **Edycja na miejscu:** rozwinięcie karty pozwala zmienić tytuł, opis, godzinę, przesunąć punkt lub go usunąć.
@@ -247,8 +250,9 @@ Gdy użytkownik ma podróż w toku albo najbliższą nadchodzącą, zakładka g�
 - **Propozycje atrakcji:** trzy kafelki z atrakcjami jeszcze niedodanymi do planu. Najpierw z puli zapisanej przy tworzeniu podróży, a gdy się wyczerpie, na żywo z Google Places (`nearbysearch` wokół noclegu). Zdjęcia są dociągane asynchronicznie z Google Places.
 - **Współrzędne punktów** są dociągane w tle z Google Places (wyszukiwanie po nazwie w kontekście miasta), żeby optymalizacja trasy pracowała na prawdziwych położeniach.
 - **Zapis w trzech miejscach:** lokalna baza SQLite, kopia w AsyncStorage i Supabase. Aplikacja potwierdza, czy aktualizacja w chmurze faktycznie dotknęła rekordu (ochrona przed cichym odrzuceniem przez reguły RLS) i informuje, jeśli zapis w chmurze się nie powiódł.
-- Skróty do **optymalizacji trasy**, **sejfu** i **listy pakowania**.
-- **Usunięcie podróży** czyści ją lokalnie i w chmurze, a także anuluje zaplanowane powiadomienia.
+- Skróty do **optymalizacji trasy**, **sejfu** i **listy pakowania**, a w nagłówku ikona **biletu** (gdy podróż ma bilet), która otwiera „Bilet w zasięgu ręki”.
+- Strzałka wstecz zawsze wraca do listy „Moje podróże”, także gdy oś otwarto z ekranu „Dziś”.
+- **Usunięcie podróży** czyści ją lokalnie i w chmurze, anuluje zaplanowane powiadomienia i usuwa strefę geofencingu.
 
 ---
 
@@ -276,7 +280,9 @@ To najważniejszy moduł algorytmiczny pracy (`src/lib/routeOptimization.ts`, `s
 | **Symulowane wyżarzanie** | Startuje z wyniku 2-opt. Akceptuje gorsze rozwiązania z prawdopodobieństwem exp(−Δ/T), temperatura 100 → 0,01, chłodzenie ×0,98 | Pozwala wyjść z minimów lokalnych. Opcjonalny **deterministyczny generator liczb losowych z ziarnem** (powtarzalne wyniki w testach i pomiarach) |
 | **Metoda dokładna (brute force)** | Sprawdza wszystkie permutacje | Tylko dla n ≤ 8, daje globalne optimum jako punkt odniesienia |
 
-Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iteracji. Wybierany jest najlepszy wynik według niezaokrąglonego kosztu.
+Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iteracji. Wybierany jest najlepszy wynik według niezaokrąglonego kosztu. Użytkownik widzi tylko wynikową kolejność, bez porównania algorytmów. W trybie wielodniowym wynik nie zawiera pomiarów (`metricsAvailable: false`), zamiast udawać zmierzone wartości.
+
+**Benchmark do pracy.** Polecenie `npm run benchmark` uruchamia poza aplikacją te same funkcje na losowych zestawach punktów w Krakowie (n od 5 do 30, po 20 powtórzeń, ustalone ziarna) i zapisuje w `docs/benchmark/` wyniki (CSV, JSON), wykresy SVG (czas w funkcji n, odchylenie od optimum, rozkład jakości) i opis metodologii. Główny wniosek: 2-opt daje najlepszy stosunek jakości do czasu, a symulowane wyżarzanie ze stałym budżetem iteracji traci przewagę przy n ≥ 15.
 
 **Plan wielodniowy z pętlą hotelową.** Optymalizacja jest wykonywana **osobno dla każdego dnia**. Każdy dzień to pętla *hotel → atrakcje → hotel* (`optimizeDayRouteWithHotel`), a punkty nie przeskakują między dniami. Punkty bez rozpoznanych współrzędnych nie są wliczane do optymalizacji, a użytkownik dostaje ostrzeżenie zamiast trasy policzonej na fałszywych położeniach.
 
@@ -288,7 +294,7 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 
 ### 4.9 Moje podróże i statystyki
 
-**Co robi.** Lista podróży w dwóch zakładkach: **Nadchodzące** i **Archiwalne**, z wyszukiwarką po nazwie i celu. Kafelki mają zdjęcie miasta w tle (Google Places), daty i przycisk usuwania. Archiwum ma **kartę statystyk**: liczbę odwiedzonych miejsc i łączną liczbę dni w podróży. Z listy można otworzyć oś czasu i asystenta pakowania.
+**Co robi.** Lista podróży w dwóch zakładkach: **Nadchodzące** i **Archiwalne**, z wyszukiwarką po nazwie i celu. Kafelki mają zdjęcie miasta w tle (Google Places), daty i przycisk usuwania. Archiwum ma **kartę statystyk**: liczbę odwiedzonych miejsc i łączną liczbę dni w podróży (liczonych włącznie, więc wyjazd pn–śr to 3 dni). Z listy można otworzyć oś czasu i asystenta pakowania.
 
 **Jak działa.** Dla zalogowanego użytkownika podróże są pobierane z Supabase i scalane z lokalną bazą. Podróże gościa są czytane z lokalnej bazy i trwałej kopii w AsyncStorage, żeby nie znikały po restarcie.
 
@@ -299,7 +305,11 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 **Co robi.** Generuje listę rzeczy do spakowania dopasowaną do konkretnej podróży, z kategoriami, odhaczaniem, paskiem postępu, filtrami (wszystkie, do spakowania, spakowane), własnymi pozycjami i udostępnianiem listy jako tekstu.
 
 **Jak działa** (`src/lib/smartPackingAssistant.ts`):
-- **Pogoda:** prognoza **Open-Meteo** dla celu podróży i jej terminu. Jeśli termin jest poza zasięgiem prognozy, przyjmowany jest **szacunek klimatyczny** zależny od regionu (śródziemnomorski, deszczowy, kontynentalny) i miesiąca.
+- **Pogoda** (pigułka mówi, skąd pochodzi):
+  - podróż w ciągu ~2 tygodni: **prognoza Open-Meteo na dni podróży** („Prognoza (Open-Meteo)”),
+  - późniejszy termin: **szacunek klimatyczny z danych historycznych**, czyli średnia z tych samych dni w trzech poprzednich latach z archiwum Open-Meteo („Szacunek klimatyczny dla: listopad (Open-Meteo 2023–2025)”),
+  - bez sieci: szacunek z szerokości geograficznej i miesiąca.
+  Zapisana lista odświeża pogodę po 6 godzinach, zachowując zaznaczenia.
 - **Reguły:**
   - **długość wyjazdu** decyduje o liczbie sztuk ubrań,
   - **transport** (np. samolot: bagaż podręczny i ograniczenia płynów; samochód: dokumenty pojazdu),
@@ -313,7 +323,7 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 
 ### 4.11 Sejf: szyfrowane bilety i dokumenty
 
-**Co robi.** Bezpieczne miejsce na bilety, rezerwacje i skany dokumentów, pogrupowane w „szufladki” per podróż. Pliki dodaje się z dokumentów (PDF) lub z galerii. Można je nazywać (z szybkimi tagami podpowiedzi), podglądać w aplikacji, drukować, udostępniać i usuwać. Sejf jest chroniony **4-cyfrowym PIN-em** i opcjonalnie **biometrią** (odcisk palca lub twarz).
+**Co robi.** Bezpieczne miejsce na bilety, rezerwacje i skany dokumentów, pogrupowane w „szufladki” per podróż. W szufladce widać też bilety dodane w kreatorze (tylko podgląd i druk, zmienia się je w kreatorze). Pliki dodaje się z dokumentów (PDF) lub z galerii. Można je nazywać (z szybkimi tagami podpowiedzi), podglądać w aplikacji, drukować, udostępniać i usuwać. Sejf jest chroniony **4-cyfrowym PIN-em** i opcjonalnie **biometrią** (odcisk palca lub twarz).
 
 **Jak działa** (`src/lib/vaultManager.ts`, `src/store/vaultStore.ts`):
 
@@ -337,14 +347,16 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 
 ### 4.12 „Bilet w zasięgu ręki”: szybki podgląd biletu
 
-**Co robi.** Jednym kliknięciem (z banera bliskości, z powiadomienia lub z ekranu „Dziś”) pokazuje bilet na bieżący odcinek podróży. Ustawia **jasność ekranu na maksimum** (i przywraca ją po zamknięciu), pozwala powiększać obraz gestem i przyciskami, przełączać odcinki *tam / powrót* i pokazuje dane odjazdu: stację, cel i godzinę. Bilet w formie zdjęcia wyświetla się bezpośrednio, a bilet PDF otwiera się w aplikacji do PDF na telefonie albo można go udostępnić.
+**Co robi.** Jednym kliknięciem (z banera bliskości, z powiadomienia, z ikony biletu na osi czasu lub z ekranu „Dziś”) pokazuje bilet na bieżący odcinek podróży. Ustawia **jasność ekranu na maksimum** (i przywraca ją po zamknięciu), pozwala powiększać obraz przyciskami, przełączać odcinki *tam / powrót* i pokazuje dane odjazdu: stację, cel i godzinę. Bilet w formie zdjęcia wyświetla się bezpośrednio, a bilet PDF otwiera się w aplikacji do PDF na telefonie albo można go udostępnić.
 
-**Moduł wykrywania kodów QR** (`src/lib/offlineTravelBriefing.ts`, funkcja `prepareVaultTickets`) jest zaimplementowany i przetestowany, ale **nie jest jeszcze podłączony do interfejsu**:
-- **Obrazy (JPG/PNG):** dekodowanie do pikseli RGBA (`jpeg-js`, `upng-js`), wykrycie kodu przez `jsQR`, wycięcie kwadratu wokół kodu.
-- **PDF:** przeszukiwanie pliku w poszukiwaniu osadzonych obrazów JPEG (znaczniki `FFD8…FFD9`) i skompresowanych strumieni (dekompresja `pako`). Każdy kandydat jest dekodowany i skanowany.
-- Odczytany kod jest **generowany na nowo** (`qrcode`) w idealnej jakości.
+**Odszyfrowanie.** Bilety są w sejfie zaszyfrowane, więc podgląd tworzy **tymczasową odszyfrowaną kopię** w katalogu cache i usuwa ją po zamknięciu podglądu. Udostępniany jest zwykły plik JPG lub PDF, a nie plik `.vault`. Starsze, niezaszyfrowane bilety działają bez zmian.
 
-**Dlaczego to fajne.** Nie trzeba szukać biletu w mailu ani rozjaśniać ekranu ręcznie przy bramce.
+**Kod QR z biletu** (`src/lib/ticketQr.ts`, wykrywanie w `src/lib/offlineTravelBriefing.ts`):
+- **Zdjęcia:** po zakończeniu animacji otwarcia zdjęcie jest pomniejszane do 1200 px (`expo-image-manipulator`), dekodowane do pikseli (`jpeg-js`) i skanowane przez `jsQR` (całe, sekcjami i w pomniejszeniu).
+- **PDF:** przeszukiwanie pliku w poszukiwaniu osadzonych obrazów JPEG i skompresowanych strumieni (`pako`), każdy kandydat jest skanowany.
+- Gdy kod zostanie **odczytany**, jest generowany na nowo (`qrcode`) duży i ostry, na białym tle, z przyciskiem „Pokaż oryginał”. Wycinki „podobne do kodu” i linki znalezione w tekście PDF **nie są** zamieniane na QR, żeby aplikacja nigdy nie pokazała zmyślonego kodu. Bez odczytanego kodu widać oryginalny bilet. Wynik jest zapamiętany dla pliku tylko w pamięci (treść kodu nie jest zapisywana na dysku).
+
+**Dlaczego to fajne.** Nie trzeba szukać biletu w mailu ani rozjaśniać ekranu ręcznie przy bramce, a odczytany kod skanuje się łatwiej niż zdjęcie biletu.
 
 ---
 
@@ -357,28 +369,37 @@ Dla każdego algorytmu mierzony jest koszt trasy, czas obliczeń i liczba iterac
 - szczegóły transportu (godziny, miejsca odjazdu i przyjazdu),
 - **plan dzień po dniu**,
 - **adres noclegu** z podpowiedzią dla taksówkarza,
-- **waluta** celu podróży z kursem względem PLN,
+- **waluta** celu podróży z kursem względem PLN i źródłem kursu (np. „kurs z 13.11, 14:20 (offline)” albo „kurs orientacyjny, brak połączenia”),
+- sekcja **„Bilety”** z kodami QR odczytanymi z biletów tej podróży (tylko gdy kod udało się odczytać),
 - **numery alarmowe** kraju docelowego i informacja, że numer 112 działa bez karty SIM i roamingu.
 
-W nagłówku jest kod QR z podsumowaniem podróży (trasa, daty, adres noclegu, numer alarmowy), który można zeskanować dowolnym czytnikiem.
+W nagłówku jest kod QR z podsumowaniem podróży (trasa, daty, adres noclegu, numer alarmowy), podpisany „PODSUMOWANIE PODRÓŻY”, żeby nie udawał biletu.
 
 **Jak działa.** Dokument jest renderowany jako HTML/CSS i drukowany do PDF przez `expo-print`. Gotowy PDF można udostępnić, wydrukować, podejrzeć w aplikacji albo **zapisać jako zaszyfrowaną kopię w sejfie**.
 
 ---
 
-### 4.14 Alerty bliskości i powiadomienia o odjeździe
+### 4.14 Alerty bliskości, powiadomienia i geofencing w tle
 
 **Co robi.**
 - **Baner bliskości:** gdy użytkownik jest w pobliżu miejsca odjazdu (lotnisko: 1,5 km, dworzec kolejowy: 600 m, autobusowy: 500 m), a do odjazdu zostało od 30 minut po do 90 minut przed, na ekranie głównym i osi czasu pojawia się baner „Jesteś w pobliżu stacji odjazdu” z przyciskiem otwierającym bilet (punkt 4.12).
 - **Powiadomienie lokalne** zaplanowane przed odjazdem. Kliknięcie otwiera od razu bilet, także gdy aplikacja była zamknięta.
+- **Geofencing w tle:** gdy odjazd (tam lub powrót) jest w ciągu 48 godzin, aplikacja rejestruje w systemie strefę wokół miejsca odjazdu. Po wejściu w strefę, **także przy zamkniętej aplikacji**, przychodzi jedno powiadomienie „Jesteś w pobliżu miejsca odjazdu”, które otwiera bilet.
 
 **Jak działa** (`src/lib/proximityAlertService.ts`). Godzina odjazdu jest parsowana z danych transportu (z normalizacją formatów typu `22.20`). Współrzędne węzła są ustalane z bazy znanych lotnisk i dworców lub przez geokodowanie. Odległość liczona jest wzorem haversine'a. Wygasłe powiadomienia są sprzątane, a usunięcie podróży anuluje jej powiadomienie.
+
+**Geofencing:**
+- Zadanie w tle (`expo-task-manager`) jest zdefiniowane na poziomie modułu i ładowane przy starcie aplikacji.
+- **Zgoda w dwóch krokach** (wymóg Androida): najpierw lokalizacja podczas używania, potem okno z wyjaśnieniem, a dopiero wtedy systemowa prośba o dostęp „zawsze”. Aplikacja pyta raz. Odmowa niczego nie blokuje: zostaje baner i powiadomienie według godziny.
+- Jedna aktywna strefa naraz. Strefa jest usuwana po odjeździe + 2 h, przy usunięciu podróży, wylogowaniu i usunięciu danych lub konta.
+- Przełącznik „Powiadomienia o zbliżaniu się do odjazdu” w profilu.
+- Publikacja w Google Play wymagałaby deklaracji uprawnienia do lokalizacji w tle. Do dystrybucji APK nie jest to potrzebne.
 
 ---
 
 ### 4.15 Kalkulator walut i numery alarmowe
 
-- **Kalkulator walut:** waluta docelowa jest ustawiana automatycznie według kraju podróży (EUR, GBP, CZK, HUF, CHF, JPY, ISK, NOK, SEK, TRY…). Kursy pochodzą **na żywo z open.er-api.com**, są zapisywane w pamięci podręcznej z datą aktualizacji i działają offline. Przycisk zamiany walut odwraca kierunek przeliczania.
+- **Kalkulator walut:** waluta docelowa jest ustawiana automatycznie według kraju podróży (EUR, GBP, CZK, HUF, CHF, JPY, ISK, NOK, SEK, TRY…). Kursy pochodzą **na żywo z open.er-api.com**, są zapisywane w pamięci podręcznej z datą aktualizacji i działają offline. Pod kalkulatorem widać źródło kursu w stałej formie: „kurs z dzisiaj, 14:05”, „kurs z wczoraj, 18:30 (offline)” albo „kurs orientacyjny, brak połączenia” (kursy domyślne). Kurs jest pobierany ponownie po powrocie do aplikacji. Przycisk zamiany walut odwraca kierunek przeliczania.
 - **Numery alarmowe:** numer lokalny dopasowany do kraju (112 w UE, 911 w USA i Kanadzie, 999 w Wielkiej Brytanii, 000 w Australii, 111 w Nowej Zelandii, 110 w Japonii) z przyciskiem połączenia.
 
 ---
@@ -391,10 +412,11 @@ Cały interfejs jest dostępny po polsku i angielsku, z przełącznikiem w profi
 
 ### 4.17 Profil, prywatność i usuwanie konta
 
-- **Profil:** dane konta, wybór języka, ustawienia sejfu (biometria), przejście do ustawień bezpieczeństwa.
+- **Profil:** dane konta, wybór języka, przełącznik powiadomień o zbliżaniu się do odjazdu, ustawienia sejfu (biometria), przejście do ustawień bezpieczeństwa.
 - **Wylogowanie:** przed wyczyszczeniem danych lokalnych podróże są synchronizowane do Supabase, żeby nic nie przepadło.
 - **Konto i prywatność:** reset hasła e-mailem, reset PIN-u sejfu, polityka prywatności.
-- **„Usuń konto”:** usuwa wszystkie podróże użytkownika z chmury, czyści lokalną bazę i wylogowuje. Samo konto w Supabase Auth nie jest usuwane (zob. [Znane ograniczenia](#11-znane-ograniczenia)).
+- **„Usuń moje dane”:** usuwa podróże z chmury i z telefonu, listy pakowania, pliki sejfu, PIN, zaplanowane powiadomienia i strefy geofencingu (`src/lib/localDataWipe.ts`). Konto zostaje, a użytkownik pozostaje zalogowany. Gdy usunięcie w chmurze się nie uda, nic nie jest usuwane lokalnie.
+- **„Usuń konto”:** po ostrzeżeniu i potwierdzeniu hasłem wywołuje Edge Function `delete-account`. Funkcja ustala użytkownika wyłącznie z jego tokenu (bez poprawnego tokenu: 401), kluczem `service_role` dostępnym tylko na serwerze usuwa jego podróże i samo konto w Supabase Auth. Potem aplikacja czyści telefon i wylogowuje. Ponowne logowanie tym kontem się nie udaje. Przy błędzie użytkownik zostaje zalogowany, a dane są nietknięte.
 
 ---
 
@@ -407,7 +429,7 @@ Cały interfejs jest dostępny po polsku i angielsku, z przełącznikiem w profi
 | Transport, nocleg, atrakcje, oś czasu | Kolumny JSON w rekordzie podróży (`transport_data`, `lodging_data`, `attractions_data`) |
 | Pliki sejfu | Zaszyfrowane pliki `.vault` w katalogu dokumentów aplikacji |
 | Klucz sejfu, skrót PIN-u | SecureStore (Android Keystore) |
-| Ustawienia, sesja, lista pakowania, kursy walut | AsyncStorage |
+| Ustawienia, sesja, lista pakowania, kursy walut, zdjęcia miejsc (odwołania), strefa geofencingu | AsyncStorage |
 
 Schemat tabeli `trips`: `id`, `user_id`, `trip_name`, `origin`, `destination`, `start_date`, `end_date`, `transport_data`, `lodging_data`, `attractions_data`, `created_at`.
 
@@ -419,11 +441,11 @@ Schemat tabeli `trips`: `id`, `user_id`, `trip_name`, `origin`, `destination`, `
 
 | Usługa | Do czego | Klucz |
 |---|---|---|
-| **Supabase** | Konta, baza podróży, Edge Function `transport-search` | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` |
+| **Supabase** | Konta, baza podróży, Edge Functions `transport-search` i `delete-account` | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` |
 | **Google Places API** | Atrakcje w okolicy, zdjęcia miejsc i miast, współrzędne punktów | `EXPO_PUBLIC_GOOGLE_API_KEY` |
 | **Google Maps SDK for Android** | Mapa w kreatorze | `GOOGLE_MAPS_ANDROID_API_KEY` |
-| **OpenWeatherMap** | 5-dniowa prognoza w Eksploruj | `EXPO_PUBLIC_WEATHER_API_KEY` |
-| **Open-Meteo** | Prognoza dla asystenta pakowania | bez klucza |
+| **OpenWeatherMap** | 5-dniowa prognoza w Eksploruj, bieżąca pogoda przy punkcie „W TRAKCIE” | `EXPO_PUBLIC_WEATHER_API_KEY` |
+| **Open-Meteo** | Prognoza i dane historyczne (archiwum) dla asystenta pakowania | bez klucza |
 | **OSRM** | Macierze czasów przejazdu (publiczne serwery + własny dla Krakowa) | `EXPO_PUBLIC_OSRM_KRAKOW_BASE_URL`, `EXPO_PUBLIC_OSRM_KRAKOW_FOOT_BASE_URL` (opcjonalne) |
 | **Nominatim (OpenStreetMap)** | Geokodowanie i walidacja miejsc | bez klucza |
 | **open.er-api.com** | Kursy walut | bez klucza |
@@ -438,7 +460,10 @@ Schemat tabeli `trips`: `id`, `user_id`, `trip_name`, `origin`, `destination`, `
   *Uwaga:* 4-cyfrowy PIN ma tylko 10 000 kombinacji, więc sam skrót nie chroni przed sprawdzeniem wszystkich wartości. Właściwą ochronę zapewnia sprzętowy magazyn kluczy i limit prób, a skrót jest warstwą dodatkową.
 - **Reset PIN-u bez hasła niszczy dane** (crypto-shredding), żeby PIN nie był pozorną ochroną.
 - **Uwierzytelnianie:** Supabase Auth. Dostęp do danych w chmurze kontrolowany przez reguły Row Level Security na tabeli `trips`.
-- **Sekrety:** żadnych kluczy w repozytorium. `.env` jest ignorowany przez git, szablon to `.env.example`, a `npm run check:env` weryfikuje klucze bez wypisywania ich wartości.
+- **Usuwanie konta:** klucz `service_role` istnieje wyłącznie w środowisku Edge Function. Funkcja usuwa tylko konto właściciela tokenu.
+- **Odszyfrowane kopie biletów** istnieją tylko na czas podglądu lub tworzenia PDF i są usuwane zaraz potem. Treść odczytanego kodu QR nie jest zapisywana na dysku.
+- **Polityka prywatności w aplikacji** opisuje faktyczny model: szyfrowanie na urządzeniu (AES-256-GCM), pliki sejfu nie trafiają do chmury, podróże w Supabase chronione przez RLS.
+- **Sekrety:** żadnych kluczy w repozytorium. Zmienne `EXPO_PUBLIC_*` są czytane wyłącznie zapisem z kropką (`process.env.EXPO_PUBLIC_X`), bo tylko taki zapis Expo wstawia do buildu. Pilnuje tego test. `.env` jest ignorowany przez git, szablon to `.env.example`, a `npm run check:env` weryfikuje klucze bez wypisywania ich wartości.
 
 ---
 
@@ -447,19 +472,26 @@ Schemat tabeli `trips`: `id`, `user_id`, `trip_name`, `origin`, `destination`, `
 ```bash
 npm test               # wszystkie testy
 npx tsc --noEmit       # sprawdzenie typów
+npm run check:env      # sprawdzenie kluczy
+npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 ```
 
-**36 zestawów, 535 testów**, m.in.:
+**48 zestawów, 611 testów**, m.in.:
 
 | Obszar | Pliki testów |
 |---|---|
 | Optymalizacja trasy | `tests_RouteOptimization`, `tests_RouteOptimization_17Scenarios`, `tests_RouteOptimizationModal`, `intelligentInsertion` |
-| Sejf i bezpieczeństwo | `tests_VaultEncryption`, `tests_Vault`, `tests_VaultPinScreen`, `tests_Stores`, `tests_AccountSecurityScreen` |
+| Sejf i bezpieczeństwo | `tests_VaultEncryption`, `tests_Vault`, `tests_VaultPinScreen`, `tests_Stores`, `tests_AccountSecurityScreen`, `tests_LocalDataWipe`, `tests_PrivacyText`, `tests_EnvAccess` |
+| Bilety i QR | `tests_QuickTicketPassDecryption`, `tests_TicketQr` |
+| Geofencing | `tests_BackgroundGeofence`, `tests_ProximityAlertService` |
+| Pogoda i waluty | `tests_CurrentWeather`, `tests_CurrencyRatesSource` |
+| Strażnicy jakości danych | `tests_NoHardcodedPhotos` (brak zdjęć wpisanych na sztywno), `tests_TransportNoFakeMetrics` |
 | Kreator | `tests_Step1DestinationScreen` … `tests_Step4AttractionsScreen`, `tests_QuickSetupScreen` |
 | Eksploruj | `liveExplore`, `tests_HomeScreen_Explore`, `tests_ExploreDetailsScreen`, `tests_DestinationAttractions` |
 | Podróż | `tests_TripsAndTimeline`, `tests_TimelineHiddenPast`, `tests_ProximityAlertService`, `tests_ProximityAlertComponents` |
 | Dokumenty i pakowanie | `tests_OfflineTravelBriefing`, `tests_SmartPackingAssistant`, `tests_SmartPackingModal` |
-| Geodane i transport | `tests_GeoDatabaseAndTransport`, `tests_placesPhotoService`, `config` |
+| Geodane i transport | `tests_GeoDatabaseAndTransport`, `tests_StationPolishNames`, `tests_placesPhotoService`, `config` |
+| Statystyki | `tests_TripStats` |
 | Scenariusze E2E | `e2e_critical_journeys` (pełne ścieżki użytkownika) |
 
 Testy kryptografii używają prawdziwego SHA-256 i prawdziwych losowych bajtów (Node `crypto`), a nie atrap.
@@ -489,7 +521,9 @@ npx expo prebuild -p android
 
 **Buildy EAS:** zmienne z `.env.example` trzeba ustawić poleceniem `eas env:create` dla środowisk `development`, `preview` i `production`.
 
-**Edge Function:** `supabase/functions/transport-search` wdraża się poleceniem `supabase functions deploy transport-search`.
+**Edge Functions:** `npx supabase functions deploy transport-search --use-api` oraz `npx supabase functions deploy delete-account --use-api` (opcja `--use-api` pakuje funkcję po stronie serwera, bez Dockera).
+
+**Lokalny APK** (bez EAS): po zmianie konfiguracji natywnej `npx expo prebuild -p android --clean`, potem `cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a`. Plik: `android/app/build/outputs/apk/release/app-release.apk`. Każda nowa wersja musi mieć wyższy `versionCode` w `app.json`.
 
 ---
 
@@ -501,6 +535,9 @@ Destivo/
 ├── app.json, app.config.js     # Konfiguracja Expo (klucz mapy wstrzykiwany z env)
 ├── .env.example                # Szablon zmiennych środowiskowych
 ├── scripts/check-env.js        # Weryfikacja kluczy API
+├── scripts/benchmark/          # Benchmark TSP do pracy (npm run benchmark)
+├── docs/benchmark/             # Wyniki benchmarku: CSV, JSON, wykresy SVG, metodologia
+├── docs/PLAN_POPRAWEK.md       # Plan poprawek po audycie
 ├── src/
 │   ├── screens/
 │   │   ├── auth/               # Powitanie, logowanie, rejestracja, reset hasła
@@ -516,8 +553,9 @@ Destivo/
 │   ├── store/                  # Zustand: auth, kreator, sejf
 │   ├── navigation/             # Zakładki i stos kreatora
 │   └── i18n/translations.ts    # PL / EN
-├── supabase/functions/transport-search/   # Edge Function (Deno)
-├── __tests__/                  # 36 zestawów testów
+├── supabase/functions/transport-search/   # Edge Function: rekomendacja transportu (Deno)
+├── supabase/functions/delete-account/     # Edge Function: trwałe usunięcie konta
+├── __tests__/                  # 48 zestawów testów
 └── test-shims/                 # Pomocniki testowe
 ```
 
@@ -527,25 +565,11 @@ Destivo/
 
 Lista dla przejrzystości. Część punktów to świadome uproszczenia, część to rzeczy do poprawy.
 
-- **Podgląd biletu nie odszyfrowuje plików z sejfu.** Bilety wgrywane w kreatorze są zapisywane zaszyfrowane, a „Bilet w zasięgu ręki” wyświetla i udostępnia plik bez odszyfrowania. Zdjęcie biletu się nie pokaże, a udostępniony zostanie zaszyfrowany plik. Podgląd w module Sejfu działa poprawnie.
-- **Wykrywanie kodów QR z biletów nie jest podłączone do interfejsu** (`prepareVaultTickets` jest wywoływane tylko w testach).
-- **„Usuń konto” nie usuwa konta w Supabase Auth**, tylko podróże i sesję. Pełne usunięcie wymaga funkcji serwerowej z kluczem `service_role`.
-- **Transport to rekomendacja, a nie wyszukiwarka połączeń.** Funkcja `transport-search` dobiera rodzaj transportu według odległości w linii prostej i przekierowuje do Koleo lub Skyscanner. Nie pobiera rzeczywistych rozkładów ani cen.
-- **Zdjęcia zapasowe.** Większość zakodowanych zdjęć zapasowych atrakcji i miast (Unsplash) nie przedstawia opisanego miejsca albo jest już niedostępna. Te zdjęcia mają pierwszeństwo przed zdjęciami z Google Places. Zakodowane odwołania do zdjęć Google (`photo_reference`) wygasły. Zdjęcia pobierane na żywo z Google Places działają poprawnie.
-- **Wartości zastępcze bez oznaczenia:**
-  - gdy API pogody nie odpowiada, Eksploruj pokazuje stałe temperatury;
-  - asystent pakowania nie oznacza, że pogoda jest szacunkiem klimatycznym;
-  - plakietka pogody przy punkcie „W TRAKCIE” jest stała (24°C);
-  - w kroku 4 kreatora brak oceny w Google zamienia się na 4.5;
-  - przy nieudanym geokodowaniu noclegu atrakcje są szukane wokół Rzymu;
-  - kalkulator walut bez połączenia i bez zapisanych kursów pokazuje kursy domyślne z bieżącą datą aktualizacji.
-- **Geofencing w tle nie jest włączony.** Kod rejestracji stref (`setupGeofencingForTrip`) istnieje, ale nie jest wywoływany. Baner bliskości działa przy otwartej aplikacji, a powiadomienie o odjeździe jest planowane według czasu.
-- **Wyniki porównania algorytmów nie są pokazywane w interfejsie.** Benchmarki (czas, iteracje, oszczędność) są liczone i testowane, ale modal pokazuje tylko wynikową kolejność trasy.
-- **Polityka prywatności w aplikacji mówi o szyfrowaniu „end-to-end”**, choć sejf szyfruje pliki lokalnie (szyfrowanie danych w spoczynku). Pliki sejfu nie są przesyłane.
-- **Statystyki archiwum** liczą dni jako różnicę dat (wyjazd pn–śr = 2 dni zamiast 3).
-- **Duże pliki ekranów.** `TimelineScreen.tsx` (~3400 linii) i `HomeScreen.tsx` (~3100 linii) łączą wiele odpowiedzialności. Zapytania do Supabase są rozproszone po ekranach zamiast w jednym module repozytorium.
+- **Transport to rekomendacja, a nie wyszukiwarka połączeń.** Funkcja `transport-search` dobiera rodzaj transportu według odległości w linii prostej i przekierowuje do Koleo lub Skyscanner. Nie pobiera rzeczywistych rozkładów ani cen. Nazwa funkcji została bez zmian, żeby nie wymagać ponownego wdrożenia.
+- **Wykrywanie kodów QR** działa dla kodów QR na zdjęciach i w obrazach osadzonych w PDF. Kody Aztec (np. część biletów PKP) i kody rysowane wektorowo w PDF nie są odczytywane. Wtedy widać oryginalny bilet.
+- **Geofencing w tle** obsługuje jedną strefę naraz (najbliższy odjazd w ciągu 48 h). System Android może opóźnić zdarzenie wejścia w strefę o kilka minut, zwłaszcza w trybie oszczędzania baterii.
+- **Szacunek pogody bez sieci** (asystent pakowania) to prosty model zależny od szerokości geograficznej i miesiąca, więc nie uwzględnia klimatu morskiego ani gór. Z siecią używane są dane historyczne.
+- **Benchmark TSP** używa macierzy odległości w linii prostej. Porównanie z czasami przejazdu z serwera OSRM wymaga działającego serwera i nie jest częścią pomiaru.
+- **Gość nie ma dostępu do profilu**, więc nie widzi opcji „Usuń moje dane”. Jego dane znikają po odinstalowaniu aplikacji.
+- **Duże pliki ekranów.** `TimelineScreen.tsx` (~3400 linii) i `HomeScreen.tsx` (~3200 linii) łączą wiele odpowiedzialności. Zapytania do Supabase są rozproszone po ekranach zamiast w jednym module repozytorium.
 - **Synchronizacja.** Zapis do chmury to bezpośrednie zapytania (dual-write), a nie pełna replikacja z rozwiązywaniem konfliktów.
-
----
-
-*Projekt inżynierski. Licencja: zob. plik [LICENSE](LICENSE).*

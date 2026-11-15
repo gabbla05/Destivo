@@ -327,8 +327,8 @@ describe('ProximityAlertService - Energooszczędne zarządzanie geolokalizacją 
   });
 
   describe('7. Ochrona baterii w Geofencingu', () => {
-    test('setupGeofencingForTrip NIE rejestruje geofence gdy wyjazd jest za więcej niż 24 godziny', async () => {
-      const farFuture = new Date(Date.now() + 48 * 60 * 60 * 1000); // za 48h
+    test('setupGeofencingForTrip NIE rejestruje geofence gdy wyjazd jest za więcej niż 48 godzin', async () => {
+      const farFuture = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000); // za 5 dni (okno to 48 h)
       const dateStr = `${farFuture.getFullYear()}-${String(farFuture.getMonth() + 1).padStart(2, '0')}-${String(farFuture.getDate()).padStart(2, '0')}`;
 
       const trip = {
