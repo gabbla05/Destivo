@@ -362,9 +362,15 @@ describe('Moduł Sejfu Offline (Vault)', () => {
       fireEvent.press(screen.getByTestId('print-file-file-123'));
 
       await waitFor(() => {
+        // PDF trafia do drukarki jako dane (data URI) odczytane z odszyfrowanej kopii,
+        // więc usunięcie kopii po printAsync nie wywraca aplikacji
         expect(require('expo-print').printAsync).toHaveBeenCalledWith({
-          uri: expect.stringContaining('destivo-vault-mock-uuid-9999.pdf')
+          uri: expect.stringMatching(/^data:application\/pdf;base64,.+/)
         });
+        expect(require('expo-file-system/legacy').readAsStringAsync).toHaveBeenCalledWith(
+          expect.stringContaining('destivo-vault-mock-uuid-9999.pdf'),
+          { encoding: 'base64' }
+        );
       });
     });
 

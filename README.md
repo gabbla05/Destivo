@@ -52,7 +52,7 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | **Bezpieczeństwo** | Pliki szyfrowane AES-256-GCM, klucz w Android Keystore, PIN przechowywany jako solony skrót z limitem prób, biometria |
 | **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu i kodem QR odczytanym z biletu, alert w pobliżu dworca lub lotniska (także przy zamkniętej aplikacji), powiadomienie przed odjazdem |
 | **Bez internetu** | PDF z planem dnia, transportem, biletami, adresem noclegu, kursem waluty (z datą kursu) i numerami alarmowymi |
-| **Jakość** | 51 zestawów, 625 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
+| **Jakość** | 51 zestawów, 626 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
 
 ---
 
@@ -429,7 +429,9 @@ Cały interfejs jest dostępny po polsku i angielsku, z przełącznikiem w profi
 | Klucz sejfu, skrót PIN-u | SecureStore (Android Keystore) |
 | Ustawienia, sesja, lista pakowania, kursy walut, zdjęcia miejsc (odwołania), strefa geofencingu | AsyncStorage |
 
-Schemat tabeli `trips`: `id`, `user_id`, `trip_name`, `origin`, `destination`, `start_date`, `end_date`, `transport_data`, `lodging_data`, `attractions_data`, `created_at`.
+Schemat lokalnej tabeli `trips` (SQLite): `id`, `user_id`, `trip_name`, `origin`, `destination`, `start_date`, `end_date`, `transport_data`, `lodging_data`, `attractions_data`, `created_at`.
+
+Wiersz w Supabase ma inny zestaw kolumn: `id`, `user_id`, `title`, `origin`, `destination`, `start_date`, `end_date`, `transport_type`, `accommodation_address`, `attractions_data`. Szczegóły transportu (godziny, stacje, odwołania do biletów) i lista plików Sejfu zostają tylko na telefonie; przy pobieraniu z chmury aplikacja odtwarza z tych pól minimalne `transport_data` i `lodging_data`.
 
 **Model zapisu.** Aplikacja stosuje zapis podwójny (*dual-write*): najpierw lokalnie, potem do Supabase. SDK PowerSync służy jako lokalna baza SQLite. Synchronizacja z chmurą odbywa się bezpośrednimi zapytaniami Supabase, a nie mechanizmem replikacji PowerSync.
 
@@ -474,7 +476,7 @@ npm run check:env      # sprawdzenie kluczy
 npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 ```
 
-**51 zestawów, 625 testów**, m.in.:
+**51 zestawów, 626 testów**, m.in.:
 
 | Obszar | Pliki testów |
 |---|---|
@@ -536,6 +538,7 @@ Destivo/
 ├── scripts/benchmark/          # Benchmark TSP do pracy (npm run benchmark)
 ├── docs/benchmark/             # Wyniki benchmarku: CSV, JSON, wykresy SVG, metodologia
 ├── docs/PLAN_POPRAWEK.md       # Plan poprawek po audycie
+├── docs/Destivo_kompendium_projektu.docx  # Opis modułów z kluczowym kodem (do obrony)
 ├── src/
 │   ├── screens/
 │   │   ├── auth/               # Powitanie, logowanie, rejestracja, reset hasła
@@ -570,4 +573,4 @@ Lista dla przejrzystości. Część punktów to świadome uproszczenia, część
 - **Benchmark TSP** używa macierzy odległości w linii prostej. Porównanie z czasami przejazdu z serwera OSRM wymaga działającego serwera i nie jest częścią pomiaru.
 - **Gość nie ma dostępu do profilu**, więc nie widzi opcji „Usuń moje dane”. Jego dane znikają po odinstalowaniu aplikacji.
 - **Duże pliki ekranów.** `TimelineScreen.tsx` (~3400 linii) i `HomeScreen.tsx` (~3200 linii) łączą wiele odpowiedzialności. Zapytania do Supabase są rozproszone po ekranach zamiast w jednym module repozytorium.
-- **Synchronizacja.** Zapis do chmury to bezpośrednie zapytania (dual-write), a nie pełna replikacja z rozwiązywaniem konfliktów.
+- **Synchronizacja.** Zapis do chmury to bezpośrednie zapytania (dual-write), a nie pełna replikacja z rozwiązywaniem konfliktów. Szczegóły transportu i lista plików Sejfu nie są wysyłane do Supabase (inne kolumny w chmurze), więc po zmianie telefonu godziny odjazdów trzeba wpisać ponownie.

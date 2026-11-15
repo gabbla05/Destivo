@@ -117,6 +117,22 @@ export function calculateDistanceMeters(
  * Zwraca promień strefy geofence (w metrach) w zależności od rodzaju transportu.
  * Lotniska wymagają większego promienia z uwagi na wielkość terminali i parkingów.
  */
+/**
+ * Rodzaj transportu podróży. Wiersze z bazy nie mają kolumny transport_type - typ jest zapisany
+ * w transport_data.selectedOption.type (bez tego lotnisko dostawało promień dworca: 600 m zamiast 1,5 km).
+ */
+export function resolveTripTransportType(trip: any): string {
+  if (trip?.transport_type) return String(trip.transport_type);
+  try {
+    const td = typeof trip?.transport_data === 'string'
+      ? JSON.parse(trip.transport_data || '{}')
+      : trip?.transport_data || {};
+    return td?.selectedOption?.type || 'train';
+  } catch {
+    return 'train';
+  }
+}
+
 export function getGeofenceRadiusForTransport(transportType?: string): number {
   switch (transportType?.toLowerCase()) {
     case 'flight':
@@ -419,15 +435,7 @@ export async function checkProximityStatus(
   const activeLeg = ticketData?.activeLeg || 'outbound';
   const stationName = ticketData?.stationName || trip.origin || 'Stacja';
   const departureTime = ticketData?.departureTime || '12:00';
-  let transportType = trip.transport_type;
-  if (!transportType) {
-    try {
-      const td = typeof trip.transport_data === 'string' ? JSON.parse(trip.transport_data || '{}') : trip.transport_data || {};
-      transportType = td.selectedOption?.type || 'train';
-    } catch {
-      transportType = 'train';
-    }
-  }
+  const transportType = resolveTripTransportType(trip);
 
   fallbackResult.stationName = stationName;
   fallbackResult.ticketFile = ticketData?.file || null;
@@ -843,7 +851,7 @@ export async function setupGeofencingForTrip(trip: any, now: Date = new Date()):
       identifier: regionId,
       latitude: hubCoords.lat,
       longitude: hubCoords.lon,
-      radius: getGeofenceRadiusForTransport(trip.transport_type),
+      radius: getGeofenceRadiusForTransport(resolveTripTransportType(trip)),
       notifyOnEnter: true,
       notifyOnExit: false,
     };

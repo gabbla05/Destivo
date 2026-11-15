@@ -335,6 +335,12 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 - Kalkulator walut: przycisk odświeżenia kursu. Eksploruj: krótszy znacznik „Brak prognozy”.
 - Usunięty kod QR z podsumowaniem w nagłówku PDF (powtarzał treść dokumentu).
 
+### Przegląd 15.11.2026 (wersje 1.0.11–1.0.12)
+
+- Drukowanie PDF z Sejfu wywracało aplikację: `printAsync({ uri })` na Androidzie czyta plik dopiero po zakończeniu wywołania, a odszyfrowana kopia była już usunięta (błąd `expo-print`: „Already resumed”). PDF jest teraz przekazywany jako data URI.
+- Geofencing: promień strefy liczony z `transport_data.selectedOption.type` (wiersz bazy nie ma `transport_type`) — lotnisko ma 1,5 km zamiast 600 m.
+- README: poprawiony opis kolumn tabeli w Supabase (szczegóły transportu i lista plików Sejfu są tylko lokalne).
+
 ---
 
 ## Zależności między punktami

@@ -89,6 +89,16 @@ describe('Geofencing w tle (P13)', () => {
     expect(stored.expiresAt).toBeGreaterThan(Date.now());
   });
 
+  test('lot zapisany jak w bazie (bez kolumny transport_type) dostaje promień lotniska 1,5 km', async () => {
+    const base = tripStartingIn(5);
+    const { transport_type, ...dbRow } = base;
+    const td = JSON.parse(base.transport_data);
+    const flightRow = { ...dbRow, transport_data: JSON.stringify({ ...td, selectedOption: { type: 'flight' } }) };
+    expect(await setupGeofencingForTrip(flightRow)).toBe(true);
+    const [, regions] = (Location.startGeofencingAsync as jest.Mock).mock.calls[0];
+    expect(regions[0].radius).toBe(1500);
+  });
+
   test('bez zgody na lokalizację w tle niczego nie rejestruje', async () => {
     (Location.getBackgroundPermissionsAsync as jest.Mock).mockResolvedValue({ status: 'denied' });
     expect(await setupGeofencingForTrip(tripStartingIn(5))).toBe(false);

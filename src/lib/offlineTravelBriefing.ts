@@ -1295,7 +1295,15 @@ export const printVaultFile = async (file: { name?: string; uri: string; type?: 
     `;
     await Print.printAsync({ html });
   } else {
-    // Plik PDF - natywne drukowanie przez expo-print
-    await Print.printAsync({ uri: file.uri });
+    // Plik PDF - przekazujemy treść jako data URI, a nie ścieżkę do pliku.
+    // Na Androidzie printAsync kończy się zaraz po otwarciu okna drukowania, a plik czyta dopiero
+    // przy tworzeniu podglądu. Odszyfrowana kopia tymczasowa jest wtedy już usunięta, a expo-print
+    // przy nieudanym odczycie pliku wywraca aplikację (IllegalStateException: Already resumed).
+    const uriToRead = file.uri.startsWith('file://') || file.uri.startsWith('content://')
+      ? file.uri
+      : `file://${file.uri}`;
+    const base64 = await FileSystem.readAsStringAsync(uriToRead, { encoding: 'base64' });
+    if (!base64) throw new Error('Pusty plik PDF - nie ma czego drukować.');
+    await Print.printAsync({ uri: `data:application/pdf;base64,${base64}` });
   }
 };

@@ -447,7 +447,7 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
       expect(savedDoc.name).toContain('Briefing_Rzymska_Przygoda_2026');
     });
 
-    test('printVaultFile wywołuje Print.printAsync z URI dla pliku PDF', async () => {
+    test('printVaultFile drukuje PDF z danych w pamięci (data URI), a nie ze ścieżki do pliku', async () => {
       const pdfFile = {
         id: 'pdf-1',
         name: 'bilet.pdf',
@@ -457,9 +457,14 @@ describe('Moduł Generatora Offline Travel Briefing (100% Offline)', () => {
 
       await printVaultFile(pdfFile);
 
+      // Ścieżka do pliku powodowała awarię: plik tymczasowy znikał, zanim Android go wczytał
       expect(Print.printAsync).toHaveBeenCalledWith({
-        uri: 'file://mock_app_dir/destivo_vault/bilet.pdf',
+        uri: expect.stringMatching(/^data:application\/pdf;base64,.+/),
       });
+      expect(FileSystem.readAsStringAsync).toHaveBeenCalledWith(
+        'file://mock_app_dir/destivo_vault/bilet.pdf',
+        { encoding: 'base64' }
+      );
     });
 
     test('printVaultFile wywołuje Print.printAsync z szablonem HTML dla obrazu', async () => {
