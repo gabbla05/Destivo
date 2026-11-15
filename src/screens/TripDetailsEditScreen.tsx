@@ -17,7 +17,7 @@ import { pushTripToCloud } from '../lib/tripSync';
  * który nie pyta o szczegóły transportu. Zapis: lokalnie + cały wiersz do Supabase.
  */
 
-type TransportType = 'flight' | 'train' | 'bus' | 'car';
+type TransportType = 'flight' | 'train' | 'car';
 type LocationField = 'outboundDepartureLocation' | 'outboundArrivalLocation' | 'returnDepartureLocation' | 'returnArrivalLocation';
 type TimeField = 'outboundDepartureTime' | 'outboundArrivalTime' | 'returnDepartureTime' | 'returnArrivalTime';
 
@@ -75,7 +75,8 @@ export const TripDetailsEditScreen = ({ route, navigation }: any) => {
           const lodging = parseJson(row.lodging_data);
           setTrip(row);
           const type = transport?.selectedOption?.type;
-          if (['flight', 'train', 'bus', 'car'].includes(type)) setTransportType(type);
+          // Bus nie ma osobnej zakładki - traktujemy go jak przejazd z dworca (pociąg)
+          if (['flight', 'train', 'car'].includes(type)) setTransportType(type);
           setDetails(transport?.details || {});
           setLodgingAddress(lodging?.lodgingAddress || '');
         }
@@ -195,7 +196,6 @@ export const TripDetailsEditScreen = ({ route, navigation }: any) => {
   const types: Array<{ id: TransportType; icon: keyof typeof Ionicons.glyphMap; label: string }> = [
     { id: 'flight', icon: 'airplane-outline', label: isEn ? 'Flight' : 'Samolot' },
     { id: 'train', icon: 'train-outline', label: isEn ? 'Train' : 'Pociąg' },
-    { id: 'bus', icon: 'bus-outline', label: 'Bus' },
     { id: 'car', icon: 'car-outline', label: isEn ? 'Car' : 'Auto' },
   ];
 

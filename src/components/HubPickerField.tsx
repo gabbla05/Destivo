@@ -24,7 +24,6 @@ interface Props {
 const KIND_ICON: Record<TransportHub['kind'], keyof typeof Ionicons.glyphMap> = {
   airport: 'airplane-outline',
   train_station: 'train-outline',
-  bus_station: 'bus-outline',
 };
 
 export const HubPickerField: React.FC<Props> = ({
@@ -46,7 +45,7 @@ export const HubPickerField: React.FC<Props> = ({
     setOpen(true);
     if (hubs !== null) return;
     setLoading(true);
-    const found = await findNearbyHubs(place, transportType).catch(() => []);
+    const found = await findNearbyHubs(place, transportType, language).catch(() => []);
     setHubs(found);
     setLoading(false);
   };
@@ -113,8 +112,8 @@ export const HubPickerField: React.FC<Props> = ({
           ) : (
             <Text style={styles.empty}>
               {isEn
-                ? 'No stations found nearby (or no internet). Type the place manually.'
-                : 'Nie znaleziono stacji w pobliżu (albo brak internetu). Wpisz miejsce ręcznie.'}
+                ? 'No airports or train stations found nearby (or no internet). Type the place manually.'
+                : 'Nie znaleziono lotnisk ani dworców w pobliżu (albo brak internetu). Wpisz miejsce ręcznie.'}
             </Text>
           )}
         </View>

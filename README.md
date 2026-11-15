@@ -52,7 +52,7 @@ Projekt powstał jako praca inżynierska. Jego rdzeniem algorytmicznym jest modu
 | **Bezpieczeństwo** | Pliki szyfrowane AES-256-GCM, klucz w Android Keystore, PIN przechowywany jako solony skrót z limitem prób, biometria |
 | **W podróży** | Szybki podgląd biletu z maksymalną jasnością ekranu i kodem QR odczytanym z biletu, alert w pobliżu dworca lub lotniska (także przy zamkniętej aplikacji), powiadomienie przed odjazdem |
 | **Bez internetu** | PDF z planem dnia, transportem, biletami, adresem noclegu, kursem waluty (z datą kursu) i numerami alarmowymi |
-| **Jakość** | 54 zestawy, 638 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
+| **Jakość** | 54 zestawy, 639 testów automatycznych (jednostkowe, komponentowe i scenariusze E2E), TypeScript bez błędów, benchmark algorytmów do pracy (`npm run benchmark`) |
 
 ---
 
@@ -197,7 +197,7 @@ Pełny kreator (`src/screens/TripCreator`) prowadzi przez cztery kroki z paskiem
 - Każda opcja ma linki: do rezerwacji (Koleo, Skyscanner), do pokazania dworca lub lotniska w Google Maps i do nawigacji.
 - **Dojazd do węzła:** aplikacja liczy, ile kilometrów dzieli miasto użytkownika od wybranego lotniska lub dworca.
 - **Stacja w miejscu docelowym:** miasta ze słownika (także zapisane z polskimi znakami, np. „Kraków”, „Łódź”) mają dworzec; dla mniejszych miejscowości aplikacja sprawdza najbliższą stację w Google Places i nie proponuje bezpośredniego pociągu do wsi bez stacji.
-- Formularz szczegółów: godziny i miejsca odjazdu i przyjazdu dla trasy tam i z powrotem. **Miejsce można wybrać z listy** dworców, lotnisk albo przystanków w pobliżu miejscowości (Google Places Nearby Search, rodzaj zależny od transportu; lotniska sortowane po popularności, dworce od najbliższego — `src/lib/transportHubs.ts`, `src/components/HubPickerField.tsx`) albo wpisać ręcznie.
+- Formularz szczegółów: godziny i miejsca odjazdu i przyjazdu dla trasy tam i z powrotem. **Miejsce można wybrać z listy** lotnisk (samolot) albo dworców kolejowych (pociąg) w pobliżu miejscowości (Google Places Nearby Search, polskie nazwy, sortowanie po popularności). Filtr odrzuca parkingi, wypożyczalnie, hotele, lądowiska i inne miejsca „przy lotnisku”; lotnisko musi mieć w nazwie „Airport / Lotnisko / Port Lotniczy” i co najmniej 2000 opinii (`src/lib/transportHubs.ts`, `src/components/HubPickerField.tsx`). Można też wpisać miejsce ręcznie.
 - **Wgrywanie biletów** (osobno na trasę tam i z powrotem) prosto do zaszyfrowanego sejfu. Bilety są potem widoczne w Sejfie w folderze podróży jako „Bilet tam” i „Bilet powrotny”.
 
 #### Krok 3: Nocleg
@@ -476,7 +476,7 @@ npm run check:env      # sprawdzenie kluczy
 npm run benchmark      # benchmark algorytmów TSP -> docs/benchmark/
 ```
 
-**54 zestawy, 638 testów**, m.in.:
+**54 zestawy, 639 testów**, m.in.:
 
 | Obszar | Pliki testów |
 |---|---|

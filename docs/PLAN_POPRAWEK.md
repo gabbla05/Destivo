@@ -346,6 +346,7 @@ Każdy przycisk ma osobne potwierdzenie z dokładnym opisem, co zostanie usunię
 - Supabase jako główne miejsce danych (`src/lib/tripSync.ts`): pełny wiersz podróży (upsert), kolejka zmian i usunięć offline, ostrzeżenie przy wylogowaniu z niewysłanymi zmianami. Migracja `supabase/migrations/20261115_trips_full_sync.sql` (kolumny `transport_data`, `lodging_data`, `updated_at`; reguły RLS — wcześniej nie było reguły UPDATE, więc edycje planu nie trafiały do chmury).
 - Ekran „Transport, bilety i nocleg” dla każdej podróży (także z szybkiego kreatora).
 - Wybór dworca / lotniska / przystanku z listy miejsc w pobliżu (kreator i ekran edycji).
+- 1.0.15: lista ograniczona do prawdziwych lotnisk i dworców kolejowych (filtr nazw i typów Google, min. 2000 opinii dla lotnisk), polskie nazwy, dworce główne na górze; zakładki na ekranie edycji: samolot / pociąg / auto.
 
 ---
 
