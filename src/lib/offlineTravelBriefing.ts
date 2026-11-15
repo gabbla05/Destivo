@@ -2,7 +2,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
-import QRCode from 'qrcode';
+import { qrToPngDataUrl } from './qrImage';
 import { Buffer } from 'buffer';
 import jsQR from 'jsqr';
 import * as jpeg from 'jpeg-js';
@@ -13,7 +13,8 @@ import { getEmergencyNumber } from '../screens/HomeScreen';
 import { translations } from '../i18n/translations';
 import {
   DEFAULT_EXCHANGE_RATES,
-  getCachedExchangeRates,
+  getCachedExchangeRatesInfo,
+  describeRatesSource,
   getDestinationCurrencyCode,
   getCurrencyInfoForDestination,
 } from './currencyService';
@@ -31,11 +32,23 @@ export interface BriefingTrip {
   created_at?: string;
 }
 
+export interface BriefingTicketQr {
+  leg: 'outbound' | 'return';
+  name: string;
+  /** Kod QR wygenerowany z treści faktycznie odczytanej z biletu (P11). */
+  qrDataUrl: string;
+}
+
 export interface BriefingOptions {
   language?: 'pl' | 'en';
   includeQrCodes?: boolean;
   exchangeRates?: Record<string, number>;
+  /** Kody odczytane z biletów tej podróży - sekcja "Bilety" pojawia się tylko, gdy są. */
+  ticketQrCodes?: BriefingTicketQr[];
 }
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 
 export interface FormattedTicket {
@@ -108,6 +121,18 @@ export const getCurrencyInfo = (
 export interface ExtractedQrResult {
   qrData: string | null;
   croppedQrDataUrl: string | null;
+  /**
+   * Skąd pochodzi wynik:
+   * - 'decoded': kod QR odczytany przez jsQR (prawdziwa zawartość kodu z biletu),
+   * - 'crop': wycinek obrazu przypominający kod 2D (np. Aztec), bez odczytanej treści,
+   * - 'text': link znaleziony w tekście PDF - to NIE jest kod z biletu i nie wolno z niego generować QR.
+   */
+  source?: 'decoded' | 'crop' | 'text';
+  /**
+   * Surowe bajty z kodu (jsQR binaryData). Kod generujemy na nowo z bajtów, a nie z tekstu,
+   * żeby bilety z danymi binarnymi (np. podpis cyfrowy przewoźnika) dały identyczną treść.
+   */
+  qrBytes?: number[];
 }
 
 /**
@@ -192,7 +217,7 @@ export const detectAndCropQrFromRgba = (
       const minY = Math.min(...pts.map((p: any) => p.y));
       const maxY = Math.max(...pts.map((p: any) => p.y));
       const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-      return { qrData: qr.data || null, croppedQrDataUrl: cropped };
+      return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
     }
   } catch (e) {}
 
@@ -225,7 +250,7 @@ export const detectAndCropQrFromRgba = (
           const minY = Math.min(...pts.map((p: any) => p.y + win.y0));
           const maxY = Math.max(...pts.map((p: any) => p.y + win.y0));
           const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-          return { qrData: qr.data || null, croppedQrDataUrl: cropped };
+          return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
         }
       } catch (e) {}
     }
@@ -262,7 +287,7 @@ export const detectAndCropQrFromRgba = (
         const minY = Math.min(...pts.map((p: any) => p.y * 2));
         const maxY = Math.max(...pts.map((p: any) => p.y * 2));
         const cropped = cropSquareFromRgba(rgba, width, height, minX, maxX, minY, maxY);
-        return { qrData: qr.data || null, croppedQrDataUrl: cropped };
+        return { qrData: qr.data || null, qrBytes: qr.binaryData ? Array.from(qr.binaryData as ArrayLike<number>) : undefined, croppedQrDataUrl: cropped, source: 'decoded' };
       }
     } catch (e) {}
   }
@@ -329,7 +354,7 @@ export const detectAndCropQrFromRgba = (
           0.12
         );
         if (cropped) {
-          return { qrData: null, croppedQrDataUrl: cropped };
+          return { qrData: null, croppedQrDataUrl: cropped, source: 'crop' };
         }
       }
     }
@@ -421,6 +446,7 @@ export const detectAndCropQrFromPdf = (buffer: Buffer): ExtractedQrResult => {
                 return {
                   qrData: null,
                   croppedQrDataUrl: `data:image/jpeg;base64,${slice.toString('base64')}`,
+                  source: 'crop',
                 };
               }
             }
@@ -445,7 +471,7 @@ export const detectAndCropQrFromPdf = (buffer: Buffer): ExtractedQrResult => {
           lowerU.includes('wizz') ||
           lowerU.includes('checkin')
         ) {
-          return { qrData: u, croppedQrDataUrl: null };
+          return { qrData: u, croppedQrDataUrl: null, source: 'text' };
         }
       }
     }
@@ -480,11 +506,17 @@ export const prepareVaultTickets = async (
     files.push(...lodgingData.vaultFiles);
   }
 
-  // 2. Bilet z transport_data.details.ticketFile (jeśli nie był jeszcze dodany)
-  const transportTicket = transportData?.details?.ticketFile || transportData?.ticketFile;
-  if (transportTicket && !files.some(f => f.id === transportTicket.id || f.name === transportTicket.name)) {
-    files.push(transportTicket);
-  }
+  // 2. Bilety z kreatora (tam i powrót) z transport_data, bez duplikatów
+  const details = transportData?.details || {};
+  ['outboundTicketFile', 'ticketFile', 'returnTicketFile'].forEach((key) => {
+    const ticket = details[key] || transportData?.[key];
+    if (
+      ticket?.uri &&
+      !files.some((f) => (f.uri && f.uri === ticket.uri) || (f.id && f.id === ticket.id))
+    ) {
+      files.push(ticket);
+    }
+  });
 
   const result: FormattedTicket[] = [];
 
@@ -534,12 +566,13 @@ export const prepareVaultTickets = async (
 
             // Skanujemy zrzut ekranu w poszukiwaniu kodu QR i wycinamy kwadrat z kodem
             const res = detectAndCropQrFromImage(fileBuf, isPng);
-            if (res.qrData) detectedQrCode = res.qrData;
+            if (res.qrData && res.source === 'decoded') detectedQrCode = res.qrData;
             if (res.croppedQrDataUrl) croppedQrDataUrl = res.croppedQrDataUrl;
           } else if (isPdf) {
             // Skanujemy plik PDF w poszukiwaniu osadzonego kodu QR i wycinamy kwadrat
             const res = detectAndCropQrFromPdf(fileBuf);
-            if (res.qrData) detectedQrCode = res.qrData;
+            // Link z tekstu PDF to nie jest kod z biletu - nie generujemy z niego QR
+            if (res.qrData && res.source === 'decoded') detectedQrCode = res.qrData;
             if (res.croppedQrDataUrl) croppedQrDataUrl = res.croppedQrDataUrl;
           }
         }
@@ -552,40 +585,20 @@ export const prepareVaultTickets = async (
     // Generujemy duży, nieskazitelny, wektorowy kod QR w 100% offline
     if (detectedQrCode) {
       try {
-        detectedQrDataUrl = await QRCode.toDataURL(detectedQrCode, {
-          margin: 2,
-          width: 320,
-          color: { dark: '#0F172A', light: '#FFFFFF' },
-        });
+        detectedQrDataUrl = qrToPngDataUrl(detectedQrCode, { width: 320, margin: 2, dark: '#0F172A' });
       } catch (e) {
         console.warn('Błąd generowania wykrytego kodu QR:', e);
       }
     }
 
-    // Awaryjny kod QR metadanych (jeśli w pliku nie ma odczytywalnego kodu)
-    let fallbackQrDataUrl = '';
-    const qrPayload = JSON.stringify({
-      destivo_vault_pass: true,
-      trip_id: tripId,
-      doc_id: file.id || file.name,
-      title: fileName,
-      type: fileType,
-      secured_at: file.createdAt || new Date().toISOString().split('T')[0],
-    });
-    try {
-      fallbackQrDataUrl = await QRCode.toDataURL(qrPayload, {
-        margin: 1,
-        width: 220,
-        color: { dark: '#0F172A', light: '#FFFFFF' },
-      });
-    } catch (e) {}
-
+    // Bez zastępczego QR: kod pochodzi wyłącznie z biletu (odczytany lub wycięty).
+    // Gdy w bilecie nie ma kodu, pole zostaje puste, a w PDF pokazujemy oryginalny plik.
     result.push({
       id: file.id || String(Math.random()),
       name: fileName,
       type: fileType,
       uri: file.uri,
-      qrCodeDataUrl: detectedQrDataUrl || croppedQrDataUrl || fallbackQrDataUrl,
+      qrCodeDataUrl: detectedQrDataUrl || croppedQrDataUrl || undefined,
       thumbnailDataUrl,
       detectedQrCode,
       detectedQrDataUrl,
@@ -724,14 +737,20 @@ export const generateBriefingHtml = async (
 
   // Pobieramy aktualne kursy walut ze zintegrowanego currencyService (opcje / pamięć podręczna AsyncStorage / domyślne)
   let activeRates = options?.exchangeRates;
+  // Opis pochodzenia kursu (P7): kurs z pamięci z datą albo kurs orientacyjny
+  let ratesSourceNote = '';
   if (!activeRates) {
     try {
-      activeRates = await getCachedExchangeRates();
+      const info = await getCachedExchangeRatesInfo();
+      activeRates = info.rates;
+      ratesSourceNote = describeRatesSource(info.source, info.lastUpdated, language);
     } catch {
       activeRates = DEFAULT_EXCHANGE_RATES;
+      ratesSourceNote = describeRatesSource('default', null, language);
     }
   }
   const currencyInfo = getCurrencyInfo(destination, activeRates);
+  const ticketQrCodes = (options?.ticketQrCodes || []).filter((t) => t?.qrDataUrl?.startsWith('data:image/'));
   const lodgingAddress = lodgingData?.lodgingAddress || (t.briefingPdfNoLodging || (isEn ? 'No hotel address provided' : 'Brak zapisanego adresu noclegu'));
 
 
@@ -750,27 +769,6 @@ export const generateBriefingHtml = async (
   // Plan dzień po dniu
   const days = prepareDayByDayPlan(trip, attractionsData, transportData, lodgingData, language);
 
-  // Główny paszportowy kod QR podróży (zawiera wszystkie kluczowe dane w nagłówku)
-  const masterQrPayload = JSON.stringify({
-    app: 'DESTIVO_OFFLINE_BRIEFING',
-    trip: tripTitle,
-    route: `${origin} -> ${destination}`,
-    dates: `${startDate} - ${endDate}`,
-    hotel: lodgingAddress,
-    sos: emergencyNum,
-    generated: new Date().toISOString(),
-  });
-
-  let masterQrDataUrl = '';
-  try {
-    masterQrDataUrl = await QRCode.toDataURL(masterQrPayload, {
-      margin: 1,
-      width: 240,
-      color: { dark: '#0F172A', light: '#FFFFFF' },
-    });
-  } catch (e) {
-    console.warn('Master QR generation error:', e);
-  }
 
   const generatedDateStr = new Date().toLocaleString(isEn ? 'en-US' : 'pl-PL', {
     year: 'numeric',
@@ -853,27 +851,7 @@ export const generateBriefingHtml = async (
       color: #475569;
       font-weight: 500;
     }
-    .header-qr-box {
-      text-align: center;
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 8px;
-      padding: 6px 8px;
-      width: 105px;
-    }
-    .header-qr-box img {
-      width: 80px;
-      height: 80px;
-      display: block;
-      margin: 0 auto 3px auto;
-    }
-    .header-qr-caption {
-      font-size: 7.5px;
-      font-weight: 700;
-      color: #64748B;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+
 
     /* EMERGENCY & ESSENTIALS GRID */
     .essentials-grid {
@@ -1070,12 +1048,6 @@ export const generateBriefingHtml = async (
         <div class="trip-route"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>${origin} ➔ ${destination}</div>
         <div class="trip-dates">${startDate} – ${endDate} • ${t.briefingPdfSubtitle || (isEn ? 'Emergency Survival Document' : 'Awaryjny dokument podróżny bez roamingu')}</div>
       </div>
-      ${masterQrDataUrl ? `
-      <div class="header-qr-box">
-        <img src="${masterQrDataUrl}" alt="Trip QR" />
-        <div class="header-qr-caption">${t.briefingPdfPassCaption || 'OFFLINE PASS'}</div>
-      </div>
-      ` : ''}
     </div>
 
     <!-- ESSENTIALS & EMERGENCY (RED & BLUE HIGHLIGHTS) -->
@@ -1104,7 +1076,7 @@ export const generateBriefingHtml = async (
       <div class="essential-card card-transport">
         <div class="card-title"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>${t.briefingPdfCurrencyTitle || (isEn ? 'Currency & Safety' : 'Waluta & Płatności')}</div>
         <div class="essential-desc">
-          <span class="essential-highlight">${currencyInfo.code}</span>${currencyInfo.code !== 'PLN' ? ` (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN)` : (isEn ? ' (Local currency)' : ' (Waluta krajowa)')}<br />
+          <span class="essential-highlight">${currencyInfo.code}</span>${currencyInfo.code !== 'PLN' ? ` (1 ${currencyInfo.code} ≈ ${currencyInfo.ratePln} PLN${ratesSourceNote ? `, ${ratesSourceNote}` : ''})` : (isEn ? ' (Local currency)' : ' (Waluta krajowa)')}<br />
           ${t.briefingPdfCurrencyTip || (isEn ? 'Keep paper copy in cabin baggage.' : 'Miej ten wydruk w bagażu podręcznym na wypadek rozładowania baterii.')}
         </div>
       </div>
@@ -1128,6 +1100,21 @@ export const generateBriefingHtml = async (
         <div class="transport-loc"><strong>${returnDepLoc}</strong> ➔ <strong>${returnArrLoc}</strong></div>
       </div>
     </div>
+
+    ${ticketQrCodes.length > 0 ? `
+    <!-- BILETY: KODY QR ODCZYTANE Z BILETÓW (P11) -->
+    <div class="section-header">
+      <div class="section-title">${isEn ? 'Tickets' : 'Bilety'}</div>
+      <div class="section-badge">${isEn ? 'codes read from your tickets' : 'kody odczytane z Twoich biletów'}</div>
+    </div>
+    <div class="transport-boxes">
+      ${ticketQrCodes.map((ticket) => `
+      <div class="transport-box" style="text-align:center;">
+        <div class="transport-leg-title">${ticket.leg === 'return' ? (isEn ? 'Return' : 'Powrót') : (isEn ? 'Outbound' : 'Tam')}</div>
+        <img src="${ticket.qrDataUrl}" alt="QR" style="width:150px;height:150px;display:block;margin:6px auto;" />
+        <div class="transport-loc">${escapeHtml(ticket.name)}</div>
+      </div>`).join('')}
+    </div>` : ''}
 
     <!-- PLAN DZIEŃ PO DNIU -->
     <div class="section-header">

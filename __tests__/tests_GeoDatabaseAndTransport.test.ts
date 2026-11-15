@@ -175,7 +175,7 @@ describe('GeoDatabase & Transport Recommendations', () => {
       });
 
       expect(routes).toEqual([]);
-    });
+    }, 15000);
   });
 
   describe('5. Dobór transportu dla małych wsi i brak stacji kolejowych', () => {

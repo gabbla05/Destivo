@@ -148,8 +148,8 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       expect(result.timeSavedMinutes).toBeGreaterThanOrEqual(0);
 
       // Sprawdzenie tabeli benchmarków do pracy inżynierskiej
-      expect(result.benchmarks.length).toBeGreaterThanOrEqual(3);
-      const benchmarkIds = result.benchmarks.map((b) => b.algorithmId);
+      expect(result.benchmarks!.length).toBeGreaterThanOrEqual(3);
+      const benchmarkIds = result.benchmarks!.map((b) => b.algorithmId);
       expect(benchmarkIds).toContain('greedy');
       expect(benchmarkIds).toContain('2opt');
       expect(benchmarkIds).toContain('simulated_annealing');
@@ -161,8 +161,8 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
       const first = optimizeSightseeingRoute(points, true, { randomSeed: 77 });
       const second = optimizeSightseeingRoute(points, true, { randomSeed: 77 });
 
-      expect(second.benchmarks.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices)
-        .toEqual(first.benchmarks.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices);
+      expect(second.benchmarks!.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices)
+        .toEqual(first.benchmarks!.find((benchmark) => benchmark.algorithmId === 'simulated_annealing')?.routeIndices);
     });
 
     test('Powinien bezpiecznie obsłużyć puste wejście lub pojedynczy punkt', () => {
@@ -1037,7 +1037,7 @@ describe('Optymalizacja Trasy Zwiedzania (Problem Komiwojażera / TSP)', () => {
 
       // Pełny przebieg
       const full = optimizeSightseeingRoute(points, true, roadMatrix, 'duration');
-      expect(full.bestAlgorithm.costUnit).toBe('seconds');
+      expect(full.bestAlgorithm!.costUnit).toBe('seconds');
       expect(full.orderedPoints.length).toBe(4);
     });
 

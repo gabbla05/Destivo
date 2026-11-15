@@ -11,6 +11,10 @@ import {
   Platform,
   Animated,
   PanResponder,
+  ActivityIndicator,
+  Alert,
+  InteractionManager,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,19 +22,87 @@ import * as Sharing from 'expo-sharing';
 import * as Brightness from 'expo-brightness';
 import { useAuthStore } from '../store/authStore';
 import { translations } from '../i18n/translations';
+import { detectTicketQr } from '../lib/ticketQr';
+import { VaultManager, VaultFileReference } from '../lib/vaultManager';
+
+type TicketFile = {
+  id?: string;
+  name?: string;
+  uri?: string;
+  type?: string;
+  createdAt?: string;
+  encryptionVersion?: number;
+};
+
+/** Bilet zapisany w Sejfie jest zaszyfrowany (AES-256-GCM) i przed pokazaniem trzeba go odszyfrować. */
+export const isEncryptedTicket = (file?: TicketFile | null): boolean =>
+  Boolean(file?.uri && (file.encryptionVersion === 1 || file.uri.toLowerCase().endsWith('.vault')));
+
+/**
+ * Zwraca adres pliku, który da się wyświetlić / udostępnić.
+ * Zaszyfrowany bilet jest odszyfrowywany do pliku tymczasowego tylko na czas otwarcia podglądu;
+ * plik tymczasowy jest usuwany przy zmianie biletu, zamknięciu podglądu i odmontowaniu.
+ */
+export function useReadableTicketUri(file: TicketFile | null | undefined, active: boolean) {
+  const [state, setState] = useState<{ uri: string | null; loading: boolean; error: boolean }>({
+    uri: null,
+    loading: false,
+    error: false,
+  });
+  const fileUri = file?.uri;
+  const encrypted = isEncryptedTicket(file);
+
+  useEffect(() => {
+    if (!active || !file || !fileUri) {
+      setState({ uri: null, loading: false, error: false });
+      return;
+    }
+    if (!encrypted) {
+      setState({ uri: fileUri, loading: false, error: false });
+      return;
+    }
+
+    let cancelled = false;
+    let temporaryUri: string | null = null;
+    setState({ uri: null, loading: true, error: false });
+
+    VaultManager.createDecryptedTemporaryCopy({
+      id: file.id || fileUri,
+      name: file.name || 'bilet',
+      uri: fileUri,
+      type: file.type || '',
+      createdAt: file.createdAt || '',
+      encryptionVersion: 1,
+    } as VaultFileReference)
+      .then(({ uri, isTemporary }) => {
+        if (isTemporary) temporaryUri = uri;
+        if (cancelled) {
+          if (temporaryUri) VaultManager.deleteFile(temporaryUri).catch(() => undefined);
+          return;
+        }
+        setState({ uri, loading: false, error: false });
+      })
+      .catch((e) => {
+        console.warn('Destivo: Nie udało się odszyfrować biletu:', e);
+        if (!cancelled) setState({ uri: null, loading: false, error: true });
+      });
+
+    return () => {
+      cancelled = true;
+      if (temporaryUri) VaultManager.deleteFile(temporaryUri).catch(() => undefined);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, fileUri, encrypted]);
+
+  return state;
+}
 
 const { height: screenHeight } = Dimensions.get('window');
 
 export interface QuickTicketPassModalProps {
   visible: boolean;
   onClose: () => void;
-  ticketFile: {
-    id?: string;
-    name?: string;
-    uri?: string;
-    type?: string;
-    createdAt?: string;
-  } | null;
+  ticketFile: TicketFile | null;
   departureTime?: string;
   stationName?: string;
   destination?: string;
@@ -146,6 +218,39 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
     selectedLeg === 'return'
       ? returnTicket || (activeLeg === 'return' ? ticketFile : null)
       : outboundTicket || (activeLeg === 'outbound' ? ticketFile : null) || ticketFile;
+
+  // Odszyfrowana (lub oryginalna, jeśli niezaszyfrowana) wersja biletu do podglądu i udostępnienia
+  const readable = useReadableTicketUri(currentFile, visible);
+
+  // P11: kod QR odczytany z biletu (po zakończeniu animacji otwarcia, wynik zapamiętany per plik)
+  const [ticketQr, setTicketQr] = useState<{ loading: boolean; dataUrl: string | null }>({ loading: false, dataUrl: null });
+  const [showOriginalTicket, setShowOriginalTicket] = useState(false);
+  const currentFileUri = currentFile?.uri;
+  useEffect(() => {
+    setShowOriginalTicket(false);
+    if (!visible || !currentFile || !readable.uri) {
+      setTicketQr({ loading: false, dataUrl: null });
+      return;
+    }
+    let cancelled = false;
+    setTicketQr({ loading: true, dataUrl: null });
+    const task = InteractionManager.runAfterInteractions(() => {
+      detectTicketQr(currentFile, readable.uri)
+        .then((res) => {
+          if (!cancelled) setTicketQr({ loading: false, dataUrl: res.qrDataUrl });
+        })
+        .catch(() => {
+          if (!cancelled) setTicketQr({ loading: false, dataUrl: null });
+        });
+    });
+    return () => {
+      cancelled = true;
+      task?.cancel?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, currentFileUri, readable.uri]);
+  const showQrCode = Boolean(ticketQr.dataUrl) && !showOriginalTicket;
+  const vaultT = translations[language]?.vault || translations.pl.vault;
 
   const currentDepartureTime =
     selectedLeg === 'return'
@@ -307,17 +412,19 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
     (currentFile?.name && currentFile.name.toLowerCase().endsWith('.pdf'));
 
   const handleShareOrOpen = async () => {
-    if (!currentFile?.uri) return;
+    if (!readable.uri) return;
     try {
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(currentFile.uri, {
+        await Sharing.shareAsync(readable.uri, {
           mimeType: isPdf ? 'application/pdf' : 'image/jpeg',
           dialogTitle: currentFile.name || t.quickPassTitle,
           UTI: isPdf ? 'com.adobe.pdf' : 'public.jpeg',
         });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Error sharing ticket pass file:', e);
+      // Pokazujemy dokładną przyczynę - wcześniej błąd był po cichu pomijany
+      Alert.alert(vaultT.readErrorTitle || 'Error', String(e?.message || e));
     }
   };
 
@@ -473,7 +580,18 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
             {/* PODGLĄD BILETU / KODU QR */}
             {currentFile?.uri ? (
               <View style={styles.ticketPreviewSection}>
-                {isPdf ? (
+                {ticketQr.loading && (
+                  <View style={styles.qrScanHint} testID="quick-pass-qr-scanning">
+                    <ActivityIndicator size="small" color="#38BDF8" style={{ marginRight: 8 }} />
+                    <Text style={styles.qrScanHintText}>{t.qrScanning || (language === 'en' ? 'Looking for a QR code…' : 'Szukam kodu QR w bilecie…')}</Text>
+                  </View>
+                )}
+                {showQrCode ? (
+                  <View style={styles.qrCard} testID="quick-pass-qr-view">
+                    <Image source={{ uri: ticketQr.dataUrl! }} style={styles.qrImage} resizeMode="contain" testID="quick-pass-qr-image" />
+                    <Text style={styles.qrCaption}>{t.qrFromTicket || (language === 'en' ? 'QR code read from your ticket' : 'Kod QR odczytany z Twojego biletu')}</Text>
+                  </View>
+                ) : isPdf ? (
                   <View style={styles.pdfCard}>
                     <View style={styles.pdfIconCircle}>
                       <Ionicons name="document-text" size={34} color="#EF4444" />
@@ -485,11 +603,20 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       {t.openPdfHint || (language === 'en' ? 'Tap to view this ticket in your phone’s PDF reader' : 'Uruchamia zewnętrzną przeglądarkę PDF (np. Adobe Acrobat, Dysk Google)')}
                     </Text>
 
+                    {readable.loading ? (
+                      <ActivityIndicator color="#38BDF8" style={{ marginBottom: 12 }} testID="quick-pass-decrypting" />
+                    ) : readable.error ? (
+                      <Text style={[styles.pdfSubtitle, { color: '#F87171' }]} testID="quick-pass-read-error">
+                        {vaultT.readError}
+                      </Text>
+                    ) : null}
+
                     {/* GŁÓWNY PRZYCISK: OTWARCIE W APLIKACJI PDF */}
                     <TouchableOpacity
                       style={styles.openPdfPrimaryBtn}
                       activeOpacity={0.8}
                       onPress={handleShareOrOpen}
+                      disabled={!readable.uri}
                       testID="quick-pass-open-pdf-btn"
                     >
                       <Ionicons name="open-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
@@ -501,6 +628,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       style={styles.shareSecondaryBtn}
                       activeOpacity={0.8}
                       onPress={handleShareOrOpen}
+                      disabled={!readable.uri}
                       testID="quick-pass-share-pdf-btn"
                     >
                       <Ionicons name="share-social-outline" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
@@ -564,9 +692,14 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
 
                     {/* OBSZAR OBRAZU Z ROZCIĄGANIEM DWOMA PALCAMI ORAZ PRZESUWANIEM */}
                     <View style={styles.imageViewport} {...panResponder.panHandlers}>
-                      {!imageError ? (
+                      {readable.loading ? (
+                        <View style={styles.imageFallbackBox} testID="quick-pass-decrypting">
+                          <ActivityIndicator size="large" color="#38BDF8" />
+                        </View>
+                      ) : readable.uri && !imageError ? (
                         <Animated.Image
-                          source={{ uri: currentFile.uri }}
+                          testID="quick-pass-ticket-image"
+                          source={{ uri: readable.uri }}
                           style={[
                             styles.ticketImage,
                             {
@@ -583,7 +716,9 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       ) : (
                         <View style={styles.imageFallbackBox}>
                           <Ionicons name="image-outline" size={40} color="#64748B" />
-                          <Text style={styles.imageFallbackText}>{currentFile.name}</Text>
+                          <Text style={styles.imageFallbackText}>
+                            {readable.error ? vaultT.readError : currentFile.name}
+                          </Text>
                         </View>
                       )}
                     </View>
@@ -593,6 +728,7 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                       style={styles.openDocBtn}
                       activeOpacity={0.8}
                       onPress={handleShareOrOpen}
+                      disabled={!readable.uri}
                       testID="quick-pass-share-img-btn"
                     >
                       <Ionicons name="share-outline" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
@@ -600,6 +736,21 @@ export const QuickTicketPassModal: React.FC<QuickTicketPassModalProps> = ({
                     </TouchableOpacity>
                   </View>
                 )}
+                {ticketQr.dataUrl ? (
+                  <TouchableOpacity
+                    style={styles.qrToggleBtn}
+                    onPress={() => setShowOriginalTicket((v) => !v)}
+                    activeOpacity={0.8}
+                    testID="quick-pass-qr-toggle"
+                  >
+                    <Ionicons name={showOriginalTicket ? 'qr-code-outline' : 'document-outline'} size={16} color="#38BDF8" style={{ marginRight: 6 }} />
+                    <Text style={styles.qrToggleText}>
+                      {showOriginalTicket
+                        ? t.qrShowCode || (language === 'en' ? 'Show QR code' : 'Pokaż kod QR')
+                        : t.qrShowOriginal || (language === 'en' ? 'Show original' : 'Pokaż oryginał')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : (
               <View style={styles.noTicketCard}>
@@ -1093,4 +1244,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  qrScanHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  qrScanHintText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  qrCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, alignItems: 'center' },
+  qrImage: { width: 260, height: 260 },
+  qrCaption: { color: '#0F172A', fontSize: 12, fontWeight: '700', marginTop: 10, textAlign: 'center' },
+  qrToggleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.35)' },
+  qrToggleText: { color: '#38BDF8', fontSize: 13, fontWeight: '700' },
 });

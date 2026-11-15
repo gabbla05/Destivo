@@ -17,11 +17,17 @@ import {
   Keyboard,
   Platform,
   KeyboardAvoidingView,
+  AppState,
 } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, localizeTimelineTitle, localizeTimelineSubtitle } from '../i18n/translations';
-import { generateLiveRecommendations, LiveDestination } from '../lib/liveExplore';
+import {
+  EXPLORE_CACHE_KEY,
+  generateLiveRecommendations,
+  LEGACY_EXPLORE_CACHE_KEYS,
+  LiveDestination,
+} from '../lib/liveExplore';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePowerSync } from '@powersync/react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -37,20 +43,27 @@ import {
 } from '../lib/routeOptimization';
 import { ProximityAlertBanner } from '../components/ProximityAlertBanner';
 import { QuickTicketPassModal } from '../components/QuickTicketPassModal';
+import { CurrentWeather, fetchTripCurrentWeather } from '../lib/currentWeather';
 import { RouteOptimizationModal } from '../components/RouteOptimizationModal';
 import {
   ProximityCheckResult,
   findActiveTicketForTrip,
   scheduleLocalDepartureNotification,
+  cleanupExpiredGeofences,
+  getUpcomingDeparture,
+  isDepartureGeofenceEnabled,
+  requestBackgroundLocationConsent,
+  setupGeofencingForTrip,
   dismissExpiredDepartureNotifications,
 } from '../lib/proximityAlertService';
 import {
   fetchLiveExchangeRates,
-  formatRatesUpdatedTime,
+  describeRatesSource,
+  RatesSource,
   convertCurrencyWithRates,
   DEFAULT_EXCHANGE_RATES,
 } from '../lib/currencyService';
-import { enrichAttractionsWithGooglePhotos, getCuratedCityFallback } from '../lib/placesPhotoService';
+import { enrichAttractionsWithGooglePhotos, getCachedCityPhoto } from '../lib/placesPhotoService';
 import {
   POPULAR_DESTINATION_ATTRACTIONS,
   getCuratedSuggestionsForDestination,
@@ -286,6 +299,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   
   // Stany dla Aktywnej Podróży
   const [activeTrip, setActiveTrip] = useState<any | null>(null);
+  // Bieżąca pogoda w miejscu trwającej podróży (null = brak danych -> brak plakietki)
+  const [activeTripWeather, setActiveTripWeather] = useState<CurrentWeather | null>(null);
   const [activeTimeline, setActiveTimeline] = useState<any[]>([]);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -301,7 +316,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   // Stany dla Kalkulatora Walut
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
-  const [ratesLastUpdated, setRatesLastUpdated] = useState<Date>(new Date());
+  const [ratesLastUpdated, setRatesLastUpdated] = useState<Date | null>(null);
+  const [ratesSource, setRatesSource] = useState<RatesSource>('default');
+  // Ręczne odświeżenie kursu (przycisk przy kalkulatorze) - zwiększenie licznika ponawia pobranie
+  const [ratesReloadKey, setRatesReloadKey] = useState(0);
+  const [ratesRefreshing, setRatesRefreshing] = useState(false);
   const [enrichedSuggestions, setEnrichedSuggestions] = useState<Array<{ id: string; name: string; subtitle?: string; imageUrl?: string }>>([]);
   const [fromCurrency, setFromCurrency] = useState('EUR');
   const [toCurrency, setToCurrency] = useState('PLN');
@@ -315,17 +334,31 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   // Pobieranie kursów walut na żywo z open.er-api.com
   useEffect(() => {
     let isMounted = true;
-    fetchLiveExchangeRates().then((data) => {
-      if (isMounted) {
-        setExchangeRates(data.rates);
-        setRatesLastUpdated(data.lastUpdated);
-        if (fromAmount) {
-          setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
+    const loadRates = () => {
+      setRatesRefreshing(true);
+      return fetchLiveExchangeRates().then((data) => {
+        if (isMounted) {
+          setExchangeRates(data.rates);
+          setRatesLastUpdated(data.lastUpdated);
+          setRatesSource(data.source);
+          if (fromAmount) {
+            setToAmount(convertCurrencyWithRates(fromAmount, fromCurrency, toCurrency, data.rates));
+          }
         }
-      }
-    }).catch(() => {});
-    return () => { isMounted = false; };
-  }, []);
+      }).catch(() => {}).finally(() => {
+        if (isMounted) setRatesRefreshing(false);
+      });
+    };
+    loadRates();
+    // Po powrocie do aplikacji pobieramy kurs ponownie - bez sieci opis zmieni się na "(offline)"
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadRates();
+    });
+    return () => {
+      isMounted = false;
+      subscription.remove();
+    };
+  }, [ratesReloadKey]);
 
   const convertCurrency = useCallback((val: string, from: string, to: string) => {
     return convertCurrencyWithRates(val, from, to, exchangeRates);
@@ -383,6 +416,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    setActiveTripWeather(null);
+    if (!activeTrip) return;
+    fetchTripCurrentWeather(activeTrip)
+      .then((weather) => {
+        if (!cancelled) setActiveTripWeather(weather);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // Pogoda zależy tylko od miejsca podróży
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTrip?.id, activeTrip?.destination, activeTrip?.lodging_data, activeTrip?.accommodation_address]);
+
   const handleOpenProximityPass = (result: ProximityCheckResult) => {
     setQuickPassResult(result);
     setIsQuickPassVisible(true);
@@ -416,24 +465,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   useEffect(() => {
     async function loadExplore() {
-      // 1. Usunięcie starego cache v1 ze starymi/losowymi zdjęciami
+      // 1. Usunięcie starych wersji pamięci (zawierały zdjęcia zastępcze i wygasłe odwołania Google)
       try {
-        await AsyncStorage.removeItem('@destivo_cached_explore_recommendations_v1');
+        await AsyncStorage.multiRemove(LEGACY_EXPLORE_CACHE_KEYS);
       } catch {}
 
-      // 2. Błyskawiczne wczytanie z pamięci cache v3 lub v2 (0 ms oczekiwania dla użytkownika)
+      // 2. Błyskawiczne wczytanie ostatnich propozycji z pamięci. Zdjęcia bierzemy wyłącznie
+      //    z aktualnej pamięci Google Places; gdy jej nie ma, karta pokazuje placeholder.
       try {
-        const cached = (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v3')) ||
-                       (await AsyncStorage.getItem('@destivo_cached_explore_recommendations_v2'));
+        const cached = await AsyncStorage.getItem(EXPLORE_CACHE_KEY);
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const sanitized = parsed.map((item: any) => {
-              if (!item.coverImage) {
-                return { ...item, coverImage: getCuratedCityFallback(item.city) };
-              }
-              return item;
-            });
+            const sanitized = await Promise.all(
+              parsed.map(async (item: any) => ({
+                ...item,
+                coverImage: await getCachedCityPhoto(item.city, item.country),
+              }))
+            );
             setRecommendations(sanitized);
             setLoading(false);
           }
@@ -559,6 +608,24 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             setActiveTrip(null);
           }
 
+
+          // P13: geofencing w tle dla podróży z odjazdem (tam lub powrót) w ciągu 48 h
+          (async () => {
+            await cleanupExpiredGeofences();
+            if (!(await isDepartureGeofenceEnabled())) return;
+            const geofenceTrip = rows.find((trip: any) => getUpcomingDeparture(trip));
+            if (!geofenceTrip) return;
+            const t = translations[language]?.proximityAlert || translations.pl.proximityAlert;
+            await requestBackgroundLocationConsent(language, (title, message) =>
+              new Promise<boolean>((resolve) =>
+                Alert.alert(title, message, [
+                  { text: t.bgLocationLater, style: 'cancel', onPress: () => resolve(false) },
+                  { text: t.bgLocationAllow, onPress: () => resolve(true) },
+                ], { cancelable: false })
+              )
+            );
+            await setupGeofencingForTrip(geofenceTrip);
+          })().catch(() => {});
         } catch (error) {
           console.error('Błąd weryfikacji aktywnej podróży:', error);
         }
@@ -983,6 +1050,8 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       navigation?.navigate('Trips', {
         screen: 'Timeline',
         params: { trip: activeTrip },
+        // Lista podróży pod osią czasu, żeby strzałka wstecz wracała do "Moich podróży"
+        initial: false,
       });
       return;
     } catch {}
@@ -1121,11 +1190,11 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   if (activeTrip) {
     const currentRate = (exchangeRates[fromCurrency] || 1) / (exchangeRates[toCurrency] || 1);
     const rateFormatted = currentRate < 0.05 ? currentRate.toFixed(4) : currentRate.toFixed(2);
-    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • Zaktualizowano: {{time}}')
+    const rateFooterText = (t.currencyRateFooter || 'Kurs: 1 {{from}} = {{rate}} {{to}} • {{source}}')
       .replace('{{from}}', fromCurrency)
       .replace('{{rate}}', rateFormatted)
       .replace('{{to}}', toCurrency)
-      .replace('{{time}}', formatRatesUpdatedTime(ratesLastUpdated, language));
+      .replace('{{source}}', describeRatesSource(ratesSource, ratesLastUpdated, language));
 
     const emergencyNum = getEmergencyNumber(activeTrip.destination);
     const destinationLabel = destinationNames[activeTrip.destination] || activeTrip.destination || (t.tripFallback || (language === 'pl' ? 'Wyprawa' : 'Trip'));
@@ -1363,10 +1432,12 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                                 <Ionicons name="radio-button-on" size={10} color="#F59E0B" style={{ marginRight: 4 }} />
                                 <Text style={styles.inProgressBadgeText}>{t.inProgressBadge || 'W TRAKCIE'}</Text>
                               </View>
-                              <View style={styles.inProgressWeather}>
-                                <Ionicons name="sunny" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                                <Text style={styles.inProgressWeatherText}>24°C</Text>
-                              </View>
+                              {activeTripWeather && (
+                                <View style={styles.inProgressWeather} testID="in-progress-weather">
+                                  <Ionicons name={activeTripWeather.icon} size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                                  <Text style={styles.inProgressWeatherText}>{activeTripWeather.tempC}°C</Text>
+                                </View>
+                              )}
                             </View>
                           )}
 
@@ -1870,8 +1941,22 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               </View>
 
               {/* Informacja o kursie */}
-              <View style={styles.rateFooterBox}>
-                <Text style={styles.rateFooterLabel}>{rateFooterText}</Text>
+              <View style={[styles.rateFooterBox, styles.rateFooterRow]}>
+                <Text style={[styles.rateFooterLabel, { flexShrink: 1 }]} testID="rate-footer-text">{rateFooterText}</Text>
+                <TouchableOpacity
+                  onPress={() => setRatesReloadKey((k) => k + 1)}
+                  disabled={ratesRefreshing}
+                  style={styles.rateRefreshBtn}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel={language === 'en' ? 'Refresh exchange rate' : 'Odśwież kurs'}
+                  testID="rate-refresh-btn"
+                >
+                  {ratesRefreshing ? (
+                    <ActivityIndicator size="small" color="#38BDF8" />
+                  ) : (
+                    <Ionicons name="refresh" size={16} color="#38BDF8" />
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -2358,9 +2443,18 @@ export const HomeScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                       {dest.proposedTrip && (
                         <View style={styles.weatherBadge}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="sunny-outline" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                            <Text style={styles.weatherText}>
-                              ~{dest.proposedTrip.estimatedTemp}°C • {dest.isDayTrip ? `${dest.proposedTrip.startDate.slice(0, 5)} (1 dzień)` : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
+                            <Ionicons
+                              name={typeof dest.proposedTrip.estimatedTemp === 'number' ? 'sunny-outline' : 'cloud-offline-outline'}
+                              size={13}
+                              color={typeof dest.proposedTrip.estimatedTemp === 'number' ? '#F59E0B' : '#94A3B8'}
+                              style={{ marginRight: 4 }}
+                            />
+                            <Text style={styles.weatherText} testID={`explore-weather-${dest.id}`}>
+                              {typeof dest.proposedTrip.estimatedTemp === 'number'
+                                ? `~${dest.proposedTrip.estimatedTemp}°C • `
+                                : `${t.noForecastShort || 'Brak prognozy'} • `}
+                              {/* "1 dzień" jest już na sąsiednim badge'u - tu tylko data, żeby oba zmieściły się w jednym rzędzie */}
+                              {dest.isDayTrip ? dest.proposedTrip.startDate.slice(0, 5) : `${dest.proposedTrip.startDate.slice(0, 5)} - ${dest.proposedTrip.endDate.slice(0, 5)}`}
                             </Text>
                           </View>
                         </View>
@@ -2530,9 +2624,11 @@ const styles = StyleSheet.create({
   },
   cardTopBadgesRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
+    gap: 6,
   },
 
   filterChipsContainer: {
@@ -3022,6 +3118,8 @@ const styles = StyleSheet.create({
   converterTextInput: { backgroundColor: '#0B1120', borderWidth: 1, borderColor: '#334155', borderRadius: 10, height: 44, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   swapCircleBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', marginTop: 22 },
   rateFooterBox: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1E293B' },
+  rateFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  rateRefreshBtn: { marginLeft: 8, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   rateFooterLabel: { color: '#CBD5E1', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
   // Emergency Support Widget

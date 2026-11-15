@@ -19,10 +19,57 @@ export const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
 const STORAGE_RATES_KEY = '@destivo_live_exchange_rates';
 const STORAGE_TIMESTAMP_KEY = '@destivo_rates_timestamp';
 
+/** Skąd pochodzi kurs: pobrany teraz, zapamiętany wcześniej albo wpisany domyślny (orientacyjny). */
+export type RatesSource = 'live' | 'cache' | 'default';
+
 export interface CurrencyRatesData {
   rates: Record<string, number>;
-  lastUpdated: Date;
+  /** Czas pobrania kursu; null dla kursów domyślnych (nigdy nie były pobrane). */
+  lastUpdated: Date | null;
   isLive: boolean;
+  source: RatesSource;
+}
+
+/** Kursy z pamięci (bez sieci) wraz z informacją o ich pochodzeniu. */
+export async function getCachedExchangeRatesInfo(): Promise<CurrencyRatesData> {
+  try {
+    const storedRatesJson = await AsyncStorage.getItem(STORAGE_RATES_KEY);
+    const storedTimeStr = await AsyncStorage.getItem(STORAGE_TIMESTAMP_KEY);
+    const storedTime = storedTimeStr ? Number(storedTimeStr) : NaN;
+    if (storedRatesJson) {
+      return {
+        rates: { ...DEFAULT_EXCHANGE_RATES, ...JSON.parse(storedRatesJson) },
+        lastUpdated: Number.isFinite(storedTime) ? new Date(storedTime) : null,
+        isLive: false,
+        source: 'cache',
+      };
+    }
+  } catch (err) {
+    console.warn('Błąd odczytu kursów z AsyncStorage:', err);
+  }
+  return { rates: { ...DEFAULT_EXCHANGE_RATES }, lastUpdated: null, isLive: false, source: 'default' };
+}
+
+/**
+ * Opis pochodzenia kursu dla użytkownika:
+ * - "kurs z dzisiaj, 12:05" (na żywo),
+ * - "kurs z 12.11, 18:30 (offline)" (z pamięci),
+ * - "kurs orientacyjny, brak połączenia" (domyślny).
+ */
+export function describeRatesSource(
+  source: RatesSource,
+  lastUpdated: Date | null,
+  language: string = 'pl'
+): string {
+  const isEn = language === 'en';
+  if (source === 'default' || !lastUpdated) {
+    return isEn ? 'approximate rate, no connection' : 'kurs orientacyjny, brak połączenia';
+  }
+  const time = formatRatesUpdatedTime(lastUpdated, language);
+  if (source === 'cache') {
+    return isEn ? `rate from ${time} (offline)` : `kurs z ${time} (offline)`;
+  }
+  return isEn ? `rate from ${time}` : `kurs z ${time}`;
 }
 
 /**
@@ -31,22 +78,8 @@ export interface CurrencyRatesData {
  * Posiada pamięć podręczną AsyncStorage oraz niezawodny fallback offline.
  */
 export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
-  // 1. Sprawdzenie pamięci podręcznej AsyncStorage
-  let cachedRates: Record<string, number> = { ...DEFAULT_EXCHANGE_RATES };
-  let cachedDate = new Date();
-
-  try {
-    const storedRatesJson = await AsyncStorage.getItem(STORAGE_RATES_KEY);
-    const storedTimeStr = await AsyncStorage.getItem(STORAGE_TIMESTAMP_KEY);
-    if (storedRatesJson) {
-      cachedRates = { ...DEFAULT_EXCHANGE_RATES, ...JSON.parse(storedRatesJson) };
-    }
-    if (storedTimeStr) {
-      cachedDate = new Date(Number(storedTimeStr));
-    }
-  } catch (err) {
-    console.warn('Błąd odczytu kursów z AsyncStorage:', err);
-  }
+  // 1. Pamięć podręczna (używana, gdy nie ma sieci). Bez zapisanych kursów -> kurs domyślny bez daty.
+  const cached = await getCachedExchangeRatesInfo();
 
   // 2. Pobranie kursów na żywo z open.er-api.com (baza PLN)
   const controller = new AbortController();
@@ -86,6 +119,7 @@ export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
           rates: freshRates,
           lastUpdated: now,
           isLive: true,
+          source: 'live',
         };
       }
     }
@@ -96,11 +130,7 @@ export async function fetchLiveExchangeRates(): Promise<CurrencyRatesData> {
     clearTimeout(timeoutId);
   }
 
-  return {
-    rates: cachedRates,
-    lastUpdated: cachedDate,
-    isLive: false,
-  };
+  return cached;
 }
 
 /**
@@ -204,37 +234,34 @@ export function getCurrencyInfoForDestination(
 }
 
 
-export function formatRatesUpdatedTime(date: Date | string | number, language: string = 'pl'): string {
+/**
+ * Czas pobrania kursu w stałej formie: "dzisiaj, 14:05", "wczoraj, 18:30" albo "12.11, 09:15".
+ * Celowo bez "przed chwilą" / "X min temu" - taki opis szybko się dezaktualizuje.
+ */
+export function formatRatesUpdatedTime(
+  date: Date | string | number,
+  language: string = 'pl',
+  now: Date = new Date()
+): string {
   const parsedDate = date instanceof Date ? date : new Date(date);
+  const isEn = language === 'en';
   if (!parsedDate || isNaN(parsedDate.getTime())) {
-    return language === 'pl' ? 'dzisiaj' : 'today';
+    return isEn ? 'unknown time' : 'nieznany czas';
   }
-
-  const now = new Date();
-  const diffMinutes = Math.floor((now.getTime() - parsedDate.getTime()) / (1000 * 60));
-
-  if (diffMinutes < 2) {
-    return language === 'pl' ? 'przed chwilą' : 'just now';
-  }
-  if (diffMinutes < 60) {
-    return language === 'pl' ? `${diffMinutes} min temu` : `${diffMinutes} min ago`;
-  }
-
-  const isToday =
-    now.getDate() === parsedDate.getDate() &&
-    now.getMonth() === parsedDate.getMonth() &&
-    now.getFullYear() === parsedDate.getFullYear();
 
   const hours = String(parsedDate.getHours()).padStart(2, '0');
   const minutes = String(parsedDate.getMinutes()).padStart(2, '0');
+  const time = `${hours}:${minutes}`;
 
-  if (isToday) {
-    return language === 'pl' ? `dzisiaj, ${hours}:${minutes}` : `today, ${hours}:${minutes}`;
-  }
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(parsedDate)) / (24 * 60 * 60 * 1000));
+
+  if (dayDiff === 0) return isEn ? `today, ${time}` : `dzisiaj, ${time}`;
+  if (dayDiff === 1) return isEn ? `yesterday, ${time}` : `wczoraj, ${time}`;
 
   const day = String(parsedDate.getDate()).padStart(2, '0');
   const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-  return `${day}.${month}, ${hours}:${minutes}`;
+  return `${day}.${month}, ${time}`;
 }
 
 

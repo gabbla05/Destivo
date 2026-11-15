@@ -32,6 +32,8 @@ jest.mock('expo-notifications', () => ({
 // Mock expo-location
 jest.mock('expo-location', () => ({
   getForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  // Geofencing w tle wymaga zgody na lokalizację "zawsze" (P13)
+  getBackgroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   startGeofencingAsync: jest.fn().mockResolvedValue(undefined),
   stopGeofencingAsync: jest.fn().mockResolvedValue(undefined),
   hasStartedGeofencingAsync: jest.fn().mockResolvedValue(false),
@@ -325,8 +327,8 @@ describe('ProximityAlertService - Energooszczędne zarządzanie geolokalizacją 
   });
 
   describe('7. Ochrona baterii w Geofencingu', () => {
-    test('setupGeofencingForTrip NIE rejestruje geofence gdy wyjazd jest za więcej niż 24 godziny', async () => {
-      const farFuture = new Date(Date.now() + 48 * 60 * 60 * 1000); // za 48h
+    test('setupGeofencingForTrip NIE rejestruje geofence gdy wyjazd jest za więcej niż 48 godzin', async () => {
+      const farFuture = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000); // za 5 dni (okno to 48 h)
       const dateStr = `${farFuture.getFullYear()}-${String(farFuture.getMonth() + 1).padStart(2, '0')}-${String(farFuture.getDate()).padStart(2, '0')}`;
 
       const trip = {
@@ -346,7 +348,7 @@ describe('ProximityAlertService - Energooszczędne zarządzanie geolokalizacją 
       expect(Location.startGeofencingAsync).not.toHaveBeenCalled();
     });
 
-    test('setupGeofencingForTrip rejestruje geofence gdy wyjazd jest w ciągu 24 godzin', async () => {
+    test('setupGeofencingForTrip rejestruje geofence gdy wyjazd jest w ciągu 48 godzin', async () => {
       const nearFuture = new Date(Date.now() + 3 * 60 * 60 * 1000); // za 3h
       const dateStr = `${nearFuture.getFullYear()}-${String(nearFuture.getMonth() + 1).padStart(2, '0')}-${String(nearFuture.getDate()).padStart(2, '0')}`;
       const timeStr = `${String(nearFuture.getHours()).padStart(2, '0')}:${String(nearFuture.getMinutes()).padStart(2, '0')}`;

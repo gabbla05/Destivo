@@ -1,6 +1,6 @@
 {
   "name": "destivo",
-  "version": "1.0.2",
+  "version": "1.0.10",
   "main": "index.ts",
   "private": true,
   "scripts": {
@@ -9,9 +9,11 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "check:env": "node scripts/check-env.js",
+    "benchmark": "jest --config scripts/benchmark/jest.benchmark.config.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:clear": "jest --clearCache"
+    "test:clear": "jest --clearCache",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@noble/ciphers": "^1.3.0",
@@ -31,6 +33,7 @@
     "expo-dev-client": "~6.0.21",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.24",
+    "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
     "expo-local-authentication": "~17.0.9",
     "expo-location": "~19.0.8",
@@ -48,6 +51,7 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-maps": "1.20.1",
+    "react-native-pdf-thumbnail": "^2.0.0",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
@@ -62,6 +66,7 @@
     "@types/react": "~19.1.10",
     "jest": "~29.7.0",
     "jest-expo": "~54.0.17",
+    "patch-package": "^8.0.0",
     "react-native-worklets": "^0.8.0",
     "react-test-renderer": "19.1.0",
     "tailwindcss": "^3.3.2",
@@ -78,6 +83,8 @@
     ],
     "moduleNameMapper": {
       "^@react-native-async-storage/async-storage$": "<rootDir>/__mocks__/@react-native-async-storage/async-storage.js"
-    }
+    },
+    "testTimeout": 15000,
+    "maxWorkers": "50%"
   }
 }

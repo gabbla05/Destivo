@@ -11,17 +11,6 @@ export type TransportType = 'flight' | 'train' | 'bus' | 'car';
  */
 export type PriceStatus = 'LIVE' | 'ESTIMATE' | 'UNAVAILABLE';
 
-export type DataConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
-
-export type TransportBadge =
-  | 'SMART_CHOICE'
-  | 'FASTEST_D2D'
-  | 'CHEAPEST_TOTAL'
-  | 'HIGH_COMFORT'
-  | 'LIVE_DATA'
-  | 'ESTIMATED'
-  | 'NO_PRICE_DATA';
-
 export interface TransportPrice {
   min: number;
   max: number;
@@ -47,14 +36,12 @@ export interface TransportOption {
   minTotalCost: number;
   maxTotalCost: number;
   price: TransportPrice;
-  dataConfidence: DataConfidence;
+  /** Odległość w linii prostej (km) - podstawa rekomendacji środka transportu. */
   distanceKm: number;
-  stressScore: number;
   bookingUrl?: string;
   // NOWE POLE: Linki akcji (np. Google Maps)
   actionLinks?: { label: string; url: string }[];
   notes?: string[];
-  badges: TransportBadge[];
 }
 
 export interface TripCreatorState {

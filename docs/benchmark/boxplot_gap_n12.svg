@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440" font-family="Inter, Arial, sans-serif">
+<rect width="720" height="440" fill="#fcfcfb"/>
+<text x="72" y="24" font-size="16" font-weight="700" fill="#1f1f1e">Rozkład odchylenia od najlepszego wyniku (n = 12)</text>
+<text x="72" y="42" font-size="12" fill="#6b6b68">20 losowych zestawów punktów; pudełko = kwartyle, kreska = mediana</text>
+<line x1="72" x2="550" y1="384" y2="384" stroke="#e4e3df"/>
+<text x="64" y="388" font-size="11" text-anchor="end" fill="#6b6b68">0%</text>
+<line x1="72" x2="550" y1="274.6666666666667" y2="274.6666666666667" stroke="#e4e3df"/>
+<text x="64" y="278.6666666666667" font-size="11" text-anchor="end" fill="#6b6b68">10%</text>
+<line x1="72" x2="550" y1="165.33333333333334" y2="165.33333333333334" stroke="#e4e3df"/>
+<text x="64" y="169.33333333333334" font-size="11" text-anchor="end" fill="#6b6b68">20%</text>
+<line x1="72" x2="550" y1="56" y2="56" stroke="#e4e3df"/>
+<text x="64" y="60" font-size="11" text-anchor="end" fill="#6b6b68">30%</text>
+<line x1="72" x2="550" y1="384" y2="384" stroke="#6b6b68"/>
+<text transform="translate(18 220) rotate(-90)" font-size="12" text-anchor="middle" fill="#1f1f1e">Odchylenie [%]</text>
+<line x1="151.66666666666669" x2="151.66666666666669" y1="34.625333333333344" y2="384" stroke="#6b6b68" stroke-width="1.5"/>
+<rect x="123.66666666666669" y="165.22400000000002" width="56" height="198.09559999999996" rx="4" fill="#2a78d6" fill-opacity="0.85" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="123.66666666666669" x2="179.66666666666669" y1="316.88026666666667" y2="316.88026666666667" stroke="#1f1f1e" stroke-width="2"/>
+
+<text x="151.66666666666669" y="402" font-size="11" text-anchor="middle" fill="#1f1f1e">Zachłanny (NN)</text>
+<text x="185.66666666666669" y="320.88026666666667" font-size="11" fill="#1f1f1e">6.14%</text>
+<line x1="311" x2="311" y1="384" y2="384" stroke="#6b6b68" stroke-width="1.5"/>
+<rect x="283" y="383.1444666666667" width="56" height="2" rx="4" fill="#eb6834" fill-opacity="0.85" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="283" x2="339" y1="384" y2="384" stroke="#1f1f1e" stroke-width="2"/>
+<circle cx="311" cy="356.4261333333333" r="3" fill="none" stroke="#6b6b68"/><circle cx="311" cy="302.1530666666667" r="3" fill="none" stroke="#6b6b68"/><circle cx="311" cy="376.8496" r="3" fill="none" stroke="#6b6b68"/><circle cx="311" cy="368.72613333333334" r="3" fill="none" stroke="#6b6b68"/><circle cx="311" cy="380.5778666666667" r="3" fill="none" stroke="#6b6b68"/>
+<text x="311" y="402" font-size="11" text-anchor="middle" fill="#1f1f1e">2-opt</text>
+<text x="345" y="388" font-size="11" fill="#1f1f1e">0%</text>
+<line x1="470.33333333333337" x2="470.33333333333337" y1="384" y2="384" stroke="#6b6b68" stroke-width="1.5"/>
+<rect x="442.33333333333337" y="384" width="56" height="2" rx="4" fill="#1baf7a" fill-opacity="0.85" stroke="#fcfcfb" stroke-width="2"/>
+<line x1="442.33333333333337" x2="498.33333333333337" y1="384" y2="384" stroke="#1f1f1e" stroke-width="2"/>
+<circle cx="470.33333333333337" cy="355.1032" r="3" fill="none" stroke="#6b6b68"/><circle cx="470.33333333333337" cy="233.9072" r="3" fill="none" stroke="#6b6b68"/><circle cx="470.33333333333337" cy="353.3976" r="3" fill="none" stroke="#6b6b68"/><circle cx="470.33333333333337" cy="314.7045333333333" r="3" fill="none" stroke="#6b6b68"/>
+<text x="470.33333333333337" y="402" font-size="11" text-anchor="middle" fill="#1f1f1e">Symulowane wyżarzanie</text>
+<text x="504.33333333333337" y="388" font-size="11" fill="#1f1f1e">0%</text>
+</svg>

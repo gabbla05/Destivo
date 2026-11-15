@@ -26,7 +26,6 @@ import {
   isTestEnvironment,
   type GeoPoint,
   type OptimizationResult,
-  type AlgorithmBenchmark,
 } from '../lib/routeOptimization';
 
 interface TimelineEventLike {
@@ -55,6 +54,17 @@ interface RouteOptimizationModalProps {
   tripEndDate?: string;
   transportProfile?: 'driving' | 'walking';
 }
+
+
+/** Krótka pauza przed zapytaniem OSRM (współrzędne dochodzą stopniowo); w testach od razu. */
+const scheduleOsrmFetch = (run: () => void): ReturnType<typeof setTimeout> | undefined => {
+  // Celowo NODE_ENV, a nie isTestEnvironment() - testy podmieniają tę funkcję, by sprawdzić tryb produkcyjny
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    run();
+    return undefined;
+  }
+  return setTimeout(run, 600);
+};
 
 export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
   visible,
@@ -351,9 +361,11 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         }
       };
 
-      Promise.all(
-        Array.from({ length: Math.min(3, dayEntries.length) }, () => loadNextDayMatrix())
-      ).then(() => {
+      // Dni pobieramy po kolei (jedno zapytanie naraz) - publiczne serwery OSRM odrzucają równoległe
+      // zapytania kodem 429. Krótka pauza przed startem: współrzędne miejsc dochodzą stopniowo,
+      // a każda zmiana anulowałaby i wysyłała zapytania od nowa.
+      const startTimer = scheduleOsrmFetch(() => {
+      loadNextDayMatrix().then(() => {
         if (abortController.signal.aborted || currentReqId !== activeRequestIdRef.current) return;
         const successfulMatrices: Record<string, { matrix: number[][]; pointIds: string[] }> = {};
         const failures: Error[] = [];
@@ -371,8 +383,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         setDayRoadMatrices(successfulMatrices);
         setOsrmStatus(failures.length > 0 ? 'error' : 'success');
       });
+      });
 
       return () => {
+        clearTimeout(startTimer);
         abortController.abort();
         if (currentReqId === activeRequestIdRef.current) activeRequestIdRef.current++;
       };
@@ -399,6 +413,7 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
     setRoadMatrix(null);
     setOsrmStatus('loading');
 
+    const startTimer = scheduleOsrmFetch(() => {
     fetchOsrmRoadMatrix(pointsForMatrix, {
       criterion: 'duration',
       profile: selectedTransportProfile,
@@ -424,8 +439,10 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
           }
         }
       });
+    });
 
     return () => {
+      clearTimeout(startTimer);
       abortController.abort();
       activeRequestIdRef.current++;
     };
@@ -501,16 +518,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       const isApproximate = isApproximateMode ||
         hasUnroutableDayLodging ||
         (requiredDays.length > 0 && !requiredDays.every((day) => Boolean(dayRoadMatrices[day])));
-      const benchmark: AlgorithmBenchmark = {
-        algorithmId: '2opt',
-        name: isApproximate ? 'Optymalizacja dzienna (szacunek)' : 'Optymalizacja dzienna (OSRM)',
-        distanceKm: 0,
-        timeMs: 1,
-        iterations: 1,
-        routeIndices: orderedByDay.map((_, index) => index),
-        cost: 0,
-        costUnit: isApproximate ? 'km' : 'seconds',
-      };
       return {
         orderedPoints: orderedByDay,
         originalDistanceKm: 0,
@@ -518,8 +525,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         savingsKm: 0,
         savingsPercent: 0,
         timeSavedMinutes: 0,
-        bestAlgorithm: benchmark,
-        benchmarks: [benchmark],
+        // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+        metricsAvailable: false,
         hasCollapsedCoordinates: false,
         isApproximate,
         criterion: isApproximate ? 'distance' : 'duration',
@@ -528,7 +535,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         costUnit: isApproximate ? 'km' : 'seconds',
         routeStatus: isApproximate ? 'straight_line_estimate' : 'road_confirmed',
         timeEstimateCategory: isApproximate ? 'none_in_approximate_mode' : 'osrm_road_duration',
-        metricsAvailable: false,
       };
     }
 
@@ -547,16 +553,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             criterion: 'duration',
             isApproximate: false,
           });
-          const benchmark: AlgorithmBenchmark = {
-            algorithmId: '2opt',
-            name: 'Optymalizacja ATSP z hotelem',
-            distanceKm: 0,
-            timeMs: 1,
-            iterations: 1,
-            routeIndices: dayRes.orderedAttractions.map((_, i) => i),
-            cost: dayRes.totalCost,
-            costUnit: 'seconds',
-          };
           return {
             orderedPoints: dayRes.orderedAttractions,
             originalDistanceKm: 0,
@@ -564,8 +560,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
             savingsKm: 0,
             savingsPercent: 0,
             timeSavedMinutes: 0,
-            bestAlgorithm: benchmark,
-            benchmarks: [benchmark],
+            // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+            metricsAvailable: false,
             hasCollapsedCoordinates: false,
             isApproximate: false,
             criterion: 'duration',
@@ -583,16 +579,6 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
       const approxRes = optimizeDayRouteWithHotel(hotelPoint, geoPoints, {
         isApproximate: true,
       });
-      const benchmark: AlgorithmBenchmark = {
-        algorithmId: '2opt',
-        name: 'Szacunek przybliżony z hotelem',
-        distanceKm: approxRes.totalCost,
-        timeMs: 1,
-        iterations: 1,
-        routeIndices: approxRes.orderedAttractions.map((_, i) => i),
-        cost: approxRes.totalCost,
-        costUnit: 'km',
-      };
       return {
         orderedPoints: approxRes.orderedAttractions,
         originalDistanceKm: approxRes.totalCost,
@@ -600,8 +586,8 @@ export const RouteOptimizationModal: React.FC<RouteOptimizationModalProps> = ({
         savingsKm: 0,
         savingsPercent: 0,
         timeSavedMinutes: 0,
-        bestAlgorithm: benchmark,
-        benchmarks: [benchmark],
+        // Bez zastępczych pomiarów: porównanie algorytmów jest tylko w benchmarku do pracy (npm run benchmark)
+        metricsAvailable: false,
         hasCollapsedCoordinates: false,
         isApproximate: true,
         criterion: 'distance',

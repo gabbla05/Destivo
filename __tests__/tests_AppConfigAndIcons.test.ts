@@ -58,17 +58,17 @@ describe('App Config & Icon Assets - Rygorystyczna weryfikacja konfiguracji', ()
   });
 
   test('5. konfiguracja natywna Androida (colors.xml oraz ic_launcher.xml) musi używać #0B1120', () => {
+    // Folder android/ jest generowany przez `expo prebuild` z app.json, a nazwa koloru tła ikony
+    // zależy od wersji Expo (np. iconBackground). Sprawdzamy więc kolor, na który wskazuje ikona.
     const colorsXmlPath = path.join(rootDir, 'android', 'app', 'src', 'main', 'res', 'values', 'colors.xml');
-    if (fs.existsSync(colorsXmlPath)) {
-      const colorsXml = fs.readFileSync(colorsXmlPath, 'utf8');
-      expect(colorsXml).toContain('name="ic_launcher_background">#0B1120</color>');
-    }
-
     const launcherXmlPath = path.join(rootDir, 'android', 'app', 'src', 'main', 'res', 'mipmap-anydpi-v26', 'ic_launcher.xml');
-    if (fs.existsSync(launcherXmlPath)) {
+    if (fs.existsSync(colorsXmlPath) && fs.existsSync(launcherXmlPath)) {
+      const colorsXml = fs.readFileSync(colorsXmlPath, 'utf8');
       const launcherXml = fs.readFileSync(launcherXmlPath, 'utf8');
-      expect(launcherXml).toContain('android:drawable="@color/ic_launcher_background"');
-      expect(launcherXml).toContain('android:drawable="@drawable/ic_launcher_foreground"');
+      const backgroundColorName = launcherXml.match(/<background android:drawable="@color\/([^"]+)"/)?.[1];
+      expect(backgroundColorName).toBeTruthy();
+      expect(colorsXml).toContain(`name="${backgroundColorName}">#0B1120</color>`);
+      expect(launcherXml).toMatch(/<foreground android:drawable="@(drawable|mipmap)\/ic_launcher_foreground"/);
     }
   });
 

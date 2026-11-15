@@ -20,6 +20,7 @@ import { useVaultStore } from '../store/vaultStore';
 import { VaultManager } from '../lib/vaultManager';
 import { translations } from '../i18n/translations';
 import { usePowerSync } from '@powersync/react-native';
+import { wipeLocalUserData } from '../lib/localDataWipe';
 
 export const AccountSecurityScreen = ({ navigation }: any) => {
   const { user, language, logout } = useAuthStore();
@@ -33,6 +34,9 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [verifyingPassword, setVerifyingPassword] = useState(false);
+  const [passwordAction, setPasswordAction] = useState<'resetPin' | 'deleteAccount'>('resetPin');
+  const [deletingData, setDeletingData] = useState(false);
+  const isGuestUser = !user?.email || Boolean(user?.isGuest);
 
   const handlePasswordReset = async () => {
     if (!user?.email) return;
@@ -74,6 +78,11 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
     }
 
     // Użytkownik zalogowany - wymagamy hasła do konta
+    openPasswordModal('resetPin');
+  };
+
+  const openPasswordModal = (action: 'resetPin' | 'deleteAccount') => {
+    setPasswordAction(action);
     setPasswordInput('');
     setShowPassword(false);
     setShowPinModal(true);
@@ -97,6 +106,11 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
         return;
       }
 
+      if (passwordAction === 'deleteAccount') {
+        await deleteAccountAfterPasswordCheck();
+        return;
+      }
+
       // Hasło prawidłowe - resetujemy PIN do sejfu
       await useVaultStore.getState().resetPin();
       setShowPinModal(false);
@@ -109,32 +123,69 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
     }
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      t.deleteTitle,
-      t.deleteMessage,
-      [
-        { text: commonT.cancel, style: 'cancel' },
-        { 
-          text: t.deleteConfirm, 
-          style: 'destructive',
-          onPress: async () => {
-             try {
-                // 1. Usuwamy wszystkie podróże użytkownika z chmury Supabase
-                await supabase.from('trips').delete().eq('user_id', user?.id);
-                // 2. Czyścimy lokalną bazę PowerSync
-                await db.disconnectAndClear();
-                // 3. Wylogowujemy z Supabase
-                await supabase.auth.signOut();
-                // 4. Usuwamy stan w aplikacji i wracamy do ekranu startowego
-                logout();
-             } catch (e) {
-                Alert.alert(t.errorTitle, t.deleteError);
-             }
+  /**
+   * "Usuń moje dane": podróże w chmurze i wszystkie dane na telefonie. Konto zostaje.
+   * Dane lokalne czyścimy dopiero po potwierdzeniu, że usunięcie w chmurze się udało.
+   */
+  const handleDeleteData = () => {
+    Alert.alert(t.deleteDataTitle, isGuestUser ? t.deleteDataGuestMessage : t.deleteDataMessage, [
+      { text: commonT.cancel, style: 'cancel' },
+      {
+        text: t.deleteDataConfirm,
+        style: 'destructive',
+        onPress: async () => {
+          setDeletingData(true);
+          try {
+            if (!isGuestUser) {
+              const { error } = await supabase.from('trips').delete().eq('user_id', user?.id);
+              if (error) throw error;
+            }
+          } catch (e) {
+            setDeletingData(false);
+            Alert.alert(t.errorTitle, t.deleteDataError);
+            return;
           }
-        }
-      ]
-    );
+
+          try {
+            await wipeLocalUserData(db);
+            Alert.alert(t.successTitle, t.deleteDataDone);
+          } catch (e) {
+            Alert.alert(t.errorTitle, t.deleteDataLocalError);
+          } finally {
+            setDeletingData(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  /** "Usuń konto": najpierw ostrzeżenie, potem hasło (modal), potem Edge Function. */
+  const handleDeleteAccount = () => {
+    Alert.alert(t.deleteTitle, t.deleteMessage, [
+      { text: commonT.cancel, style: 'cancel' },
+      { text: t.deleteConfirm, style: 'destructive', onPress: () => openPasswordModal('deleteAccount') },
+    ]);
+  };
+
+  const deleteAccountAfterPasswordCheck = async () => {
+    // 1. Konto i dane w chmurze usuwa Edge Function (klucz service_role jest tylko na serwerze).
+    //    Przy błędzie NIE wylogowujemy i niczego nie usuwamy lokalnie.
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', { method: 'POST' });
+      if (error || !data?.deleted) throw error || new Error('delete-account failed');
+    } catch (e) {
+      console.warn('Usuwanie konta nie powiodło się:', e);
+      Alert.alert(t.errorTitle, t.deleteError);
+      return;
+    }
+
+    // 2. Konto już nie istnieje - czyścimy telefon i wylogowujemy (błędy sprzątania nie blokują wylogowania)
+    setShowPinModal(false);
+    setPasswordInput('');
+    await wipeLocalUserData(db).catch((e) => console.warn('Czyszczenie danych po usunięciu konta:', e));
+    await db.disconnectAndClear().catch(() => undefined);
+    await supabase.auth.signOut().catch(() => undefined);
+    logout();
   };
 
   return (
@@ -183,12 +234,27 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
         {/* DANGER ZONE */}
         <Text style={[styles.sectionTitle, { color: '#EF4444', marginTop: 24 }]}>{t.danger}</Text>
         <View style={[styles.card, { borderColor: 'rgba(239, 68, 68, 0.3)' }]}>
-          <TouchableOpacity style={styles.row} onPress={handleDeleteAccount}>
+          <TouchableOpacity
+            style={[styles.row, !isGuestUser && styles.borderBottom]}
+            onPress={handleDeleteData}
+            disabled={deletingData}
+            testID="delete-data-row"
+          >
             <View style={styles.rowLeft}>
-              <Ionicons name="trash-outline" size={20} color="#EF4444" style={styles.icon} />
-              <Text style={[styles.rowText, { color: '#EF4444' }]}>{t.deleteAccount}</Text>
+              <Ionicons name="trash-bin-outline" size={20} color="#F97316" style={styles.icon} />
+              <Text style={[styles.rowText, { color: '#F97316' }]}>{t.deleteData}</Text>
             </View>
+            {deletingData ? <ActivityIndicator color="#F97316" /> : null}
           </TouchableOpacity>
+
+          {!isGuestUser && (
+            <TouchableOpacity style={styles.row} onPress={handleDeleteAccount} testID="delete-account-row">
+              <View style={styles.rowLeft}>
+                <Ionicons name="person-remove-outline" size={20} color="#EF4444" style={styles.icon} />
+                <Text style={[styles.rowText, { color: '#EF4444' }]}>{t.deleteAccount}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
       </ScrollView>
@@ -207,13 +273,23 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
           <View style={styles.modalCard}>
             <View style={styles.modalHeaderRow}>
               <View style={styles.modalIconWrap}>
-                <Ionicons name="shield-outline" size={24} color="#F59E0B" />
+                <Ionicons
+                  name={passwordAction === 'deleteAccount' ? 'person-remove-outline' : 'shield-outline'}
+                  size={24}
+                  color={passwordAction === 'deleteAccount' ? '#EF4444' : '#F59E0B'}
+                />
               </View>
-              <Text style={styles.modalTitle}>{t.pinResetPasswordRequired || 'Weryfikacja hasła'}</Text>
+              <Text style={styles.modalTitle}>
+                {passwordAction === 'deleteAccount'
+                  ? t.deleteAccountPasswordTitle
+                  : t.pinResetPasswordRequired || 'Weryfikacja hasła'}
+              </Text>
             </View>
 
             <Text style={styles.modalDesc}>
-              {t.pinResetModalDesc || 'Aby zresetować kod PIN do Sejfu, potwierdź swoją tożsamość wpisując hasło do konta Destivo.'}
+              {passwordAction === 'deleteAccount'
+                ? t.deleteAccountPasswordDesc
+                : t.pinResetModalDesc || 'Aby zresetować kod PIN do Sejfu, potwierdź swoją tożsamość wpisując hasło do konta Destivo.'}
             </Text>
 
             <View style={styles.inputContainer}>
@@ -243,7 +319,11 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, verifyingPassword && { opacity: 0.7 }]}
+                style={[
+                  styles.modalConfirmBtn,
+                  passwordAction === 'deleteAccount' && { backgroundColor: '#EF4444' },
+                  verifyingPassword && { opacity: 0.7 },
+                ]}
                 onPress={handleConfirmPinResetWithPassword}
                 disabled={verifyingPassword}
                 testID="vault-confirm-reset-btn"
@@ -251,7 +331,11 @@ export const AccountSecurityScreen = ({ navigation }: any) => {
                 {verifyingPassword ? (
                   <ActivityIndicator color="#0F172A" size="small" />
                 ) : (
-                  <Text style={styles.modalConfirmText}>{t.confirmAndReset || 'Potwierdź i zresetuj'}</Text>
+                  <Text style={styles.modalConfirmText}>
+                    {passwordAction === 'deleteAccount'
+                      ? t.deleteAccountPasswordBtn
+                      : t.confirmAndReset || 'Potwierdź i zresetuj'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>

@@ -145,6 +145,34 @@ describe('ExploreDetailsScreen - Rygorystyczny zestaw testów jednostkowych', ()
     });
   });
 
+  test('1b. [P5: brak prognozy] nie pokazuje temperatury ani obłożenia, tylko etykietę "Brak aktualnej prognozy"', () => {
+    const withoutForecast: LiveDestination = {
+      ...mockPredefinedDestination,
+      proposedTrip: {
+        ...mockPredefinedDestination.proposedTrip!,
+        weatherSource: 'unavailable',
+        estimatedTemp: undefined,
+        condition: undefined,
+        crowdLevel: undefined,
+      },
+    };
+    render(
+      <ExploreDetailsScreen route={{ params: { destData: withoutForecast } }} navigation={mockNavigation} />
+    );
+
+    expect(screen.getByTestId('explore-details-no-forecast')).toBeTruthy();
+    expect(screen.queryByTestId('explore-details-forecast')).toBeNull();
+    expect(screen.queryByText(/°C/)).toBeNull();
+  });
+
+  test('1c. [P5: prognoza] pokazuje temperaturę z prognozy', () => {
+    render(
+      <ExploreDetailsScreen route={{ params: { destData: mockPredefinedDestination } }} navigation={mockNavigation} />
+    );
+    expect(screen.getByTestId('explore-details-forecast').props.children).toContain('23');
+    expect(screen.queryByTestId('explore-details-no-forecast')).toBeNull();
+  });
+
   test('2. [Brak szablonu w bazie] renderuje informację o konieczności ułożenia własnego planu i przycisk kreatora', () => {
     render(
       <ExploreDetailsScreen

@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AccountSecurityScreen } from '../src/screens/AccountSecurityScreen';
 import { useAuthStore } from '../src/store/authStore';
@@ -27,6 +27,12 @@ const mockSignInWithPassword = jest.fn();
 const mockSignOut = jest.fn();
 const mockEq = jest.fn();
 const mockDelete = jest.fn(() => ({ eq: mockEq }));
+const mockInvoke = jest.fn();
+
+const mockWipeLocalUserData = jest.fn();
+jest.mock('../src/lib/localDataWipe', () => ({
+  wipeLocalUserData: (...args: any[]) => mockWipeLocalUserData(...args),
+}));
 
 jest.mock('../src/lib/supabase', () => ({
   supabase: {
@@ -38,6 +44,9 @@ jest.mock('../src/lib/supabase', () => ({
     from: jest.fn(() => ({
       delete: mockDelete,
     })),
+    functions: {
+      invoke: (...args: any[]) => mockInvoke(...args),
+    },
   },
 }));
 
@@ -67,6 +76,7 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     expect(screen.getByText(t.privacyData)).toBeTruthy();
     expect(screen.getByText(t.privacyPolicy)).toBeTruthy();
     expect(screen.getByText(t.danger)).toBeTruthy();
+    expect(screen.getByText(t.deleteData)).toBeTruthy();
     expect(screen.getByText(t.deleteAccount)).toBeTruthy();
 
     const backBtn = screen.getByText('arrow-back');
@@ -233,52 +243,156 @@ describe('AccountSecurityScreen - Bezpieczeństwo i Zarządzanie Kontem', () => 
     expect(alertSpy).toHaveBeenCalledWith(t.privacyPolicy, t.privacyText);
   });
 
-  test('usuwanie konta pyta o potwierdzenie, usuwa dane z Supabase, czyści PowerSync i wylogowuje', async () => {
-    mockEq.mockResolvedValueOnce({ error: null });
-    mockDisconnectAndClear.mockResolvedValueOnce(undefined);
-    mockSignOut.mockResolvedValueOnce({ error: null });
-    const logoutSpy = jest.fn();
-    useAuthStore.setState({ logout: logoutSpy });
+  const pressAlertButton = async (alertSpy: jest.SpyInstance, callIndex: number, label: string) => {
+    const buttons = alertSpy.mock.calls[callIndex][2] as any[];
+    const btn = buttons.find((b) => b.text === label);
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      await btn.onPress();
+    });
+  };
 
-    const alertSpy = jest.spyOn(Alert, 'alert');
+  describe('P3: "Usuń moje dane"', () => {
+    test('usuwa podróże z chmury, czyści telefon i NIE wylogowuje', async () => {
+      mockEq.mockResolvedValueOnce({ error: null });
+      mockWipeLocalUserData.mockResolvedValueOnce(undefined);
+      const logoutSpy = jest.fn();
+      useAuthStore.setState({ logout: logoutSpy });
+      const alertSpy = jest.spyOn(Alert, 'alert');
 
-    render(<AccountSecurityScreen navigation={mockNavigation} />);
+      render(<AccountSecurityScreen navigation={mockNavigation} />);
+      fireEvent.press(screen.getByTestId('delete-data-row'));
 
-    fireEvent.press(screen.getByText(t.deleteAccount));
+      expect(alertSpy).toHaveBeenCalledWith(t.deleteDataTitle, t.deleteDataMessage, expect.any(Array));
+      await pressAlertButton(alertSpy, 0, t.deleteDataConfirm);
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      t.deleteTitle,
-      t.deleteMessage,
-      expect.any(Array)
-    );
+      expect(supabase.from).toHaveBeenCalledWith('trips');
+      expect(mockEq).toHaveBeenCalledWith('user_id', 'user-sec-1');
+      expect(mockWipeLocalUserData).toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.deleteDataDone);
+      expect(logoutSpy).not.toHaveBeenCalled();
+      expect(mockSignOut).not.toHaveBeenCalled();
+      expect(mockInvoke).not.toHaveBeenCalled();
+    });
 
-    const buttons = alertSpy.mock.calls[0][2] as any[];
-    const deleteBtn = buttons.find((b) => b.text === t.deleteConfirm);
-    expect(deleteBtn).toBeTruthy();
+    test('błąd chmury: nic nie jest czyszczone lokalnie, użytkownik widzi komunikat', async () => {
+      mockEq.mockResolvedValueOnce({ error: { message: 'network' } });
+      const alertSpy = jest.spyOn(Alert, 'alert');
 
-    await deleteBtn.onPress();
+      render(<AccountSecurityScreen navigation={mockNavigation} />);
+      fireEvent.press(screen.getByTestId('delete-data-row'));
+      await pressAlertButton(alertSpy, 0, t.deleteDataConfirm);
 
-    expect(supabase.from).toHaveBeenCalledWith('trips');
-    expect(mockDelete).toHaveBeenCalled();
-    expect(mockEq).toHaveBeenCalledWith('user_id', 'user-sec-1');
-    expect(mockDisconnectAndClear).toHaveBeenCalled();
-    expect(mockSignOut).toHaveBeenCalled();
-    expect(logoutSpy).toHaveBeenCalled();
+      expect(mockWipeLocalUserData).not.toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.deleteDataError);
+    });
+
+    test('brak sieci (wyjątek) też blokuje czyszczenie lokalne', async () => {
+      mockEq.mockRejectedValueOnce(new Error('Network request failed'));
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      render(<AccountSecurityScreen navigation={mockNavigation} />);
+      fireEvent.press(screen.getByTestId('delete-data-row'));
+      await pressAlertButton(alertSpy, 0, t.deleteDataConfirm);
+
+      expect(mockWipeLocalUserData).not.toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.deleteDataError);
+    });
+
+    test('gość: widzi tylko "Usuń moje dane", czyszczony jest tylko telefon', async () => {
+      useAuthStore.setState({ user: { id: 'guest-1', isGuest: true } as any, isGuest: true });
+      mockWipeLocalUserData.mockResolvedValueOnce(undefined);
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      render(<AccountSecurityScreen navigation={mockNavigation} />);
+      expect(screen.queryByTestId('delete-account-row')).toBeNull();
+
+      fireEvent.press(screen.getByTestId('delete-data-row'));
+      expect(alertSpy).toHaveBeenCalledWith(t.deleteDataTitle, t.deleteDataGuestMessage, expect.any(Array));
+      await pressAlertButton(alertSpy, 0, t.deleteDataConfirm);
+
+      expect(supabase.from).not.toHaveBeenCalled();
+      expect(mockWipeLocalUserData).toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(t.successTitle, t.deleteDataDone);
+    });
   });
 
-  test('błąd podczas usuwania konta wyświetla alert z błędem', async () => {
-    mockEq.mockRejectedValueOnce(new Error('Błąd usuwania w chmurze'));
-    const alertSpy = jest.spyOn(Alert, 'alert');
+  describe('P3: "Usuń konto"', () => {
+    const startAccountDeletion = async (alertSpy: jest.SpyInstance, password = 'mojeHaslo') => {
+      render(<AccountSecurityScreen navigation={mockNavigation} />);
+      fireEvent.press(screen.getByTestId('delete-account-row'));
+      expect(alertSpy).toHaveBeenCalledWith(t.deleteTitle, t.deleteMessage, expect.any(Array));
+      await pressAlertButton(alertSpy, 0, t.deleteConfirm);
 
-    render(<AccountSecurityScreen navigation={mockNavigation} />);
+      expect(screen.getByText(t.deleteAccountPasswordTitle)).toBeTruthy();
+      fireEvent.changeText(screen.getByTestId('vault-reset-password-input'), password);
+      fireEvent.press(screen.getByTestId('vault-confirm-reset-btn'));
+    };
 
-    fireEvent.press(screen.getByText(t.deleteAccount));
+    test('po haśle wywołuje Edge Function, czyści telefon i wylogowuje', async () => {
+      mockSignInWithPassword.mockResolvedValueOnce({ error: null });
+      mockInvoke.mockResolvedValueOnce({ data: { deleted: true }, error: null });
+      mockWipeLocalUserData.mockResolvedValueOnce(undefined);
+      mockDisconnectAndClear.mockResolvedValueOnce(undefined);
+      mockSignOut.mockResolvedValueOnce({ error: null });
+      const logoutSpy = jest.fn();
+      useAuthStore.setState({ logout: logoutSpy });
+      const alertSpy = jest.spyOn(Alert, 'alert');
 
-    const buttons = alertSpy.mock.calls[0][2] as any[];
-    const deleteBtn = buttons.find((b) => b.text === t.deleteConfirm);
+      await startAccountDeletion(alertSpy);
 
-    await deleteBtn.onPress();
+      await waitFor(() => expect(logoutSpy).toHaveBeenCalled());
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({ email: 'jan@destivo.io', password: 'mojeHaslo' });
+      expect(mockInvoke).toHaveBeenCalledWith('delete-account', { method: 'POST' });
+      expect(mockWipeLocalUserData).toHaveBeenCalled();
+      expect(mockDisconnectAndClear).toHaveBeenCalled();
+      expect(mockSignOut).toHaveBeenCalled();
+      // PIN Sejfu NIE jest resetowany ścieżką resetu PIN-u (czyści go wipeLocalUserData)
+      expect(alertSpy).not.toHaveBeenCalledWith(t.successTitle, t.vaultPinResetDone);
+    });
 
-    expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.deleteError);
+    test('błąd Edge Function: brak wylogowania i czyszczenia, komunikat błędu', async () => {
+      mockSignInWithPassword.mockResolvedValueOnce({ error: null });
+      mockInvoke.mockResolvedValueOnce({ data: null, error: new Error('FunctionsHttpError') });
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logoutSpy = jest.fn();
+      useAuthStore.setState({ logout: logoutSpy });
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      await startAccountDeletion(alertSpy);
+
+      await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.deleteError));
+      expect(mockWipeLocalUserData).not.toHaveBeenCalled();
+      expect(mockSignOut).not.toHaveBeenCalled();
+      expect(logoutSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('brak sieci przy wywołaniu funkcji: konto zostaje, użytkownik zalogowany', async () => {
+      mockSignInWithPassword.mockResolvedValueOnce({ error: null });
+      mockInvoke.mockRejectedValueOnce(new Error('Network request failed'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const logoutSpy = jest.fn();
+      useAuthStore.setState({ logout: logoutSpy });
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      await startAccountDeletion(alertSpy);
+
+      await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.deleteError));
+      expect(logoutSpy).not.toHaveBeenCalled();
+      expect(mockWipeLocalUserData).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('złe hasło: funkcja usuwania nie jest wywoływana', async () => {
+      mockSignInWithPassword.mockResolvedValueOnce({ error: { message: 'Invalid login credentials' } });
+      const alertSpy = jest.spyOn(Alert, 'alert');
+
+      await startAccountDeletion(alertSpy, 'zleHaslo');
+
+      await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(t.errorTitle, t.wrongPassword));
+      expect(mockInvoke).not.toHaveBeenCalled();
+      expect(mockWipeLocalUserData).not.toHaveBeenCalled();
+    });
   });
 });

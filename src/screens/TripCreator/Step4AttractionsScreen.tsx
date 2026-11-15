@@ -23,6 +23,7 @@ import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import { getGoogleApiKey } from '../../lib/config';
+import { resolveCoordinates } from '../../lib/geoDatabase';
 
 import { useAuthStore } from '../../store/authStore';
 import { useTripCreatorStore } from '../../store/tripCreatorStore';
@@ -42,12 +43,22 @@ interface GooglePlaceAttraction {
   name: string;
   address: string;
   type: string;
-  distance: number;
+  /** Odległość od noclegu w km; brak = nieznana (np. zapisana atrakcja spoza wyników). */
+  distance?: number;
   lat: number;
   lon: number;
-  rating: number;
+  /** Ocena z Google - tylko gdy Google ją zwraca. */
+  rating?: number;
   imageUrl: string;
 }
+
+/** Nieznana odległość trafia na koniec listy niezależnie od kierunku sortowania. */
+const compareDistance = (a?: number, b?: number, order: 'asc' | 'desc' = 'asc') => {
+  const hasA = typeof a === 'number';
+  const hasB = typeof b === 'number';
+  if (!hasA || !hasB) return hasA === hasB ? 0 : hasA ? -1 : 1;
+  return order === 'asc' ? a! - b! : b! - a!;
+};
 
 const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   const R = 6371; 
@@ -113,6 +124,9 @@ export const Step4AttractionsScreen = () => {
   const [imageErrors, setImageErrors] = useState<{ [id: string]: boolean }>({});
 
   const [lodgingCoords, setLodgingCoords] = useState<{lat: number, lon: number} | null>(null);
+  // Nie udało się ustalić położenia (ani noclegu, ani celu) - zamiast atrakcji z innego miasta pokazujemy błąd
+  const [locationError, setLocationError] = useState(false);
+  const [locationAttempt, setLocationAttempt] = useState(0);
   
   const mapRef = useRef<MapView>(null);
   const carouselScrollViewRef = useRef<ScrollView>(null);
@@ -138,25 +152,28 @@ export const Step4AttractionsScreen = () => {
 
   // 1. Inicjalizacja lokalizacji noclegu
   useEffect(() => {
+    let cancelled = false;
     const initLocation = async () => {
-      const locationQuery = lodgingAddress.trim() || destination.trim() || 'Rome';
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationQuery)}&limit=1`,
-          { headers: { 'User-Agent': 'DestivoApp/1.0' } }
-        );
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setLodgingCoords({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
-        } else {
-          setLodgingCoords({ lat: 41.9028, lon: 12.4964 });
-        }
-      } catch (e) {
-        setLodgingCoords({ lat: 41.9028, lon: 12.4964 });
+      setLocationError(false);
+      setLodgingCoords(null);
+      // Najpierw adres noclegu, potem cel podróży (słownik miast działa też bez sieci, potem Nominatim)
+      for (const query of [lodgingAddress.trim(), destination.trim()]) {
+        if (!query) continue;
+        try {
+          const coords = await resolveCoordinates(query);
+          if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) {
+            if (!cancelled) setLodgingCoords({ lat: coords.lat, lon: coords.lon });
+            return;
+          }
+        } catch {}
       }
+      if (!cancelled) setLocationError(true);
     };
     initLocation();
-  }, [lodgingAddress, destination]);
+    return () => {
+      cancelled = true;
+    };
+  }, [lodgingAddress, destination, locationAttempt]);
 
   // 2. Pobieranie danych z Google Places i automatyczne dopasowanie widoku mapy
   useEffect(() => {
@@ -206,7 +223,7 @@ export const Step4AttractionsScreen = () => {
             distance: dist,
             lat: pLat,
             lon: pLon,
-            rating: place.rating || 4.5,
+            rating: typeof place.rating === 'number' ? place.rating : undefined,
             imageUrl: photoUrl,
           };
 
@@ -215,7 +232,7 @@ export const Step4AttractionsScreen = () => {
         });
 
         // Dokładne filtrowanie po wybranym promieniu
-        const filtered = mapped.filter((item) => item.distance <= radius * 1.05);
+        const filtered = mapped.filter((item) => (item.distance ?? 0) <= radius * 1.05);
 
         setResults(filtered);
         if (filtered.length > 0) {
@@ -245,7 +262,7 @@ export const Step4AttractionsScreen = () => {
   // Lista nieodznaczonych atrakcji (gdy dodasz atrakcję, znika z kolejki wyboru, a na jej miejsce wchodzi kolejna)
   const unselectedResults = useMemo(() => {
     const unselected = results.filter((item) => !storeAttractions.selected.includes(item.name));
-    return unselected.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
+    return unselected.sort((a, b) => compareDistance(a.distance, b.distance, sortOrder));
   }, [results, storeAttractions.selected, sortOrder]);
 
   // Lista już dodanych atrakcji (gwarantowane pobieranie wszystkich dodanych elementów)
@@ -263,15 +280,14 @@ export const Step4AttractionsScreen = () => {
           name,
           address: destination,
           type: t.googleAttractionType,
-          distance: 0,
-          lat: lodgingCoords?.lat || 41.9028,
-          lon: lodgingCoords?.lon || 12.4964,
-          rating: 4.8,
-          imageUrl: 'https://images.unsplash.com/photo-1513635269975-5969336ac1cb?auto=format&fit=crop&q=80&w=800',
+          // Brak danych z Google dla tej pozycji: bez oceny, bez odległości, placeholder zamiast zdjęcia
+          lat: lodgingCoords?.lat ?? NaN,
+          lon: lodgingCoords?.lon ?? NaN,
+          imageUrl: '',
         });
       }
     });
-    return list.sort((a, b) => (sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance));
+    return list.sort((a, b) => compareDistance(a.distance, b.distance, sortOrder));
   }, [results, storeAttractions.selected, destination, lodgingCoords, sortOrder]);
 
   // Lista aktualnie prezentowana na kafelkach
@@ -570,7 +586,7 @@ export const Step4AttractionsScreen = () => {
                     coordinate={{ latitude: item.lat, longitude: item.lon }} 
                     pinColor={isChosen ? '#38BDF8' : isAdded ? '#10B981' : '#F59E0B'}
                     title={item.name}
-                    description={`${item.distance.toFixed(1)} km`}
+                    description={typeof item.distance === 'number' ? `${item.distance.toFixed(1)} km` : undefined}
                     onPress={() => handleMarkerPress(item)}
                   />
                 );
@@ -578,8 +594,14 @@ export const Step4AttractionsScreen = () => {
             </MapView>
           ) : (
             <View style={[StyleSheet.absoluteFillObject, styles.mapFallback]}>
-              <ActivityIndicator color="#F59E0B" />
-              <Text style={{ color: '#808D9E', marginTop: 10 }}>{commonT.label_loading}</Text>
+              {locationError ? (
+                <Ionicons name="location-outline" size={32} color="#EF4444" />
+              ) : (
+                <>
+                  <ActivityIndicator color="#F59E0B" />
+                  <Text style={{ color: '#808D9E', marginTop: 10 }}>{commonT.label_loading}</Text>
+                </>
+              )}
             </View>
           )}
 
@@ -677,7 +699,21 @@ export const Step4AttractionsScreen = () => {
 
           {/* GŁÓWNA KARUZELA KAFELKÓW ATRAKCJI */}
           <View style={styles.carouselContainer}>
-            {loading ? (
+            {locationError ? (
+              <View style={styles.emptyBox} testID="step4-location-error">
+                <Ionicons name="location-outline" size={40} color="#EF4444" style={{ marginBottom: 8 }} />
+                <Text style={styles.emptyText}>{t.locationErrorTitle}</Text>
+                <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6, color: '#94A3B8' }]}>{t.locationErrorDesc}</Text>
+                <TouchableOpacity
+                  onPress={() => setLocationAttempt((n) => n + 1)}
+                  style={{ marginTop: 14, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F59E0B' }}
+                  activeOpacity={0.8}
+                  testID="step4-location-retry"
+                >
+                  <Text style={{ color: '#0B1120', fontWeight: '800' }}>{t.locationRetry}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : loading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color="#F59E0B" />
                 <Text style={styles.loadingText}>{commonT.label_loading}</Text>
@@ -748,16 +784,20 @@ export const Step4AttractionsScreen = () => {
                             </View>
                           )}
                           <View style={styles.imageOverlayTop}>
-                            <View style={styles.ratingBadge}>
-                              <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                              <Text style={styles.ratingText}>{item.rating}</Text>
-                            </View>
-                            <View style={styles.distanceBadge}>
-                              <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
-                              <Text style={styles.distanceText}>
-                                {t.distanceFromLodging.replace('{{distance}}', item.distance.toFixed(1))}
-                              </Text>
-                            </View>
+                            {typeof item.rating === 'number' && (
+                              <View style={styles.ratingBadge} testID={`rating-badge-${item.id}`}>
+                                <Ionicons name="star" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                                <Text style={styles.ratingText}>{item.rating}</Text>
+                              </View>
+                            )}
+                            {typeof item.distance === 'number' && (
+                              <View style={styles.distanceBadge}>
+                                <Ionicons name="navigate-outline" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
+                                <Text style={styles.distanceText}>
+                                  {t.distanceFromLodging.replace('{{distance}}', item.distance.toFixed(1))}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                         </View>
 

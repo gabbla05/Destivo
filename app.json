@@ -3,7 +3,7 @@
     "name": "Destivo",
     "slug": "destivo",
     "scheme": "destivo",
-    "version": "1.0.2",
+    "version": "1.0.10",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -12,10 +12,14 @@
     },
     "android": {
       "package": "com.gabrynia67.destivo",
-      "versionCode": 3,
+      "versionCode": 11,
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -34,7 +38,16 @@
     ],
     "plugins": [
       "@react-native-community/datetimepicker",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "locationWhenInUsePermission": "Destivo używa lokalizacji, aby pokazać bilet, gdy jesteś w pobliżu miejsca odjazdu.",
+          "locationAlwaysAndWhenInUsePermission": "Destivo może powiadomić Cię o bilecie, gdy dotrzesz na dworzec lub lotnisko, nawet przy zamkniętej aplikacji."
+        }
+      ],
+      "expo-notifications"
     ]
   }
 }

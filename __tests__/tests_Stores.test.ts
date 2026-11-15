@@ -277,10 +277,7 @@ describe('Zarządzanie stanem aplikacji (Stores)', () => {
           source: 'Ryanair API',
           checkedAt: '2026-04-10T10:00:00Z',
         },
-        dataConfidence: 'HIGH',
         distanceKm: 1300,
-        stressScore: 30,
-        badges: ['SMART_CHOICE'],
       };
 
       setTransportOption(mockOption);

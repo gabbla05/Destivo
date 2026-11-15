@@ -14,6 +14,8 @@ import { QuickSetupScreen } from './src/screens/QuickSetupScreen';
 import { TimelineScreen } from './src/screens/TimelineScreen';
 import { PowerSyncContext } from '@powersync/react-native';
 import { powerSync } from './src/lib/powersync';
+// Zadanie geofencingu w tle musi być zdefiniowane przy starcie aplikacji (wymóg expo-task-manager)
+import './src/lib/proximityAlertService';
 
 const RootStack = createNativeStackNavigator();
 

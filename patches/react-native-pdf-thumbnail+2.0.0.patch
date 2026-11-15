@@ -1,0 +1,15 @@
+diff --git a/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt b/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
+index 9bd3c1b..42a81f8 100644
+--- a/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
++++ b/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
+@@ -158,8 +158,8 @@ class PdfThumbnailModule(reactContext: ReactApplicationContext) :
+         if (pageWidth <= 0 || pageHeight <= 0) {
+           throw ThumbnailException("INVALID_FILE", "File $filePath, page $page has invalid dimensions")
+         }
+-        var scale = 1.0
+-        if (maxWidth > 0) scale = min(scale, maxWidth / pageWidth)
++        // Destivo patch: maxWidth is the target width (also upscales), so small QR codes on A4 stay readable
++        var scale = if (maxWidth > 0) maxWidth / pageWidth else 1.0
+         if (maxHeight > 0) scale = min(scale, maxHeight / pageHeight)
+         // Same positive rounding as Math.round in JS and floor(x + 0.5) on iOS.
+         val width = maxOf(1, floor(pageWidth * scale + 0.5).toInt())

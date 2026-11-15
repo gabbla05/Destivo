@@ -468,10 +468,7 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
       minTotalCost: 450,
       maxTotalCost: 450,
       price: { min: 450, max: 450, currency: 'PLN', status: 'LIVE', source: 'Skyscanner' },
-      dataConfidence: 'HIGH',
       distanceKm: 1800,
-      stressScore: 10,
-      badges: ['SMART_CHOICE'],
     });
     useTripCreatorStore.getState().setLodgingAddress('Hotel Sagrada, Barcelona');
 
@@ -717,15 +714,15 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
   // ŚCIEŻKA 6: Wykrywanie i blokowanie kolizji terminów wycieczek (Trip Collision Detection)
   // =========================================================================
   test('E2E Ścieżka 6: Wykrywanie i blokowanie kolizji terminów wycieczek (Trip Collision Detection)', async () => {
-    // 1. Użytkownik ma już w kalendarzu zapisaną wycieczkę do Grecji (10-11-2026 do 18-11-2026)
+    // 1. Użytkownik ma już w kalendarzu zapisaną wycieczkę do Grecji (10-11-2030 do 18-11-2030)
     inMemoryDbTrips.push({
       id: 'existing_trip_greece',
       user_id: 'user-e2e-1',
       trip_name: 'Wakacje w Grecji',
       origin: 'Warszawa',
       destination: 'Ateny',
-      start_date: '10-11-2026',
-      end_date: '18-11-2026',
+      start_date: '10-11-2030',
+      end_date: '18-11-2030',
       transport_data: '{}',
       lodging_data: '{}',
       attractions_data: '{}',
@@ -736,13 +733,13 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     // 2. Otwarcie Kroku 1 Kreatora Podróży
     const { unmount } = render(<Step1DestinationScreen navigation={mockNavigation} />);
 
-    // 3. Wpisanie nowej podróży z terminem kolidującym (12-11-2026 do 15-11-2026)
+    // 3. Wpisanie nowej podróży z terminem kolidującym (12-11-2030 do 15-11-2030)
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Warszawa/i), 'Kraków');
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Rzym/i), 'Madryt');
     fireEvent.changeText(screen.getByPlaceholderText(/np\. Wakacje we Włoszech/i), 'Wyjazd do Madrytu');
     const dateInputs = screen.getAllByPlaceholderText(/DD-MM-YYYY/i);
-    fireEvent.changeText(dateInputs[0], '12-11-2026');
-    fireEvent.changeText(dateInputs[1], '15-11-2026');
+    fireEvent.changeText(dateInputs[0], '12-11-2030');
+    fireEvent.changeText(dateInputs[1], '15-11-2030');
 
     // 4. Kliknięcie "Dalej"
     fireEvent.press(screen.getByText('Dalej'));
@@ -758,9 +755,9 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     // Przejście do Kroku 2 nie mogło nastąpić
     expect(mockNavigation.navigate).not.toHaveBeenCalledWith('Step2Transport');
 
-    // 6. Korekta terminu na niekolidujący w przyszłości (20-12-2026 do 25-12-2026)
-    fireEvent.changeText(dateInputs[0], '20-12-2026');
-    fireEvent.changeText(dateInputs[1], '25-12-2026');
+    // 6. Korekta terminu na niekolidujący w przyszłości (20-12-2030 do 25-12-2030)
+    fireEvent.changeText(dateInputs[0], '20-12-2030');
+    fireEvent.changeText(dateInputs[1], '25-12-2030');
 
     fireEvent.press(screen.getByText('Dalej'));
 
@@ -768,8 +765,8 @@ describe('Destivo E2E - Krytyczne Ścieżki Biznesowe (Google Testing Pyramid)',
     await waitFor(() => {
       expect(mockNavigation.navigate).toHaveBeenCalledWith('Step2Transport');
       expect(useTripCreatorStore.getState().destination).toBe('Madryt');
-      expect(useTripCreatorStore.getState().startDate).toBe('20-12-2026');
-      expect(useTripCreatorStore.getState().endDate).toBe('25-12-2026');
+      expect(useTripCreatorStore.getState().startDate).toBe('20-12-2030');
+      expect(useTripCreatorStore.getState().endDate).toBe('25-12-2030');
     });
 
     unmount();

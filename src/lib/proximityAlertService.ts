@@ -716,55 +716,162 @@ export async function cancelScheduledDepartureNotification(tripId: string): Prom
 }
 
 /**
- * Rejestruje sprzętowy Geofencing w systemie operacyjnym (expo-location + TaskManager).
- * Aktywowany wyłącznie w dniu podróży, aby zużycie baterii wynosiło 0% w pozostałe dni!
+ * Geofencing w tle (P13): strefa wokół miejsca najbliższego odjazdu (tam lub powrót).
+ *
+ * - Rejestrowana tylko, gdy odjazd jest w ciągu 48 h (oszczędność baterii), użytkownik ma włączony
+ *   przełącznik w profilu i dał zgodę na lokalizację "zawsze" (wymóg Androida dla geofencingu).
+ * - Wejście w strefę, także przy zamkniętej aplikacji, wywołuje jedno powiadomienie z biletem.
+ * - Strefa jest usuwana po odjeździe + 2 h, przy usunięciu podróży, wylogowaniu i usunięciu danych.
  */
-export async function setupGeofencingForTrip(trip: any): Promise<boolean> {
-  if (!trip || Platform.OS === 'web') return false;
+export const GEOFENCE_SETTING_KEY = '@destivo_departure_geofence_enabled';
+export const GEOFENCE_CONSENT_ASKED_KEY = '@destivo_background_location_asked';
+const GEOFENCE_NOTIFIED_PREFIX = '@destivo_geofence_notified_';
+const GEOFENCE_WINDOW_HOURS = 48;
+const GEOFENCE_AFTER_DEPARTURE_HOURS = 2;
+
+export interface StoredGeofence {
+  regionId: string;
+  tripId: string;
+  leg: 'outbound' | 'return';
+  stationName: string;
+  destination: string;
+  departureTime: string;
+  expiresAt: number;
+  /** Odwołanie do pliku biletu (ścieżka w Sejfie, bez zawartości). */
+  ticketFile?: any;
+}
+
+/** Przełącznik "Powiadomienia o zbliżaniu się do odjazdu" (domyślnie włączony). */
+export async function isDepartureGeofenceEnabled(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(GEOFENCE_SETTING_KEY)) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export async function setDepartureGeofenceEnabled(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(GEOFENCE_SETTING_KEY, enabled ? 'true' : 'false');
+  if (!enabled) await clearGeofencing();
+}
+
+/** Najbliższy odjazd podróży (tam albo powrót), dla którego warto rejestrować strefę. */
+export function getUpcomingDeparture(
+  trip: any,
+  now: Date = new Date()
+): { leg: 'outbound' | 'return'; date: Date; stationName: string; city: string; departureTime: string; ticketFile: any } | null {
+  if (!trip) return null;
+  const ticket = findActiveTicketForTrip(trip, now);
+  const candidates = [
+    {
+      leg: 'outbound' as const,
+      date: parseDepartureDateTime(trip.start_date, ticket?.outboundDepartureTime || ticket?.departureTime || '08:00'),
+      stationName: ticket?.outboundStation || trip.origin || '',
+      city: trip.origin || '',
+      departureTime: ticket?.outboundDepartureTime || '08:00',
+      ticketFile: ticket?.outboundTicket || ticket?.file || null,
+    },
+    {
+      leg: 'return' as const,
+      date: parseDepartureDateTime(trip.end_date, ticket?.returnDepartureTime || '12:00'),
+      stationName: ticket?.returnStation || trip.destination || '',
+      city: trip.destination || '',
+      departureTime: ticket?.returnDepartureTime || '12:00',
+      ticketFile: ticket?.returnTicket || null,
+    },
+  ];
+  for (const c of candidates) {
+    if (!c.date) continue;
+    const hoursUntil = (c.date.getTime() - now.getTime()) / 3600000;
+    if (hoursUntil > -GEOFENCE_AFTER_DEPARTURE_HOURS && hoursUntil <= GEOFENCE_WINDOW_HOURS) {
+      return { ...c, date: c.date };
+    }
+  }
+  return null;
+}
+
+/**
+ * Zgoda na lokalizację w tle w dwóch krokach (wymóg Androida): najpierw lokalizacja podczas używania,
+ * potem nasze wyjaśnienie i dopiero wtedy systemowa prośba o dostęp "zawsze".
+ * Pytamy tylko raz; odmowa niczego nie blokuje (zostaje baner i powiadomienie według godziny).
+ */
+export async function requestBackgroundLocationConsent(
+  language: 'pl' | 'en' = 'pl',
+  confirm: (title: string, message: string) => Promise<boolean>
+): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  try {
+    const bg = await Location.getBackgroundPermissionsAsync();
+    if (bg.status === 'granted') return true;
+    if ((await AsyncStorage.getItem(GEOFENCE_CONSENT_ASKED_KEY)) === 'true') return false;
+    await AsyncStorage.setItem(GEOFENCE_CONSENT_ASKED_KEY, 'true');
+
+    const fg = await Location.requestForegroundPermissionsAsync();
+    if (fg.status !== 'granted') return false;
+
+    const t = translations[language]?.proximityAlert || translations.pl.proximityAlert;
+    const accepted = await confirm(t.bgLocationTitle, t.bgLocationMessage);
+    if (!accepted) return false;
+
+    const req = await Location.requestBackgroundPermissionsAsync();
+    return req.status === 'granted';
+  } catch (err) {
+    console.warn('Background location consent error:', err);
+    return false;
+  }
+}
+
+export async function setupGeofencingForTrip(trip: any, now: Date = new Date()): Promise<boolean> {
+  if (!trip?.id || Platform.OS === 'web') return false;
 
   try {
-    const ticketData = findActiveTicketForTrip(trip);
-    const stationName = ticketData?.stationName || trip.origin || '';
-    const departureTime = ticketData?.departureTime || '12:00';
-    const departureDate = parseDepartureDateTime(trip.start_date, departureTime);
+    if (!(await isDepartureGeofenceEnabled())) return false;
 
-    // Sprawdzenie czy wyjazd jest w ciągu najbliższych 24 godzin (ochrona baterii)
-    if (departureDate) {
-      const hoursUntil = (departureDate.getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursUntil > 24 || hoursUntil < -2) {
-        // Wyjazd jest zbyt daleko w przyszłości lub już minął – nie rejestrujemy geofence
-        return false;
-      }
-    }
+    const departure = getUpcomingDeparture(trip, now);
+    if (!departure) return false;
 
-    const hubCoords = await resolveHubCoordinates(stationName, trip.origin);
+    const bg = await Location.getBackgroundPermissionsAsync();
+    if (bg.status !== 'granted') return false;
+
+    const hubCoords = await resolveHubCoordinates(departure.stationName, departure.city);
     if (!hubCoords) return false;
 
-    // Uprawnienia lokalizacji w tle
-    const { status } = await Location.getForegroundPermissionsAsync();
-    if (status !== 'granted') return false;
-
-    // Uprawnienia do powiadomień (Android 13+ POST_NOTIFICATIONS oraz iOS)
     await ensureNotificationPermissions().catch(() => false);
 
-    const radius = getGeofenceRadiusForTransport(trip.transport_type);
+    const regionId = `trip_${trip.id}_${departure.leg}`;
+    const region: Location.LocationRegion = {
+      identifier: regionId,
+      latitude: hubCoords.lat,
+      longitude: hubCoords.lon,
+      radius: getGeofenceRadiusForTransport(trip.transport_type),
+      notifyOnEnter: true,
+      notifyOnExit: false,
+    };
 
-    const regions: Location.LocationRegion[] = [
-      {
-        identifier: `trip_${trip.id}`,
-        latitude: hubCoords.lat,
-        longitude: hubCoords.lon,
-        radius,
-        notifyOnEnter: true,
-        notifyOnExit: false,
-      },
-    ];
+    // Jedna aktywna strefa naraz - startGeofencingAsync zastępuje poprzednie regiony zadania
+    await Location.startGeofencingAsync(GEOFENCING_TASK_NAME, [region]);
 
-    await Location.startGeofencingAsync(GEOFENCING_TASK_NAME, regions);
-
-    const storageKey = `${GEOFENCE_STORAGE_KEY_PREFIX}${trip.id}`;
-    await AsyncStorage.setItem(storageKey, JSON.stringify(regions[0]));
-
+    const stored: StoredGeofence = {
+      regionId,
+      tripId: trip.id,
+      leg: departure.leg,
+      stationName: departure.stationName,
+      destination: departure.leg === 'return' ? trip.origin || '' : trip.destination || '',
+      departureTime: departure.departureTime,
+      expiresAt: departure.date.getTime() + GEOFENCE_AFTER_DEPARTURE_HOURS * 3600000,
+      ticketFile: departure.ticketFile
+        ? {
+            id: departure.ticketFile.id,
+            name: departure.ticketFile.name,
+            uri: departure.ticketFile.uri,
+            type: departure.ticketFile.type,
+            encryptionVersion: departure.ticketFile.encryptionVersion,
+          }
+        : null,
+    };
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(GEOFENCE_STORAGE_KEY_PREFIX));
+    if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+    await AsyncStorage.setItem(`${GEOFENCE_STORAGE_KEY_PREFIX}${regionId}`, JSON.stringify(stored));
     return true;
   } catch (err) {
     console.warn('Error setting up geofencing:', err);
@@ -772,11 +879,14 @@ export async function setupGeofencingForTrip(trip: any): Promise<boolean> {
   }
 }
 
-/**
- * Zwalnia zadanie geofencingu w tle.
- */
+/** Zatrzymuje geofencing i usuwa zapisane strefy. */
 export async function clearGeofencing(): Promise<void> {
   if (Platform.OS === 'web') return;
+
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(GEOFENCE_STORAGE_KEY_PREFIX));
+    if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  } catch {}
 
   try {
     const isStarted = await Location.hasStartedGeofencingAsync(GEOFENCING_TASK_NAME);
@@ -788,29 +898,79 @@ export async function clearGeofencing(): Promise<void> {
   }
 }
 
-// Rejestracja zadania w tle TaskManager (bezpieczna dla środowisk testowych i webowych)
+/** Usuwa strefę danej podróży (np. po usunięciu podróży). */
+export async function clearGeofencingForTrip(tripId: string): Promise<void> {
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
+      k.startsWith(`${GEOFENCE_STORAGE_KEY_PREFIX}trip_${tripId}_`)
+    );
+    if (keys.length > 0) await clearGeofencing();
+  } catch {}
+}
+
+/** Sprzątanie stref po odjeździe (+2 h). Wywoływane przy starcie ekranu "Dziś". */
+export async function cleanupExpiredGeofences(now: number = Date.now()): Promise<void> {
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(GEOFENCE_STORAGE_KEY_PREFIX));
+    for (const key of keys) {
+      const raw = await AsyncStorage.getItem(key);
+      const stored: StoredGeofence | null = raw ? JSON.parse(raw) : null;
+      if (!stored || typeof stored.expiresAt !== 'number' || stored.expiresAt < now) {
+        await clearGeofencing();
+        return;
+      }
+    }
+  } catch {}
+}
+
+/** Obsługa wejścia w strefę (wydzielona z zadania w tle, żeby dało się ją przetestować). */
+export async function handleGeofenceEnter(regionId?: string): Promise<boolean> {
+  if (!regionId) return false;
+  const notifiedKey = `${GEOFENCE_NOTIFIED_PREFIX}${regionId}`;
+  if ((await AsyncStorage.getItem(notifiedKey)) === 'true') return false;
+
+  const raw = await AsyncStorage.getItem(`${GEOFENCE_STORAGE_KEY_PREFIX}${regionId}`);
+  const stored: StoredGeofence | null = raw ? JSON.parse(raw) : null;
+  if (!stored || stored.expiresAt < Date.now()) return false;
+
+  let language: 'pl' | 'en' = 'pl';
+  try {
+    const auth = JSON.parse((await AsyncStorage.getItem('destivo-auth-store')) || '{}');
+    if (auth?.state?.language === 'en') language = 'en';
+  } catch {}
+  const t = translations[language]?.proximityAlert || translations.pl.proximityAlert;
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: t.geofenceTitle,
+      body: t.geofenceBody.replace('{{station}}', stored.stationName),
+      sound: true,
+      data: {
+        type: 'GEOFENCE_ENTER',
+        regionId,
+        tripId: stored.tripId,
+        activeLeg: stored.leg,
+        stationName: stored.stationName,
+        destination: stored.destination,
+        departureTime: stored.departureTime,
+        ticketFile: stored.ticketFile || null,
+      },
+    },
+    trigger: null,
+  });
+  await AsyncStorage.setItem(notifiedKey, 'true');
+  return true;
+}
+
+// Rejestracja zadania w tle na poziomie modułu (wymóg Expo: moduł ładowany przy starcie aplikacji)
 if (Platform.OS !== 'web' && TaskManager?.defineTask) {
   try {
-    TaskManager.defineTask(
-      GEOFENCING_TASK_NAME,
-      async ({ data: { eventType, region } }: any) => {
-        if (eventType === Location.GeofencingEventType?.Enter) {
-          // Użytkownik wszedł w strefę dworca / lotniska!
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: 'Jesteś na miejscu!',
-              body: 'Twój bilet z Sejfu jest gotowy do okazania na bramce.',
-              sound: true,
-              data: {
-                regionId: region?.identifier,
-                type: 'GEOFENCE_ENTER',
-              },
-            },
-            trigger: null, // Natychmiastowe powiadomienie Heads-Up
-          });
-        }
+    TaskManager.defineTask(GEOFENCING_TASK_NAME, async ({ data, error }: any) => {
+      if (error || !data) return;
+      if (data.eventType === Location.GeofencingEventType?.Enter) {
+        await handleGeofenceEnter(data.region?.identifier).catch(() => false);
       }
-    );
+    });
   } catch (e) {
     // Ciche przechwycenie w środowiskach bez natywnego TaskManager
   }

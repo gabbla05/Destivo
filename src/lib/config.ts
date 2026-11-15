@@ -17,6 +17,40 @@ export const DEFAULT_OSRM_ROUTER_URL = 'https://router.project-osrm.org';
 export const DEFAULT_OSRM_FOOT_ROUTER_URL = 'https://routing.openstreetmap.de/routed-foot';
 
 /**
+ * Zapasowy publiczny serwer OSRM dla samochodu (używany, gdy główny serwer demonstracyjny nie odpowiada).
+ */
+export const OSRM_CAR_MIRROR_URL = 'https://routing.openstreetmap.de/routed-car';
+
+/** Czy adres wskazuje na serwer w sieci lokalnej (dostępny tylko w domowym Wi-Fi). */
+export function isPrivateNetworkUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url.trim());
+}
+
+/**
+ * Lista serwerów OSRM do odpytania po kolei. Najpierw serwer skonfigurowany (np. lokalny dla Krakowa),
+ * potem serwery publiczne - dzięki temu optymalizacja działa w każdej sieci (Wi-Fi i dane komórkowe).
+ */
+export function getOsrmBaseUrlCandidates(
+  profile: 'driving' | 'walking' = 'driving',
+  points?: Array<{ lat: number; lon: number }>,
+  extraConfig?: Record<string, unknown>
+): string[] {
+  const list = [
+    getOsrmBaseUrl(profile, points, extraConfig),
+    getOsrmBaseUrl(profile, undefined, extraConfig),
+  ];
+  if (profile === 'walking') {
+    list.push(DEFAULT_OSRM_FOOT_ROUTER_URL);
+  } else {
+    list.push(DEFAULT_OSRM_ROUTER_URL);
+    if (!(typeof process !== 'undefined' && process.env.NODE_ENV === 'test')) {
+      list.push(OSRM_CAR_MIRROR_URL);
+    }
+  }
+  return Array.from(new Set(list));
+}
+
+/**
  * Zwraca aktywny klucz Google API.
  * Kolejność priorytetów:
  * 1. Zmienna środowiskowa process.env.EXPO_PUBLIC_GOOGLE_API_KEY (EAS Build / .env)
@@ -25,8 +59,10 @@ export const DEFAULT_OSRM_FOOT_ROUTER_URL = 'https://routing.openstreetmap.de/ro
  * Brak klucza w żadnym źródle -> pusty string (funkcje Google są wtedy wyłączane).
  */
 export function getGoogleApiKey(): string {
-  // 1. Zmienna środowiskowa process.env.EXPO_PUBLIC_GOOGLE_API_KEY (najwyższy priorytet)
-  const envKey = (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_GOOGLE_API_KEY'];
+  // 1. Zmienna środowiskowa (najwyższy priorytet).
+  // UWAGA: tylko zapis z kropką (process.env.EXPO_PUBLIC_X) jest wstawiany przez Expo do buildu;
+  // process.env['EXPO_PUBLIC_X'] w aplikacji zawsze daje undefined.
+  const envKey = process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
   if (envKey && envKey.trim().length > 5 && !envKey.includes('TYMCZASOWY')) {
     return envKey.trim();
   }
@@ -59,7 +95,7 @@ export function hasValidGoogleApiKey(): boolean {
  * Zwraca aktywny klucz OpenWeatherMap API ze zmiennych środowiskowych (pusty string, gdy brak).
  */
 export function getWeatherApiKey(): string {
-  const envKey = (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_WEATHER_API_KEY'];
+  const envKey = process.env.EXPO_PUBLIC_WEATHER_API_KEY;
   if (envKey && envKey.trim().length > 5) {
     return envKey.trim();
   }
@@ -113,9 +149,9 @@ export function getOsrmBaseUrl(
 
   if (profile === 'walking') {
     const footEnvUrl =
-      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_FOOT_BASE_URL'] ||
-      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_WALKING_BASE_URL'] ||
-      (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_FOOT_URL'];
+      process.env.EXPO_PUBLIC_OSRM_FOOT_BASE_URL ||
+      process.env.EXPO_PUBLIC_OSRM_WALKING_BASE_URL ||
+      process.env.EXPO_PUBLIC_OSRM_FOOT_URL;
     if (footEnvUrl && footEnvUrl.trim().length > 0) {
       const valid = sanitizeAndValidate(footEnvUrl);
       if (valid) return valid;
@@ -133,8 +169,8 @@ export function getOsrmBaseUrl(
   }
 
   const envUrl =
-    (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_BASE_URL'] ||
-    (process.env as Record<string, string | undefined>)['EXPO_PUBLIC_OSRM_URL'];
+    process.env.EXPO_PUBLIC_OSRM_BASE_URL ||
+    process.env.EXPO_PUBLIC_OSRM_URL;
   if (envUrl && envUrl.trim().length > 0) {
     const valid = sanitizeAndValidate(envUrl);
     if (valid) return valid;

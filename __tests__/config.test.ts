@@ -7,16 +7,23 @@ import {
 } from '../src/lib/config';
 
 describe('Scentralizowana konfiguracja kluczy API (src/lib/config.ts - Fix 3.1)', () => {
-  const originalEnv = process.env;
+  // Zmieniamy wartości w istniejącym obiekcie process.env (a nie podmieniamy go), bo Expo
+  // odczytuje EXPO_PUBLIC_* przez referencję do oryginalnego obiektu (expo/virtual/env).
+  const originalEnv = { ...process.env };
+
+  const restoreEnv = () => {
+    Object.keys(process.env).forEach((key) => {
+      if (!(key in originalEnv)) delete process.env[key];
+    });
+    Object.assign(process.env, originalEnv);
+  };
 
   beforeEach(() => {
     jest.resetModules();
-    process.env = { ...originalEnv };
+    restoreEnv();
   });
 
-  afterAll(() => {
-    process.env = originalEnv;
-  });
+  afterAll(restoreEnv);
 
   test('getGoogleApiKey zwraca klucz z process.env.EXPO_PUBLIC_GOOGLE_API_KEY gdy jest zdefiniowany', () => {
     process.env.EXPO_PUBLIC_GOOGLE_API_KEY = 'AIzaCustomEnvKey1234567890';
